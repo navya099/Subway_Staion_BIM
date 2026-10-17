@@ -41,5 +41,6 @@ LAYER_DEFINITIONS = {
     "PROF_CENTER": {"color": 1},
     "PROF_TEXT": {"color": 2},
     "PROF_HATCH": {"color": 8},
+    "STRUCT_COLUMN": {"color": 3}
 
 }

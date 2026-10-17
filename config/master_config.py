@@ -1,4 +1,6 @@
 import dataclasses
+
+from columns.column_params import ColumnParameters
 from config.cadconfig import StationParameters
 from platforms.platform_params import PlatformParameters
 
@@ -8,6 +10,7 @@ class StationProjectConfig:
     """전체 BIM 프로젝트 마스터 컨피그 (모든 서브 요소 수집)"""
     station: StationParameters = dataclasses.field(default_factory=StationParameters)
     platform: PlatformParameters = dataclasses.field(default_factory=PlatformParameters)
+    column: ColumnParameters = dataclasses.field(default_factory=ColumnParameters)  # 신규 추가
 
     # 추후 확장 예시:
     # column: ColumnParameters = dataclasses.field(default_factory=ColumnParameters)

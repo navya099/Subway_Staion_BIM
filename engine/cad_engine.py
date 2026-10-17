@@ -2,7 +2,8 @@ import os
 import ezdxf
 import math
 
-from config.cadconfig import StationParameters, LAYER_DEFINITIONS
+from columns.column_engine import ColumnEngine
+from config.cadconfig import LAYER_DEFINITIONS
 from config.master_config import StationProjectConfig
 from helper.box_helper import CommonHelper
 from platforms.platform_engine import PlatformEngine
@@ -15,6 +16,7 @@ class StationCADEngine:
         # 추후 ColumnEngine, StairEngine 구현 시 이 리스트에 추가만 하면 자동 연동!
         self.sub_engines = [
             PlatformEngine(config.station, config.platform),
+            ColumnEngine(config),  # 기둥 엔진 등록 완료
         ]
     def _init_doc(self) -> tuple[ezdxf.document.Drawing, ezdxf.layouts.Modelspace]:
         doc = ezdxf.new('R2000')
@@ -97,7 +99,8 @@ class StationCADEngine:
             for engine in self.sub_engines:
                 if hasattr(engine, 'add_platform_mesh'):
                     engine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w, bp_x, bp_y, theta)
-
+                if hasattr(engine, 'add_column_mesh'):
+                    engine.add_column_mesh(msp, bp_x, bp_y, theta)
             x_curr = x_next
 
         doc.saveas(filename)
@@ -139,7 +142,8 @@ class StationCADEngine:
             for engine in self.sub_engines:
                 if hasattr(engine, 'add_platform_section'):
                     engine.add_platform_section(floor_top_z, x_offset, half_w, msp)
-
+                if hasattr(engine, 'add_column_mesh'):
+                    engine.add_column_section(floor_top_z,x_offset, msp)
 
             story_h = p.height / p.floors
             for i in range(1, p.floors):
@@ -181,7 +185,8 @@ class StationCADEngine:
         for engine in self.sub_engines:
             if hasattr(engine, 'add_platform_plan'):
                 engine.add_platform_plan(msp)
-
+            if hasattr(engine, 'add_column_plan'):
+                engine.add_column_plan(msp)
         msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+2.0m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
 
         doc.saveas(filename)
@@ -229,7 +234,8 @@ class StationCADEngine:
         for engine in self.sub_engines:
             if hasattr(engine, 'add_platform_profile'):
                 engine.add_platform_profile(msp, x_pts)
-
+            if hasattr(engine, 'add_column_profile'):
+                engine.add_column_profile(msp, x_pts)
         msp.add_text(f"STATION PROFILE VIEW (SLOPE: {p.slope_permil}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 
         doc.saveas(filename)

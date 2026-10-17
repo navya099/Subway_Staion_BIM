@@ -215,6 +215,10 @@ class StationCADEngine:
 
         CommonHelper.draw_polygons_with_hatch(msp, polygons, poly_layer="PROF_CONCRETE", hatch_layer="PROF_HATCH")
 
+        # --- [승강장 종단면 추가] ---
+        pfengine = PlatformEngine(self.p, self.pf)
+        pfengine.add_platform_profile(msp, x_pts)
+
         msp.add_text(f"STATION PROFILE VIEW (SLOPE: {p.slope_permil}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 
         doc.saveas(filename)

@@ -169,7 +169,8 @@ class StationBIMApp:
     def on_generate_plan_profile(self):
         try:
             params = self.get_params()
-            engine = StationCADEngine(params)
+            pf_params = self.get_plat_params()
+            engine = StationCADEngine(params, pf_params)
             p_plan = engine.generate_plan_dxf()
             p_prof = engine.generate_profile_dxf()
             messagebox.showinfo("성공", f"2D 평면도 및 종단면도 DXF 생성 완료!\n\n- 평면도: {p_plan}\n- 종단면도: {p_prof}")

@@ -4,11 +4,14 @@ import math
 
 from config.cadconfig import StationParameters, LAYER_DEFINITIONS
 from helper.box_helper import CommonHelper
+from platforms.platform_engine import PlatformEngine
+from platforms.platform_params import PlatformParameters
 
 
 class StationCADEngine:
-    def __init__(self, params: StationParameters):
+    def __init__(self, params: StationParameters, plat_params: PlatformParameters):
         self.p = params
+        self.pf = plat_params
 
     def _init_doc(self) -> tuple[ezdxf.document.Drawing, ezdxf.layouts.Modelspace]:
         doc = ezdxf.new('R2000')
@@ -42,6 +45,8 @@ class StationCADEngine:
 
         seg_size = 5.0
         x_curr = 0.0
+        #승강장 엔진 초기화
+        pfengine = PlatformEngine(self.p, self.pf)
         while x_curr < p.length:
             x_next = min(x_curr + seg_size, p.length)
             lv1, lv2 = p.calc_align_lv(x_curr), p.calc_align_lv(x_next)
@@ -87,7 +92,8 @@ class StationCADEngine:
                         bp_x, bp_y, theta  # bp_x, bp_y, theta
                 ):
                     msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"})
-
+            #승강장 추가
+            pfengine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w ,bp_x, bp_y, theta)
             x_curr = x_next
 
         doc.saveas(filename)
@@ -99,7 +105,8 @@ class StationCADEngine:
         p = self.p
         half_w = p.width / 2.0
         drawing_spacing = p.width * 2.5
-
+        # 승강장 엔진 초기화
+        pfengine = PlatformEngine(self.p, self.pf)
         for idx, sta in enumerate(sta_list):
             x_offset = idx * drawing_spacing
             align_lv = p.calc_align_lv(sta)
@@ -125,6 +132,10 @@ class StationCADEngine:
                 [(x_offset + half_w - p.wall_t, floor_top_z), (x_offset + half_w, floor_top_z), (x_offset + half_w, roof_bot_z), (x_offset + half_w - p.wall_t, roof_bot_z)]
             ]
 
+            # 승강장 추가
+            pfengine.add_platform_section(floor_top_z, x_offset, half_w, msp)
+
+
             story_h = p.height / p.floors
             for i in range(1, p.floors):
                 z_pos = floor_top_z + (i * story_h)
@@ -137,6 +148,7 @@ class StationCADEngine:
                 msp.add_text(f"B{p.floors - i + 1}F SLAB", dxfattribs={'height': 0.4, 'layer': 'SEC_TEXT'}).set_placement((x_offset + half_w + 1.0, z_pos))
 
             CommonHelper.draw_polygons_with_hatch(msp, polygons, poly_layer="SEC_CONCRETE", hatch_layer="SEC_HATCH")
+
 
         doc.saveas(filename)
         return os.path.abspath(filename)

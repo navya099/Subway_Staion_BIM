@@ -2,12 +2,14 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from config.cadconfig import StationParameters
 from engine.cad_engine import StationCADEngine
+from platforms.platform_params import PlatformParameters
+
 
 class StationBIMApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("지하철 개착정거장 자동 설계 (BIM Engine)")
-        self.root.geometry("440x820")
+        self.root.geometry("440x1024")
         self.root.resizable(False, False)
 
         self._build_ui()
@@ -35,6 +37,22 @@ class StationBIMApp:
             entry.pack(anchor="w", **pad_opts)
             entry.insert(0, default_val)
             self.entries[key] = entry
+
+        # --- [신규 승강장 입력 섹션] ---
+        tk.Label(self.root, text="[ 2. 상대식 승강장 제원 파라미터 ]", font=("Malgun Gothic", 10, "bold"), fg="#D32F2F").pack(
+            anchor="w", padx=10, pady=(8, 2))
+        plat_fields = [
+            ("track_spacing", "선로 간격 D (m):", "4.0"),
+            ("plat_offset", "선로중심~승강장 끝단 거리 (m):", "1.5"),
+            ("plat_thick", "승강장 두께 (m, 표준 0.2):", "0.2"),
+            ("plat_height", "바닥 기준 승강장 높이 (m):", "1.2")
+        ]
+        for key, lbl, val in plat_fields:
+            tk.Label(self.root, text=lbl, font=("Malgun Gothic", 9)).pack(anchor="w", **pad_opts)
+            e = tk.Entry(self.root, width=35, font=("Malgun Gothic", 9));
+            e.pack(anchor="w", **pad_opts);
+            e.insert(0, val)
+            self.entries[key] = e
 
         # 두께 입력부 (한 줄 배열)
         tk.Label(self.root, text="두께 (외벽 / 바닥 / 슬래브, m):", font=("Malgun Gothic", 9)).pack(anchor="w", **pad_opts)
@@ -104,10 +122,20 @@ class StationBIMApp:
             interval=float(self.entry_interval.get())
         )
 
+
+    def get_plat_params(self) -> PlatformParameters:
+        return PlatformParameters(
+            track_spacing=float(self.entries["track_spacing"].get()),
+            plat_offset=float(self.entries["plat_offset"].get()),
+            plat_thick=float(self.entries["plat_thick"].get()),
+            plat_height=float(self.entries["plat_height"].get()),
+        )
+
     def on_generate_3d(self):
         try:
             params = self.get_params()
-            engine = StationCADEngine(params)
+            plat_params = self.get_plat_params()
+            engine = StationCADEngine(params, plat_params)
             path = engine.generate_3d_dxf()
             messagebox.showinfo("성공", f"3D 모델 DXF 생성 완료!\n저장 경로: {path}")
         except Exception as e:
@@ -116,7 +144,8 @@ class StationBIMApp:
     def on_generate_section(self):
         try:
             params = self.get_params()
-            engine = StationCADEngine(params)
+            pf_params = self.get_plat_params()
+            engine = StationCADEngine(params, pf_params)
 
             stations = []
             if self.section_mode.get() == "range":

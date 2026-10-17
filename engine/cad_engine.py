@@ -3,16 +3,19 @@ import ezdxf
 import math
 
 from config.cadconfig import StationParameters, LAYER_DEFINITIONS
+from config.master_config import StationProjectConfig
 from helper.box_helper import CommonHelper
 from platforms.platform_engine import PlatformEngine
-from platforms.platform_params import PlatformParameters
 
 
 class StationCADEngine:
-    def __init__(self, params: StationParameters, plat_params: PlatformParameters):
-        self.p = params
-        self.pf = plat_params
-
+    def __init__(self, config: StationProjectConfig):
+        self.cfg = config
+        # --- [서브 부재 엔진 등록 리스트] ---
+        # 추후 ColumnEngine, StairEngine 구현 시 이 리스트에 추가만 하면 자동 연동!
+        self.sub_engines = [
+            PlatformEngine(config.station, config.platform),
+        ]
     def _init_doc(self) -> tuple[ezdxf.document.Drawing, ezdxf.layouts.Modelspace]:
         doc = ezdxf.new('R2000')
         msp = doc.modelspace()
@@ -24,7 +27,7 @@ class StationCADEngine:
     # --- [1. 3D 메쉬 생성 엔진] ---
     def generate_3d_dxf(self, filename="station_sloped_3d.dxf") -> str:
         doc, msp = self._init_doc()
-        p = self.p
+        p = self.cfg.station
 
         # 1. 파라미터 가져오기 (BP, EP 좌표 포함)
         # 예시 값 혹은 self.get_params()에서 가져오기
@@ -45,8 +48,6 @@ class StationCADEngine:
 
         seg_size = 5.0
         x_curr = 0.0
-        #승강장 엔진 초기화
-        pfengine = PlatformEngine(self.p, self.pf)
         while x_curr < p.length:
             x_next = min(x_curr + seg_size, p.length)
             lv1, lv2 = p.calc_align_lv(x_curr), p.calc_align_lv(x_next)
@@ -92,8 +93,11 @@ class StationCADEngine:
                         bp_x, bp_y, theta  # bp_x, bp_y, theta
                 ):
                     msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"})
-            #승강장 추가
-            pfengine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w ,bp_x, bp_y, theta)
+            # --- [서브 엔진들 3D 메쉬 자동 일괄 추가] ---
+            for engine in self.sub_engines:
+                if hasattr(engine, 'add_platform_mesh'):
+                    engine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w, bp_x, bp_y, theta)
+
             x_curr = x_next
 
         doc.saveas(filename)
@@ -102,11 +106,9 @@ class StationCADEngine:
     # --- [2. 2D 횡단면도 생성 엔진] ---
     def generate_section_dxf(self, sta_list: list[float], filename="station_sloped_sections_2d.dxf") -> str:
         doc, msp = self._init_doc()
-        p = self.p
+        p = self.cfg.station
         half_w = p.width / 2.0
         drawing_spacing = p.width * 2.5
-        # 승강장 엔진 초기화
-        pfengine = PlatformEngine(self.p, self.pf)
         for idx, sta in enumerate(sta_list):
             x_offset = idx * drawing_spacing
             align_lv = p.calc_align_lv(sta)
@@ -133,7 +135,10 @@ class StationCADEngine:
             ]
 
             # 승강장 추가
-            pfengine.add_platform_section(floor_top_z, x_offset, half_w, msp)
+            # --- [서브 엔진들 2D 횡단면 일괄 추가] ---
+            for engine in self.sub_engines:
+                if hasattr(engine, 'add_platform_section'):
+                    engine.add_platform_section(floor_top_z, x_offset, half_w, msp)
 
 
             story_h = p.height / p.floors
@@ -156,7 +161,7 @@ class StationCADEngine:
     # --- [3. 2D 평면도 생성 엔진] ---
     def generate_plan_dxf(self, filename="station_plan_2d.dxf") -> str:
         doc, msp = self._init_doc()
-        p = self.p
+        p = self.cfg.station
         half_w = p.width / 2.0
 
         msp.add_line((-10.0, 0), (p.length + 10.0, 0), dxfattribs={'layer': 'PLAN_CENTER'})
@@ -180,7 +185,7 @@ class StationCADEngine:
     # --- [4. 2D 종단면도 생성 엔진] ---
     def generate_profile_dxf(self, filename="station_profile_2d.dxf") -> str:
         doc, msp = self._init_doc()
-        p = self.p
+        p = self.cfg.station
 
         seg_size = 5.0
         start_lv = p.calc_align_lv(0)
@@ -215,9 +220,10 @@ class StationCADEngine:
 
         CommonHelper.draw_polygons_with_hatch(msp, polygons, poly_layer="PROF_CONCRETE", hatch_layer="PROF_HATCH")
 
-        # --- [승강장 종단면 추가] ---
-        pfengine = PlatformEngine(self.p, self.pf)
-        pfengine.add_platform_profile(msp, x_pts)
+        # --- [서브 엔진들 2D 종단면 일괄 추가] ---
+        for engine in self.sub_engines:
+            if hasattr(engine, 'add_platform_profile'):
+                engine.add_platform_profile(msp, x_pts)
 
         msp.add_text(f"STATION PROFILE VIEW (SLOPE: {p.slope_permil}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 

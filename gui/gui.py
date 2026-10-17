@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from config.cadconfig import StationParameters
+from config.master_config import StationProjectConfig
 from engine.cad_engine import StationCADEngine
 from platforms.platform_params import PlatformParameters
 
@@ -107,7 +108,7 @@ class StationBIMApp:
             self.range_frame.pack_forget()
             self.single_frame.pack(anchor="w", padx=10, pady=2)
 
-    def get_params(self) -> StationParameters:
+    def get_station_params(self) -> StationParameters:
         return StationParameters(
             length=float(self.entries["length"].get()),
             width=float(self.entries["width"].get()),
@@ -131,11 +132,19 @@ class StationBIMApp:
             plat_height=float(self.entries["plat_height"].get()),
         )
 
+    def get_project_config(self) -> StationProjectConfig:
+        """모든 탭/입력 필드의 정보를 모아 Master Config 1개로 포장"""
+        return StationProjectConfig(
+            station=self.get_station_params(),
+            platform=self.get_plat_params()
+            # 추후 확장:
+            # column=self.get_column_params()
+        )
+
     def on_generate_3d(self):
         try:
-            params = self.get_params()
-            plat_params = self.get_plat_params()
-            engine = StationCADEngine(params, plat_params)
+            config = self.get_project_config()  # 1. 마스터 컨피그 수집
+            engine = StationCADEngine(config) # 2. 엔진 인자 단 1개 전송!
             path = engine.generate_3d_dxf()
             messagebox.showinfo("성공", f"3D 모델 DXF 생성 완료!\n저장 경로: {path}")
         except Exception as e:
@@ -143,22 +152,21 @@ class StationBIMApp:
 
     def on_generate_section(self):
         try:
-            params = self.get_params()
-            pf_params = self.get_plat_params()
-            engine = StationCADEngine(params, pf_params)
+            config = self.get_project_config()  # 1. 마스터 컨피그 수집
+            engine = StationCADEngine(config)  # 2. 엔진 인자 단 1개 전송!
 
             stations = []
             if self.section_mode.get() == "range":
                 interval = float(self.entry_interval.get())
                 if interval <= 0: raise ValueError("간격은 0보다 커야 합니다.")
                 cur = 0.0
-                while cur <= params.length:
+                while cur <= config.station.length:
                     stations.append(cur)
                     cur += interval
-                if cur - interval < params.length: stations.append(params.length)
+                if cur - interval < config.station.length: stations.append(config.station.length)
             else:
                 s_val = float(self.entry_single_sta.get())
-                if not (0 <= s_val <= params.length): raise ValueError("측점 범위를 벗어났습니다.")
+                if not (0 <= s_val <= config.station.length): raise ValueError("측점 범위를 벗어났습니다.")
                 stations.append(s_val)
 
             path = engine.generate_section_dxf(stations)
@@ -168,9 +176,8 @@ class StationBIMApp:
 
     def on_generate_plan_profile(self):
         try:
-            params = self.get_params()
-            pf_params = self.get_plat_params()
-            engine = StationCADEngine(params, pf_params)
+            config = self.get_project_config()  # 1. 마스터 컨피그 수집
+            engine = StationCADEngine(config)  # 2. 엔진 인자 단 1개 전송!
             p_plan = engine.generate_plan_dxf()
             p_prof = engine.generate_profile_dxf()
             messagebox.showinfo("성공", f"2D 평면도 및 종단면도 DXF 생성 완료!\n\n- 평면도: {p_plan}\n- 종단면도: {p_prof}")

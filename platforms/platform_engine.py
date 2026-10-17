@@ -109,3 +109,37 @@ class PlatformEngine:
         mid_z = (mid_lv - self.sp.offset) + self.p.plat_height + self.p.plat_thick + 0.5
         msp.add_text("PLATFORM SLAB (FL+1.1m)", dxfattribs={'height': 0.6, 'layer': 'PROF_TEXT'}).set_placement(
             (mid_x - 10.0, mid_z))
+
+    def add_platform_plan(self, msp):
+        """
+        2D 평면도 상에 상대식 승강장 평면 윤곽선 작도
+        """
+        half_w = self.sp.width / 2.0
+        s_start = self.sp.wall_t
+        s_end = self.sp.length - self.sp.wall_t
+
+        # 1. 좌측 승강장 평면 영역 (하선측)
+        left_t1 = -self.p.track_spacing / 2 - self.p.plat_offset
+        left_t2 = -half_w + self.sp.wall_t
+        left_poly = [
+            (s_start, min(left_t1, left_t2)),
+            (s_end, min(left_t1, left_t2)),
+            (s_end, max(left_t1, left_t2)),
+            (s_start, max(left_t1, left_t2))
+        ]
+        msp.add_lwpolyline(left_poly, close=True, dxfattribs={'layer': 'PLAN_OUTLINE'})
+        msp.add_text("SIDE PLATFORM (L)", dxfattribs={'height': 0.5, 'layer': 'PLAN_TEXT'}).set_placement(
+            (s_start + 5.0, (min(left_t1, left_t2) + max(left_t1, left_t2)) / 2))
+
+        # 2. 우측 승강장 평면 영역 (상선측)
+        right_t1 = half_w - self.sp.wall_t
+        right_t2 = self.p.track_spacing / 2 + self.p.plat_offset
+        right_poly = [
+            (s_start, min(right_t1, right_t2)),
+            (s_end, min(right_t1, right_t2)),
+            (s_end, max(right_t1, right_t2)),
+            (s_start, max(right_t1, right_t2))
+        ]
+        msp.add_lwpolyline(right_poly, close=True, dxfattribs={'layer': 'PLAN_OUTLINE'})
+        msp.add_text("SIDE PLATFORM (R)", dxfattribs={'height': 0.5, 'layer': 'PLAN_TEXT'}).set_placement(
+            (s_start + 5.0, (min(right_t1, right_t2) + max(right_t1, right_t2)) / 2))

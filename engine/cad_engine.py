@@ -177,6 +177,11 @@ class StationCADEngine:
             msp.add_text(f"STA.0+{int(cur_sta):03d}", dxfattribs={'height': 0.6, 'layer': 'PLAN_TEXT'}).set_placement((cur_sta - 1.5, half_w + 2.5))
             cur_sta += p.interval
 
+        # --- [서브 엔진들 2D 평면 요소 일괄 추가] ---
+        for engine in self.sub_engines:
+            if hasattr(engine, 'add_platform_plan'):
+                engine.add_platform_plan(msp)
+
         msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+2.0m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
 
         doc.saveas(filename)

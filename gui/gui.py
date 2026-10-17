@@ -27,7 +27,7 @@ class StationBIMApp:
             ("width", "정거장 전체 폭 (W, m) [CL 기준]:", "20"),
             ("base_level", "시점(STA. 0+000) 기준선 표고 (Base Level):", "134.45"),
             ("slope_permil", "종단구배 (퍼밀, ‰):", "10"),
-            ("offset", "선형 기준선 ~ 바닥 상단 오프셋 (m):", "5.0"),
+            ("offset", "선형 기준선 ~ 바닥 상단 오프셋 (m):", "0.0"),
             ("height", "정거장 총 높이 (내부공간 H, m):", "12"),
             ("floors", "층수 (예: 2):", "2")
         ]
@@ -43,10 +43,10 @@ class StationBIMApp:
         tk.Label(self.root, text="[ 2. 상대식 승강장 제원 파라미터 ]", font=("Malgun Gothic", 10, "bold"), fg="#D32F2F").pack(
             anchor="w", padx=10, pady=(8, 2))
         plat_fields = [
-            ("track_spacing", "선로 간격 D (m):", "4.0"),
-            ("plat_offset", "선로중심~승강장 끝단 거리 (m):", "1.5"),
+            ("track_spacing", "선로 간격 D (m):", "4.4"),
+            ("plat_offset", "선로중심~승강장 끝단 거리 (m):", "1.7"),
             ("plat_thick", "승강장 두께 (m, 표준 0.2):", "0.2"),
-            ("plat_height", "바닥 기준 승강장 높이 (m):", "1.2")
+            ("plat_height", "바닥 기준 승강장 높이 (m):", "1.1")
         ]
         for key, lbl, val in plat_fields:
             tk.Label(self.root, text=lbl, font=("Malgun Gothic", 9)).pack(anchor="w", **pad_opts)

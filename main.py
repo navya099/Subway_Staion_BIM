@@ -1,6 +1,6 @@
 import tkinter as tk
 
-from gui.gui import StationBIMApp
+from gui.gui_app import StationBIMApp
 
 
 def main():

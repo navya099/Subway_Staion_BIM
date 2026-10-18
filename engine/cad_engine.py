@@ -5,6 +5,7 @@ import math
 from columns.column_engine import ColumnEngine
 from config.cadconfig import LAYER_DEFINITIONS
 from config.master_config import StationProjectConfig
+from exporter.ifc_exporter import IFCExporter
 from helper.box_helper import CommonHelper
 from platforms.platform_engine import PlatformEngine
 
@@ -27,7 +28,7 @@ class StationCADEngine:
         return doc, msp
 
     # --- [1. 3D 메쉬 생성 엔진] ---
-    def generate_3d_dxf(self, filename="station_sloped_3d.dxf") -> str:
+    def generate_3d_dxf(self, filename="c:/temp/정거장3d모델.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
 
@@ -107,7 +108,7 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     # --- [2. 2D 횡단면도 생성 엔진] ---
-    def generate_section_dxf(self, sta_list: list[float], filename="station_sloped_sections_2d.dxf") -> str:
+    def generate_section_dxf(self, sta_list: list[float], filename="c:/temp/정거장단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
         half_w = p.width / 2.0
@@ -163,7 +164,7 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     # --- [3. 2D 평면도 생성 엔진] ---
-    def generate_plan_dxf(self, filename="station_plan_2d.dxf") -> str:
+    def generate_plan_dxf(self, filename="c:/temp/정거장평면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
         half_w = p.width / 2.0
@@ -193,7 +194,7 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     # --- [4. 2D 종단면도 생성 엔진] ---
-    def generate_profile_dxf(self, filename="station_profile_2d.dxf") -> str:
+    def generate_profile_dxf(self, filename="c:/temp/정거장종단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
 
@@ -240,3 +241,15 @@ class StationCADEngine:
 
         doc.saveas(filename)
         return os.path.abspath(filename)
+
+    def generate_ifc(self, output_path: str = "c:/temp/station_model.ifc") -> str:
+        exporter = IFCExporter(self.cfg)
+
+        # 등록된 서브 엔진 중 IFC 내보내기를 지원하는 엔진들 순회
+        for engine in self.sub_engines:
+            if hasattr(engine, 'column_packages'):
+                exporter.export_columns(engine)
+            # 추후 Platform, Slab 등도 동일하게 exporter.export_platforms(engine) 형태로 확장
+
+        exporter.save(output_path)
+        return output_path

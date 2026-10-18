@@ -69,6 +69,11 @@ class StationBIMApp:
         btn_3d = tk.Button(self.root, text="종단구배 반영 3D 개착박스 DXF 생성", font=("Malgun Gothic", 10, "bold"), bg="#3F51B5", fg="white", command=self.on_generate_3d)
         btn_3d.pack(pady=8, fill="x", padx=10)
 
+        # IFC 생성 버튼
+        btn_ifc = tk.Button(self.root, text="IFC 모델 생성", font=("Malgun Gothic", 10, "bold"), bg="#3F51B5",
+                           fg="white", command=self.on_export_ifc)
+        btn_ifc.pack(pady=8, fill="x", padx=10)
+
         ttk.Separator(self.root, orient="horizontal").pack(fill="x", padx=10, pady=6)
 
         # 2. 도면 추출 옵션부
@@ -99,6 +104,7 @@ class StationBIMApp:
 
         btn_plan_profile = tk.Button(self.root, text="2D 평면도 & 종단면도 DXF 생성", font=("Malgun Gothic", 10, "bold"), bg="#2E7D32", fg="white", command=self.on_generate_plan_profile)
         btn_plan_profile.pack(pady=5, fill="x", padx=10)
+
 
     def _toggle_mode(self):
         if self.section_mode.get() == "range":
@@ -183,3 +189,12 @@ class StationBIMApp:
             messagebox.showinfo("성공", f"2D 평면도 및 종단면도 DXF 생성 완료!\n\n- 평면도: {p_plan}\n- 종단면도: {p_prof}")
         except Exception as e:
             messagebox.showerror("오류", f"평면/종단도 생성 실패:\n{e}")
+
+    def on_export_ifc(self):
+        try:
+            config = self.get_project_config()  # 1. 마스터 컨피그 수집
+            engine = StationCADEngine(config)  # 2. 엔진 인자 단 1개 전송!
+            path = engine.generate_ifc()
+            messagebox.showinfo("성공", f"BIM IFC 생성 완료!\n\n- {path}")
+        except Exception as e:
+            messagebox.showerror("오류", f"BIM IFC 생성 실패:\n{e}")

@@ -1,7 +1,8 @@
 import dataclasses
 
 from columns.column_params import ColumnParameters
-from config.cadconfig import StationParameters
+from config.alignment_config import AlignmentConfig
+from config.station_config import StationParameters
 from platforms.platform_params import PlatformParameters
 
 
@@ -11,7 +12,4 @@ class StationProjectConfig:
     station: StationParameters = dataclasses.field(default_factory=StationParameters)
     platform: PlatformParameters = dataclasses.field(default_factory=PlatformParameters)
     column: ColumnParameters = dataclasses.field(default_factory=ColumnParameters)  # 신규 추가
-
-    # 추후 확장 예시:
-    # column: ColumnParameters = dataclasses.field(default_factory=ColumnParameters)
-    # stair: StairParameters = dataclasses.field(default_factory=StairParameters)
+    align: AlignmentConfig = dataclasses.field(default_factory=AlignmentConfig)

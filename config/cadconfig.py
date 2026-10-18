@@ -1,25 +1,7 @@
-import dataclasses
-import math
-
-@dataclasses.dataclass
-class StationParameters:
-    """정거장 제원 및 선형 파라미터 데이터 클래스"""
-    length: float = 200.0          # L (m)
-    width: float = 20.0            # W (m)
-    base_level: float = 123.45     # 시점 표고 (m)
-    slope_permil: float = 3    # 종단구배 (‰)
-    offset: float = 0.0           # 선형~바닥 상단 오프셋 (m)
-    height: float = 12.0           # 내부 높이 H (m)
-    floors: int = 3                # 층수
-    wall_t: float = 1           # 외벽 두께 (m)
-    floor_t: float = 1.2          # 바닥 슬래브 두께 (m)
-    slab_t: float = 0.4            # 천장/중간 슬래브 두께 (m)
-    interval: float = 20.0         # 단면 추출 간격 (m)
-
-    def calc_align_lv(self, x: float) -> float:
-        """체인점(X)에서의 선형 절대 표고 계산"""
-        return self.base_level + (self.slope_permil / 1000.0) * x
-
+"""
+캐드 관련 속성 config
+레이어, 색상 등
+"""
 
 # DXF 레이어 스타일 정의
 LAYER_DEFINITIONS = {

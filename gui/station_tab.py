@@ -26,6 +26,11 @@ class StationTab:
         self.entries["bp_y"].grid(row=0, column=3, padx=4)
         self.entries["bp_y"].insert(0, "-85.3896")
 
+        tk.Label(coord_frame, text="BP Z:", font=("Malgun Gothic", 9)).grid(row=0, column=4, sticky="w", padx=(10, 0))
+        self.entries["bp_z"] = tk.Entry(coord_frame, width=12)
+        self.entries["bp_z"].grid(row=0, column=5, padx=4)
+        self.entries["bp_z"].insert(0, "123.45")
+
         tk.Label(coord_frame, text="EP X:", font=("Malgun Gothic", 9)).grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.entries["ep_x"] = tk.Entry(coord_frame, width=12)
         self.entries["ep_x"].grid(row=1, column=1, padx=4, pady=(4, 0))
@@ -37,16 +42,30 @@ class StationTab:
         self.entries["ep_y"].grid(row=1, column=3, padx=4, pady=(4, 0))
         self.entries["ep_y"].insert(0, "437.4075")
 
+        tk.Label(coord_frame, text="EP Z:", font=("Malgun Gothic", 9)).grid(row=1, column=4, sticky="w", padx=(10, 0))
+        self.entries["ep_z"] = tk.Entry(coord_frame, width=12)
+        self.entries["ep_z"].grid(row=1, column=5, padx=4)
+        self.entries["ep_z"].insert(0, "134.45")
+
+        tk.Label(coord_frame, text="선형 시작 측점:", font=("Malgun Gothic", 9)).grid(row=2, column=0, sticky="w")
+        self.entries["bp_station"] = tk.Entry(coord_frame, width=12)
+        self.entries["bp_station"].grid(row=2, column=1, padx=4)
+        self.entries["bp_station"].insert(0, "0.0")
+
         tk.Label(self.parent, text="[ 정거장 횡단 및 구배 제원 ]", font=("Malgun Gothic", 10, "bold"), fg="#1565C0").pack(
             anchor="w", padx=15, pady=(15, 5))
 
         fields = [
+            ("length", "정거장 전체 길이 (L, m):", "200.0"),
             ("width", "정거장 전체 폭 (W, m):", "20.0"),
-            ("base_level", "시점(BP) 기준선 표고 (m):", "134.45"),
-            ("slope_permil", "종단구배 (‰):", "10.0"),
+            ("start_station", "정거장 시작 측점 STA(m):", "134.45"),
             ("offset", "기준선 ~ 바닥 상단 오프셋 (m):", "0.0"),
             ("height", "정거장 총 높이 (H, m):", "12.0"),
-            ("floors", "층수:", "2")
+            ("floors", "층수:", "2"),
+            ("wall_t", "외벽 두께:", "1.0"),
+            ("slab_t", "바닥슬래브 두께:", "1.2"),
+            ("floor_t", "천장 및 중간슬래브 두께:", "1.0"),
+
         ]
 
         for key, lbl, val in fields:

@@ -35,7 +35,7 @@ class ColumnTab:
         chk_f.pack(fill="x", padx=15, pady=10)
         tk.Checkbutton(chk_f, text=" 최하층 승강장과 기둥 배치 동기화", variable=self.sync_var, font=("Malgun Gothic", 9)).pack(
             anchor="w")
-
+        self.entries['sync_all'] = self.sync_var
         # 🌟 층별 기둥 제원이 들어갈 동적 컨테이너 프레임 생성
         self.floor_col_frame = tk.Frame(self.parent)
         self.floor_col_frame.pack(fill="x", expand=True)

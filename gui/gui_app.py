@@ -1,9 +1,12 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
+
+from engine.bim_engine import BIMEngine
 from gui.column_tab import ColumnTab
 from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
 from gui.station_tab import StationTab
+from gui.tk_adapter import TkAdapter
 
 
 class StationBIMApp:
@@ -12,7 +15,7 @@ class StationBIMApp:
         self.entries = {}
         self.root = root
         self.root.title("지하철 개착정거장 자동 설계 (BIM Engine)")
-        self.root.geometry("440x1024")
+        self.root.geometry("480x1024")
         self.root.resizable(False, True)
 
         self._build_ui()
@@ -61,6 +64,10 @@ class StationBIMApp:
             self.column_tab.update_column_floor_ui()
 
     def on_generate(self):
-        pass
-
+        try:
+            spg = TkAdapter.collect_entries(self.entries)
+            bim = BIMEngine.build(spg)
+        except Exception as e:
+            messagebox.showerror('에러', str(e))
+            return
 

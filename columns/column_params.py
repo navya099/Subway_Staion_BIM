@@ -3,7 +3,15 @@ import dataclasses
 
 @dataclasses.dataclass
 class ColumnParameters:
-    """중앙 기둥 제원 및 배치 파라미터"""
+    """중앙 기둥 제원 및 배치 파라미터
+    Attributes:
+        interval: 배치 간격
+        width: 기둥 폭 (선형 진행 방향, m)
+        depth: 기둥 두께 (선형 직교 방향, m)
+        sync_with_platform: 승강장층(최하층) 기둥 높이/위치 동기화 여부
+        target_floors: 기둥을 배치할 층 번호 리스트
+        custom_height_offset: 개별 조정용 오프셋
+    """
     interval: float = 3  # 기둥 종방향 배치 간격 (m)
     width: float = 1  # 기둥 폭 (선형 진행 방향, m)
     depth: float = 0.4  # 기둥 두께 (선형 직교 방향, m)

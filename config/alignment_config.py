@@ -47,6 +47,16 @@ class AlignmentConfig:
             return 0.0
         return ((self.ep_z - self.bp_z) / l) * 1000.0
 
+    @property
+    def slope_permil(self) -> float:
+        return self.slope
+
+    def origin_at(self, station: float) -> tuple[float, float]:
+        """선형 위 특정 (절대) 측점의 WCS 평면 좌표"""
+        d = station - self.bp_station
+        th = self.theta
+        return self.bp_x + d * math.cos(th), self.bp_y + d * math.sin(th)
+
     def calc_align_lv(self, station: float) -> float:
         """특정 측점(STA)에서의 선형 절대 표고(Z) 계산 (직선 구배 가정)"""
         l = self.length

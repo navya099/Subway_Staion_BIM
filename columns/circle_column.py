@@ -19,6 +19,14 @@ class CircleColumn(ColumnShape):
     radius: float = 0.0
 
     @property
+    def half_s(self) -> float:
+        return self.radius
+
+    @property
+    def half_t(self) -> float:
+        return self.radius
+
+    @property
     def volume(self) -> float:
         """원기둥의 부피 계산 (π * r² * h)"""
         # 부모 클래스(ColumnShape)에 height 속성이 정의되어 있다고 가정합니다.

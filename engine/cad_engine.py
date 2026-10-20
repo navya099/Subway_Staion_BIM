@@ -15,10 +15,15 @@ class StationCADEngine:
         self.cfg = config
         # --- [서브 부재 엔진 등록 리스트] ---
         # 추후 ColumnEngine, StairEngine 구현 시 이 리스트에 추가만 하면 자동 연동!
-        self.sub_engines = [
-            PlatformEngine(config.station, config.platform),
-            ColumnEngine(config),  # 기둥 엔진 등록 완료
-        ]
+        self.platform = PlatformEngine(config)
+        self.columns = ColumnEngine(config)
+        self.sub_engines = [self.platform, self.columns]
+    @staticmethod
+    def _save(doc, filename):
+        filename = str(filename)
+        os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
+        doc.saveas(filename)
+
     def _init_doc(self) -> tuple[ezdxf.document.Drawing, ezdxf.layouts.Modelspace]:
         doc = ezdxf.new('R2000')
         msp = doc.modelspace()
@@ -32,28 +37,19 @@ class StationCADEngine:
         doc, msp = self._init_doc()
         p = self.cfg.station
 
-        # 1. 파라미터 가져오기 (BP, EP 좌표 포함)
-        # 예시 값 혹은 self.get_params()에서 가져오기
-        bp_x, bp_y = 286.4826, -85.3896
-        ep_x, ep_y = 575.9987, 437.4075
-
+        # 선형 제원(BP/EP)은 설정값 사용. bp_x, bp_y = 정거장 시점(s=0)의 WCS 좌표
+        a = self.cfg.align
+        theta = a.theta
+        bp_x, bp_y = self.cfg.origin()
         half_w = p.width / 2.0
 
-        # 2. 선형 방위각(theta) 계산
-        dx = ep_x - bp_x
-        dy = ep_y - bp_y
-
-        theta = math.atan2(dy, dx)  # 라디안 방위각
-
-        start_lv = p.calc_align_lv(0)
-        end_lv = p.calc_align_lv(p.length)
-        msp.add_line((bp_x, bp_y, start_lv), (ep_x, ep_y, end_lv), dxfattribs={"layer": "ALIGNMENT_CL"})
+        msp.add_line((a.bp_x, a.bp_y, a.bp_z), (a.ep_x, a.ep_y, a.ep_z), dxfattribs={"layer": "ALIGNMENT_CL"})
 
         seg_size = 5.0
         x_curr = 0.0
         while x_curr < p.length:
             x_next = min(x_curr + seg_size, p.length)
-            lv1, lv2 = p.calc_align_lv(x_curr), p.calc_align_lv(x_next)
+            lv1, lv2 = self.cfg.lv(x_curr), self.cfg.lv(x_next)
 
             f_top1, f_top2 = lv1 - p.offset, lv2 - p.offset
             f_bot1, f_bot2 = f_top1 - p.floor_t, f_top2 - p.floor_t
@@ -100,11 +96,14 @@ class StationCADEngine:
             for engine in self.sub_engines:
                 if hasattr(engine, 'add_platform_mesh'):
                     engine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w, bp_x, bp_y, theta)
-                if hasattr(engine, 'add_column_mesh'):
-                    engine.add_column_mesh(msp, bp_x, bp_y, theta)
             x_curr = x_next
 
-        doc.saveas(filename)
+        # 기둥은 세그먼트 루프 밖에서 한 번만 작도
+        for engine in self.sub_engines:
+            if hasattr(engine, 'add_column_mesh'):
+                engine.add_column_mesh(msp, bp_x, bp_y, theta)
+
+        self._save(doc, filename)
         return os.path.abspath(filename)
 
     # --- [2. 2D 횡단면도 생성 엔진] ---
@@ -115,7 +114,7 @@ class StationCADEngine:
         drawing_spacing = p.width * 2.5
         for idx, sta in enumerate(sta_list):
             x_offset = idx * drawing_spacing
-            align_lv = p.calc_align_lv(sta)
+            align_lv = self.cfg.lv(sta)
 
             floor_top_z = align_lv - p.offset
             floor_bot_z = floor_top_z - p.floor_t
@@ -123,7 +122,7 @@ class StationCADEngine:
             roof_bot_z = roof_top_z - p.slab_t
 
             # 주석 및 중심선
-            msp.add_text(f"SECTION STA. 0+{int(sta):03d} (SLOPE {p.slope_permil}‰)", dxfattribs={'height': 1.0, 'layer': 'SEC_TEXT'}).set_placement((x_offset, roof_top_z + 3.0))
+            msp.add_text(f"SECTION STA. 0+{int(sta):03d} (SLOPE {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.0, 'layer': 'SEC_TEXT'}).set_placement((x_offset, roof_top_z + 3.0))
             msp.add_line((x_offset, floor_bot_z - 2.0), (x_offset, roof_top_z + 2.0), dxfattribs={'layer': 'SEC_CENTER'})
             msp.add_text("C.L.", dxfattribs={'height': 0.6, 'layer': 'SEC_TEXT'}).set_placement((x_offset + 0.2, roof_top_z + 1.0))
 
@@ -143,8 +142,8 @@ class StationCADEngine:
             for engine in self.sub_engines:
                 if hasattr(engine, 'add_platform_section'):
                     engine.add_platform_section(floor_top_z, x_offset, half_w, msp)
-                if hasattr(engine, 'add_column_mesh'):
-                    engine.add_column_section(floor_top_z,x_offset, msp)
+                if hasattr(engine, 'add_column_section'):
+                    engine.add_column_section(sta, x_offset, msp)
 
             story_h = p.height / p.floors
             for i in range(1, p.floors):
@@ -160,7 +159,7 @@ class StationCADEngine:
             CommonHelper.draw_polygons_with_hatch(msp, polygons, poly_layer="SEC_CONCRETE", hatch_layer="SEC_HATCH")
 
 
-        doc.saveas(filename)
+        self._save(doc, filename)
         return os.path.abspath(filename)
 
     # --- [3. 2D 평면도 생성 엔진] ---
@@ -180,7 +179,7 @@ class StationCADEngine:
         while cur_sta <= p.length:
             msp.add_line((cur_sta, -half_w - 2.0), (cur_sta, half_w + 2.0), dxfattribs={'layer': 'PLAN_SECTION_LINE'})
             msp.add_text(f"STA.0+{int(cur_sta):03d}", dxfattribs={'height': 0.6, 'layer': 'PLAN_TEXT'}).set_placement((cur_sta - 1.5, half_w + 2.5))
-            cur_sta += p.interval
+            cur_sta += p.sta_tick
 
         # --- [서브 엔진들 2D 평면 요소 일괄 추가] ---
         for engine in self.sub_engines:
@@ -190,7 +189,7 @@ class StationCADEngine:
                 engine.add_column_plan(msp)
         msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+2.0m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
 
-        doc.saveas(filename)
+        self._save(doc, filename)
         return os.path.abspath(filename)
 
     # --- [4. 2D 종단면도 생성 엔진] ---
@@ -199,10 +198,10 @@ class StationCADEngine:
         p = self.cfg.station
 
         seg_size = 5.0
-        start_lv = p.calc_align_lv(0)
-        end_lv = p.calc_align_lv(p.length)
+        start_lv = self.cfg.lv(0)
+        end_lv = self.cfg.lv(p.length)
 
-        msp.add_line((-10.0, p.calc_align_lv(-10.0)), (p.length + 10.0, p.calc_align_lv(p.length + 10.0)), dxfattribs={'layer': 'PROF_CENTER'})
+        msp.add_line((-10.0, self.cfg.lv(-10.0)), (p.length + 10.0, self.cfg.lv(p.length + 10.0)), dxfattribs={'layer': 'PROF_CENTER'})
 
         polygons = []
         x_pts = []
@@ -213,15 +212,15 @@ class StationCADEngine:
         if x_pts[-1] < p.length: x_pts.append(p.length)
 
         # 천장/바닥 슬래브 종단 띠
-        roof_pts = [(x, p.calc_align_lv(x) - p.offset + p.height) for x in x_pts] + [(x, p.calc_align_lv(x) - p.offset + p.height - p.slab_t) for x in reversed(x_pts)]
-        floor_pts = [(x, p.calc_align_lv(x) - p.offset) for x in x_pts] + [(x, p.calc_align_lv(x) - p.offset - p.floor_t) for x in reversed(x_pts)]
+        roof_pts = [(x, self.cfg.lv(x) - p.offset + p.height) for x in x_pts] + [(x, self.cfg.lv(x) - p.offset + p.height - p.slab_t) for x in reversed(x_pts)]
+        floor_pts = [(x, self.cfg.lv(x) - p.offset) for x in x_pts] + [(x, self.cfg.lv(x) - p.offset - p.floor_t) for x in reversed(x_pts)]
         polygons.extend([roof_pts, floor_pts])
 
         # 중간 슬래브
         story_h = p.height / p.floors
         for i in range(1, p.floors):
-            mid_pts = [(x, p.calc_align_lv(x) - p.offset + (i * story_h) + p.slab_t / 2) for x in x_pts] + \
-                      [(x, p.calc_align_lv(x) - p.offset + (i * story_h) - p.slab_t / 2) for x in reversed(x_pts)]
+            mid_pts = [(x, self.cfg.lv(x) - p.offset + (i * story_h) + p.slab_t / 2) for x in x_pts] + \
+                      [(x, self.cfg.lv(x) - p.offset + (i * story_h) - p.slab_t / 2) for x in reversed(x_pts)]
             polygons.append(mid_pts)
 
         # 마감 벽체
@@ -237,19 +236,14 @@ class StationCADEngine:
                 engine.add_platform_profile(msp, x_pts)
             if hasattr(engine, 'add_column_profile'):
                 engine.add_column_profile(msp, x_pts)
-        msp.add_text(f"STATION PROFILE VIEW (SLOPE: {p.slope_permil}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
+        msp.add_text(f"STATION PROFILE VIEW (SLOPE: {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 
-        doc.saveas(filename)
+        self._save(doc, filename)
         return os.path.abspath(filename)
 
     def generate_ifc(self, output_path: str = "c:/temp/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)
-
-        # 등록된 서브 엔진 중 IFC 내보내기를 지원하는 엔진들 순회
-        for engine in self.sub_engines:
-            if hasattr(engine, 'column_packages'):
-                exporter.export_columns(engine)
-            # 추후 Platform, Slab 등도 동일하게 exporter.export_platforms(engine) 형태로 확장
-
-        exporter.save(output_path)
-        return output_path
+        exporter.export_columns(self.columns)
+        # 추후 Platform, Slab 등도 exporter.export_platforms(...) 형태로 확장
+        exporter.save(str(output_path))
+        return os.path.abspath(output_path)

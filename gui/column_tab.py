@@ -59,7 +59,7 @@ class ColumnTab:
         target_floors = max(1, target_floors)  # 최소 1층 보장
 
         # 3. 이전 층별 entries 키 정리 (지워진 층의 old key 제거)
-        keys_to_remove = [k for k in self.entries if k.startswith("floor_") and k.endswith(("_width", "_depth"))]
+        keys_to_remove = [k for k in self.entries if k.startswith("floor_") and k.endswith(("_width", "_depth", "_radius", "_type"))]
         for k in keys_to_remove:
             del self.entries[k]
 
@@ -100,6 +100,8 @@ class ColumnTab:
                 # 기존 입력 필드 삭제
                 for widget in container.winfo_children():
                     widget.destroy()
+                for suffix in ("width", "depth", "radius"):
+                    self.entries.pop(f"floor_{f_idx}_{suffix}", None)
 
                 # 기존 entry 키들도 정리가 필요하다면 여기서 처리
                 selected_type = cb.get()

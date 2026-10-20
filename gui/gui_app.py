@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+import traceback
+from tkinter import filedialog, messagebox, ttk
 
 from engine.bim_engine import BIMEngine
 from gui.column_tab import ColumnTab
@@ -19,6 +20,7 @@ class StationBIMApp:
         self.root.resizable(False, True)
 
         self._build_ui()
+        self.column_tab.update_column_floor_ui()  # 초기 층별 입력칸 생성
 
     def _build_ui(self):
         # 전체 메인 탭 노트북 생성
@@ -65,9 +67,14 @@ class StationBIMApp:
 
     def on_generate(self):
         try:
-            spg = TkAdapter.collect_entries(self.entries)
-            bim = BIMEngine.build(spg)
+            cfg = TkAdapter.collect_entries(self.entries)
+            out_dir = filedialog.askdirectory(title="성과물 저장 폴더 선택")
+            if not out_dir:
+                return
+            paths = BIMEngine.build(cfg, out_dir)
         except Exception as e:
-            messagebox.showerror('에러', str(e))
+            traceback.print_exc()
+            messagebox.showerror('에러', f"{type(e).__name__}: {e}")
             return
+        messagebox.showinfo('완료', "생성된 파일:\n" + "\n".join(paths))
 

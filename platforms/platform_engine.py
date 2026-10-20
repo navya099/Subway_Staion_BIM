@@ -1,12 +1,12 @@
-from config.cadconfig import StationParameters
+from config.master_config import StationProjectConfig
 from helper.box_helper import CommonHelper
-from platforms.platform_params import PlatformParameters
 
 
 class PlatformEngine:
-    def __init__(self, params: StationParameters ,platform_params: PlatformParameters):
-        self.p = platform_params
-        self.sp = params
+    def __init__(self, config: StationProjectConfig):
+        self.p = config.platform
+        self.sp = config.station
+        self.lv = config.lv  # 정거장 로컬 거리 s → 선형 표고
 
     def add_platform_mesh(self, msp, s_curr, s_next, f_top1, f_top2, half_w, bp_x, bp_y, theta):
         # --- [상대식 승강장 3D 메쉬 추가 (절대 좌표계 변환 적용)] ---
@@ -78,7 +78,7 @@ class PlatformEngine:
         # 1. 승강장 상단선 좌표 연산 (s -> Z_plat_top)
         top_pts = []
         for x in plat_x_pts:
-            lv = self.sp.calc_align_lv(x)
+            lv = self.lv(x)
             f_top = lv - self.sp.offset
             z_top = f_top + self.p.plat_height + self.p.plat_thick
             top_pts.append((x, z_top))
@@ -86,7 +86,7 @@ class PlatformEngine:
         # 2. 승강장 하단선 좌표 연산 (역순으로 감싸기)
         bot_pts = []
         for x in reversed(plat_x_pts):
-            lv = self.sp.calc_align_lv(x)
+            lv = self.lv(x)
             f_top = lv - self.sp.offset
             z_bot = f_top + self.p.plat_height
             bot_pts.append((x, z_bot))
@@ -105,7 +105,7 @@ class PlatformEngine:
 
         # 라벨 기입 (승강장 중앙 부근)
         mid_x = (s_start + s_end) / 2.0
-        mid_lv = self.sp.calc_align_lv(mid_x)
+        mid_lv = self.lv(mid_x)
         mid_z = (mid_lv - self.sp.offset) + self.p.plat_height + self.p.plat_thick + 0.5
         msp.add_text("PLATFORM SLAB (FL+1.1m)", dxfattribs={'height': 0.6, 'layer': 'PROF_TEXT'}).set_placement(
             (mid_x - 10.0, mid_z))

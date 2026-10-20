@@ -16,6 +16,14 @@ class RectangularColumn(ColumnShape):
     depth: float = 0.0   # 선형 직교 방향 두께
 
     @property
+    def half_s(self) -> float:
+        return self.width / 2.0
+
+    @property
+    def half_t(self) -> float:
+        return self.depth / 2.0
+
+    @property
     def volume(self) -> float:
         """사각기둥의 부피 계산 (width * depth * height)"""
         return self.width * self.depth * self.height

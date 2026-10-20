@@ -82,18 +82,5 @@ class BoxShape(BaseShape):
             bottom_hunch_vol = bottom_hunch_area * eff_length
             int_vol -= bottom_hunch_vol
 
-        # 6. 만약 시점/종점이 폐합되어 마감벽이 존재한다면,
-        # 마감벽 자체의 고유 콘크리트 체적(벽 면적 * 벽 두께)도 정확히 더해주어야 완벽합니다!
-        end_walls_vol = 0.0
-        end_wall_area = self.width * self.height - (int_w * int_h)  # 대략적인 단면적 또는 외곽-내부 면적 차이
-        # 정밀하게는 외곽 단면적에서 내부 단면적을 뺀 순수 마감벽 단면적에 두께를 곱함
-        net_wall_section_area = (self.width * self.height) - (int_w * int_h)
-
-        if self.is_start_closed:
-            end_walls_vol += net_wall_section_area * self.start_wall_t
-        if self.is_end_closed:
-            end_walls_vol += net_wall_section_area * self.end_wall_t
-
-        # 최종 콘크리트 체적 = (외형 체적 - 내부 빈 공간 체적) + 마감벽 체적 보정
-        net_concrete_vol = (ext_vol - int_vol) + end_walls_vol
-        return net_concrete_vol
+        # 마감벽 구간은 int_vol(유효 길이 기준)에서 이미 제외되어 속찬 콘크리트로 계산됨 → 별도 보정 불필요
+        return ext_vol - int_vol

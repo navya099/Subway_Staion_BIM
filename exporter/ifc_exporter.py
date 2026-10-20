@@ -1,8 +1,11 @@
+import math
+import os
 import uuid
 import ifcopenshell
 import ifcopenshell.guid
 import ifcopenshell.template
 from columns.column_engine import ColumnEngine
+from columns.circle_column import CircleColumn
 from columns.rectangular_column import RectangularColumn
 from config.master_config import StationProjectConfig
 
@@ -14,6 +17,7 @@ class IFCExporter:
 
         # 1. ifcopenshell.file()을 직접 호출하여 빈 IFC 파일 생성 (스스로 스키마 지정)
         self.file = ifcopenshell.file(schema=self.schema)
+        self._materials: dict[str, ifcopenshell.entity_instance] = {}
 
         # 2. 필수 기본 엔티티(Project, Units, Context 등) 수동 생성
         self._init_project_structure(project_name="지하철 개착정거장 BIM 프로젝트")
@@ -103,7 +107,7 @@ class IFCExporter:
     def export_columns(self, column_engine: ColumnEngine):
         """ColumnEngine의 ColumnPackage/ColumnData를 순회하며 IfcColumn으로 매핑"""
         for package in column_engine.column_packages:
-            storey = self.storeys.get(package.level, list(self.storeys.values())[0])
+            storey = self.storeys[package.level]  # 패키지 level이 층 이름과 일치해야 함
             contained_elements = []
 
             for col in package.columns:
@@ -124,6 +128,9 @@ class IFCExporter:
                         depth=col.shape.depth,
                         height=col.shape.height
                     )
+                elif isinstance(col.shape, CircleColumn):
+                    representation = self._create_circle_column_geometry(
+                        radius=col.shape.radius, height=col.shape.height)
 
                 # 3. IfcColumn 엔티티 생성
                 ifc_column = self.file.create_entity(
@@ -131,6 +138,7 @@ class IFCExporter:
                     GlobalId=ifc_guid,
                     Name=col.name,
                     ObjectType=col.type_name,
+                    PredefinedType="COLUMN",
                     ObjectPlacement=placement,
                     Representation=representation
                 )
@@ -150,30 +158,24 @@ class IFCExporter:
                     RelatedElements=contained_elements
                 )
 
-    def _create_local_placement(self, x: float, y: float, z: float):
-        """3D 좌표 위치에 대한 IfcLocalPlacement 생성"""
-        # 1. 3D 좌표점 생성 (Coordinates는 반드시 Python 리스트 또는 튜플 형태)
+    def _create_local_placement(self, s: float, t: float, z: float):
+        """정거장 로컬 (s, t, z) → WCS 위치 + 선형 방위각 회전의 IfcLocalPlacement"""
+        ox, oy = self.config.origin()
+        theta = self.config.align.theta
+        c, sn = math.cos(theta), math.sin(theta)
         point = self.file.create_entity(
             "IfcCartesianPoint",
-            Coordinates=[float(x), float(y), float(z)]
+            Coordinates=[float(ox + s * c - t * sn), float(oy + s * sn + t * c), float(z)]
         )
-
-        # 2. 3D 축/위치 배치 정의
         axis2placement = self.file.create_entity(
             "IfcAxis2Placement3D",
-            Location=point
+            Location=point,
+            RefDirection=self.file.create_entity("IfcDirection", DirectionRatios=(c, sn, 0.0))
         )
-
-        # 3. IfcLocalPlacement 생성 (올바른 인자 속성명 사용)
-        return self.file.create_entity(
-            "IfcLocalPlacement",
-            PlacementRelTo=None,  # 최상위 배정이므로 None (상위 Placement가 있다면 해당 객체 지정)
-            RelativePlacement=axis2placement
-        )
+        return self.file.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
 
     def _create_rectangular_column_geometry(self, width: float, depth: float, height: float):
         """압출(ExtrudedAreaSolid) 방식을 통한 사각기둥 3D Solid 형상 정의"""
-        # 2D 사각형 단면 프로파일 정의
         profile = self.file.create_entity(
             "IfcRectangleProfileDef",
             ProfileType="AREA",
@@ -181,6 +183,18 @@ class IFCExporter:
             XDim=float(width),
             YDim=float(depth)
         )
+        return self._extrude_profile(profile, height)
+
+    def _create_circle_column_geometry(self, radius: float, height: float):
+        profile = self.file.create_entity(
+            "IfcCircleProfileDef",
+            ProfileType="AREA",
+            ProfileName="ColumnCircleProfile",
+            Radius=float(radius)
+        )
+        return self._extrude_profile(profile, height)
+
+    def _extrude_profile(self, profile, height: float):
         # 압출 방향 (Z축 + 방향)
         dir3d = self.file.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0))
         position = self.file.create_entity(
@@ -210,7 +224,9 @@ class IFCExporter:
 
     def _assign_material(self, element, material_name: str):
         """BIM 요소에 IfcMaterial 할당"""
-        mat = self.file.create_entity("IfcMaterial", Name=material_name)
+        mat = self._materials.get(material_name)
+        if mat is None:
+            mat = self._materials[material_name] = self.file.create_entity("IfcMaterial", Name=material_name)
         self.file.create_entity(
             "IfcRelAssociatesMaterial",
             GlobalId=ifcopenshell.guid.new(),
@@ -220,4 +236,5 @@ class IFCExporter:
 
     def save(self, filepath: str):
         """IFC 파일 저장"""
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
         self.file.write(filepath)

@@ -13,6 +13,31 @@ class CommonHelper:
             path.closed = True
 
     @staticmethod
+    def local_to_global(s, t, bp_x, bp_y, theta):
+        return (bp_x + s * math.cos(theta) - t * math.sin(theta),
+                bp_y + s * math.sin(theta) + t * math.cos(theta))
+
+    @staticmethod
+    def circle_polygon(cs, ct, r, n=24):
+        return [(cs + r * math.cos(2 * math.pi * i / n), ct + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
+
+    @staticmethod
+    def create_prism_faces_global(poly, z_bot, z_top, bp_x, bp_y, theta):
+        """로컬 (s,t) 다각형 단면을 z_bot~z_top으로 압출한 3DFACE 목록 (사각형은 6면)"""
+        g = [CommonHelper.local_to_global(s, t, bp_x, bp_y, theta) for s, t in poly]
+        bot = [(x, y, z_bot) for x, y in g]
+        top = [(x, y, z_top) for x, y in g]
+        n = len(g)
+        faces = [(bot[i], bot[(i + 1) % n], top[(i + 1) % n], top[i]) for i in range(n)]
+        for ring in (bot, top):
+            if n == 4:
+                faces.append(tuple(ring))
+            else:
+                c = (sum(p[0] for p in ring) / n, sum(p[1] for p in ring) / n, ring[0][2])
+                faces.extend((c, ring[i], ring[(i + 1) % n], ring[(i + 1) % n]) for i in range(n))
+        return faces
+
+    @staticmethod
     def create_sloped_faces(x1, x2, y1, y2, zb1, zb2, zt1, zt2):
         p = [(x1, y1, zb1), (x2, y1, zb2), (x2, y2, zb2), (x1, y2, zb1),
              (x1, y1, zt1), (x2, y1, zt2), (x2, y2, zt2), (x1, y2, zt1)]

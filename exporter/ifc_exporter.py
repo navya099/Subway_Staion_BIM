@@ -8,6 +8,7 @@ from columns.column_engine import ColumnEngine
 from columns.circle_column import CircleColumn
 from columns.rectangular_column import RectangularColumn
 from config.master_config import StationProjectConfig
+from walls.wall_engine import WallEngine
 
 
 class IFCExporter:
@@ -157,6 +158,63 @@ class IFCExporter:
                     RelatingStructure=storey,
                     RelatedElements=contained_elements
                 )
+
+    def export_walls(self, wall_engine: WallEngine):
+        """WallEngine의 WallPackage/WallData를 순회하며 IfcWall로 매핑 (층별 IfcBuildingStorey에 포함)"""
+        for package in wall_engine.wall_packages:
+            storey = self.storeys[package.level]
+            elements = []
+            for wall in package.walls:
+                if not wall.shape:
+                    continue
+                s0, s1, t0, t1, z0, z1 = wall_engine.wall_corners(wall)
+                ifc_wall = self.file.create_entity(
+                    "IfcWall",
+                    GlobalId=ifcopenshell.guid.compress(uuid.UUID(wall.guid).hex),
+                    Name=wall.name,
+                    ObjectType=wall.type_name,
+                    ObjectPlacement=self._create_local_placement(s0, t0, z0),  # 벽체 최소 모서리(s0, t0, 하단)
+                    Representation=self._create_wall_geometry(wall.shape),
+                    PredefinedType="SOLIDWALL"
+                )
+                if wall.material:
+                    self._assign_material(ifc_wall, wall.material)
+                elements.append(ifc_wall)
+
+            if elements:
+                self.file.create_entity(
+                    "IfcRelContainedInSpatialStructure",
+                    GlobalId=ifcopenshell.guid.new(),
+                    RelatingStructure=storey,
+                    RelatedElements=elements
+                )
+
+    def _create_wall_geometry(self, shape):
+        """s–z 평행사변형 단면(구배 반영)을 t 방향 두께만큼 압출한 Solid.
+        배치 원점 = 벽체 최소 모서리, 로컬 X = s, Y = t, Z = 상향."""
+        f = self.file
+        pts = [(0.0, 0.0), (shape.length, shape.rise), (shape.length, shape.rise + shape.height), (0.0, shape.height)]
+        poly = f.create_entity(
+            "IfcPolyline",
+            Points=[f.create_entity("IfcCartesianPoint", Coordinates=(float(x), float(z))) for x, z in pts + [pts[0]]])
+        profile = f.create_entity("IfcArbitraryClosedProfileDef", ProfileType="AREA", ProfileName="WallProfile",
+                                  OuterCurve=poly)
+        # 압출 축을 -Y(벽 로컬)로 두고 Y=thickness에서 시작 → t0 ~ t0+width 범위를 채움, 프로파일 Y축은 상향(+Z)
+        position = f.create_entity(
+            "IfcAxis2Placement3D",
+            Location=f.create_entity("IfcCartesianPoint", Coordinates=(0.0, float(shape.width), 0.0)),
+            Axis=f.create_entity("IfcDirection", DirectionRatios=(0.0, -1.0, 0.0)),
+            RefDirection=f.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)))
+        solid = f.create_entity(
+            "IfcExtrudedAreaSolid",
+            SweptArea=profile, Position=position,
+            ExtrudedDirection=f.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+            Depth=float(shape.width))
+        shape_rep = f.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=f.by_type("IfcGeometricRepresentationContext")[0],
+            RepresentationIdentifier="Body", RepresentationType="SweptSolid", Items=[solid])
+        return f.create_entity("IfcProductDefinitionShape", Representations=[shape_rep])
 
     def _create_local_placement(self, s: float, t: float, z: float):
         """정거장 로컬 (s, t, z) → WCS 위치 + 선형 방위각 회전의 IfcLocalPlacement"""

@@ -39,7 +39,7 @@ class WallPackage:
                 total += w.shape.volume
         return total
 
-    def get_column_by_name(self, name: str) -> Optional[WallData]:
+    def get_wall_by_name(self, name: str) -> Optional[WallData]:
         """이름으로 개별 벽체 검색"""
         for w in self.walls:
             if w.name == name:

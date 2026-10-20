@@ -69,7 +69,7 @@ def test_build_all_outputs_and_ifc_storeys(tmp_path):
     paths = BIMEngine.build(cfg, tmp_path)
     assert len(paths) == 5 and all(os.path.exists(p) for p in paths)
     f = ifcopenshell.open(paths[-1])
-    by_storey = {rel.RelatingStructure.Name: len(rel.RelatedElements)
+    by_storey = {rel.RelatingStructure.Name: len([e for e in rel.RelatedElements if e.is_a("IfcColumn")])
                  for rel in f.by_type("IfcRelContainedInSpatialStructure")}
     assert by_storey == {"B3F": 20, "B2F": 40, "B1F": 25}
     assert len(f.by_type("IfcMaterial")) == 1                  # 재질 공유
@@ -130,3 +130,67 @@ def test_bad_floor_index_raises():
     cp = ColumnParameters(floors={5: FloorColumnSpec()})
     with pytest.raises(ValueError):
         StationCADEngine(make_cfg(cp))
+
+
+# ---------------- 벽체 ----------------
+import math
+import numpy as np
+import ifcopenshell.geom
+import ifcopenshell.util.shape
+from walls.wall_engine import WallEngine
+
+
+def test_walls_per_level_and_volume():
+    cfg = make_cfg()
+    we = WallEngine(cfg)
+    st = cfg.station
+    assert [p.level for p in we.wall_packages] == ["B3F", "B2F", "B1F"]
+    assert all(p.total_count == 4 for p in we.wall_packages)
+    assert [w.name for w in we.wall_packages[0].walls] == ["WALL_B3F_START", "WALL_B3F_L", "WALL_B3F_R", "WALL_B3F_END"]
+    # 층별 높이 합 = H - 천장슬래브, 총 체적 = 측벽 2 + 마감벽 2 (겹침 없음)
+    h = st.height - st.slab_t
+    expected = 2 * (st.length - 2 * st.wall_t) * st.wall_t * h + 2 * st.wall_t * st.width * h
+    assert sum(p.total_volume for p in we.wall_packages) == pytest.approx(expected)
+
+
+def test_wall_3d_faces(tmp_path):
+    eng = StationCADEngine(make_cfg())
+    path = eng.generate_3d_dxf(tmp_path / "3d.dxf")
+    faces = len(ezdxf.readfile(path).modelspace().query('3DFACE[layer=="STRUCT_WALL"]'))
+    assert faces == 3 * 4 * 6
+
+
+def test_ifc_walls_geometry_matches_model(tmp_path):
+    cfg = make_cfg()
+    eng = StationCADEngine(cfg)
+    path = eng.generate_ifc(tmp_path / "m.ifc")
+    f = ifcopenshell.open(path)
+    walls = f.by_type("IfcWall")
+    assert len(walls) == 12
+    by_storey = {}
+    for rel in f.by_type("IfcRelContainedInSpatialStructure"):  # 층마다 벽/기둥 rel이 따로 있음 → 합산
+        n = len([e for e in rel.RelatedElements if e.is_a("IfcWall")])
+        by_storey[rel.RelatingStructure.Name] = by_storey.get(rel.RelatingStructure.Name, 0) + n
+    assert by_storey == {"B3F": 4, "B2F": 4, "B1F": 4}
+
+    settings = ifcopenshell.geom.settings()
+    settings.set("use-world-coords", True)
+    ox, oy = cfg.origin(); th = cfg.align.theta
+    model = {w.name: w for p in eng.walls.wall_packages for w in p.walls}
+    for el in walls:
+        w = model[el.Name]
+        shp = ifcopenshell.geom.create_shape(settings, el)
+        v = np.array(shp.geometry.verts).reshape(-1, 3)
+        # 모델 기준 8개 꼭짓점 → WCS
+        s0, s1, t0, t1, z0, z1 = eng.walls.wall_corners(w)
+        h = w.shape.height
+        pts = []
+        for s, t, z in [(s0, t0, z0), (s0, t1, z0), (s1, t0, z1), (s1, t1, z1),
+                        (s0, t0, z0 + h), (s0, t1, z0 + h), (s1, t0, z1 + h), (s1, t1, z1 + h)]:
+            x = ox + s * math.cos(th) - t * math.sin(th)
+            y = oy + s * math.sin(th) + t * math.cos(th)
+            pts.append((x, y, z))
+        pts = np.array(pts)
+        assert v.min(axis=0) == pytest.approx(pts.min(axis=0), abs=1e-4), el.Name
+        assert v.max(axis=0) == pytest.approx(pts.max(axis=0), abs=1e-4), el.Name
+        assert ifcopenshell.util.shape.get_volume(shp.geometry) == pytest.approx(w.shape.volume, rel=1e-6), el.Name

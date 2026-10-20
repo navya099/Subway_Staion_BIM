@@ -8,6 +8,7 @@ from config.master_config import StationProjectConfig
 from exporter.ifc_exporter import IFCExporter
 from helper.box_helper import CommonHelper
 from platforms.platform_engine import PlatformEngine
+from walls.wall_engine import WallEngine
 
 
 class StationCADEngine:
@@ -16,8 +17,9 @@ class StationCADEngine:
         # --- [서브 부재 엔진 등록 리스트] ---
         # 추후 ColumnEngine, StairEngine 구현 시 이 리스트에 추가만 하면 자동 연동!
         self.platform = PlatformEngine(config)
+        self.walls = WallEngine(config)
         self.columns = ColumnEngine(config)
-        self.sub_engines = [self.platform, self.columns]
+        self.sub_engines = [self.platform, self.walls, self.columns]
     @staticmethod
     def _save(doc, filename):
         filename = str(filename)
@@ -69,37 +71,16 @@ class StationCADEngine:
                 for f in CommonHelper.create_sloped_box_faces_global(x_curr, x_next, -half_w, half_w, z1 - p.slab_t / 2, z2 - p.slab_t / 2, z1 + p.slab_t / 2, z2 + p.slab_t / 2, bp_x, bp_y, theta):
                     msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"})
 
-            # 좌/우 외벽
-            for f in CommonHelper.create_sloped_box_faces_global(x_curr, x_next, -half_w, -half_w + p.wall_t, f_top1, f_top2, r_bot1, r_bot2, bp_x, bp_y, theta):
-                msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"})
-            for f in CommonHelper.create_sloped_box_faces_global(x_curr, x_next, half_w - p.wall_t, half_w, f_top1, f_top2, r_bot1, r_bot2, bp_x, bp_y, theta):
-                msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"})
-
-            # 1. 시점 마감 벽체 (s1 = 0.0, s2 = p.wall_t)
-            if x_curr == 0.0:
-                for f in CommonHelper.create_sloped_box_faces_global(
-                        0.0, p.wall_t, -half_w, half_w,
-                        f_top1, f_top1, r_bot1, r_bot1,  # zb1, zb2, zt1, zt2
-                        bp_x, bp_y, theta  # bp_x, bp_y, theta
-                ):
-                    msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"})
-
-            # 2. 종점 마감 벽체 (s1 = p.length - p.wall_t, s2 = p.length)
-            if x_next == p.length:
-                for f in CommonHelper.create_sloped_box_faces_global(
-                        p.length - p.wall_t, p.length, -half_w, half_w,
-                        f_top2, f_top2, r_bot2, r_bot2,  # zb1, zb2, zt1, zt2
-                        bp_x, bp_y, theta  # bp_x, bp_y, theta
-                ):
-                    msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"})
             # --- [서브 엔진들 3D 메쉬 자동 일괄 추가] ---
             for engine in self.sub_engines:
                 if hasattr(engine, 'add_platform_mesh'):
                     engine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w, bp_x, bp_y, theta)
             x_curr = x_next
 
-        # 기둥은 세그먼트 루프 밖에서 한 번만 작도
+        # 벽체·기둥은 세그먼트 루프 밖에서 한 번만 작도 (구배는 부재 자체의 rise로 표현)
         for engine in self.sub_engines:
+            if hasattr(engine, 'add_wall_mesh'):
+                engine.add_wall_mesh(msp, bp_x, bp_y, theta)
             if hasattr(engine, 'add_column_mesh'):
                 engine.add_column_mesh(msp, bp_x, bp_y, theta)
 
@@ -243,7 +224,8 @@ class StationCADEngine:
 
     def generate_ifc(self, output_path: str = "c:/temp/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)
+        exporter.export_walls(self.walls)
         exporter.export_columns(self.columns)
-        # 추후 Platform, Slab 등도 exporter.export_platforms(...) 형태로 확장
+        # 추후 Slab, Platform 등도 exporter.export_slabs(...) 형태로 확장
         exporter.save(str(output_path))
         return os.path.abspath(output_path)

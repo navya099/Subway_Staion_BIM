@@ -20,6 +20,16 @@ class CommonHelper:
         return s0, s0 + length, t0, t0 + width, z0, z0 + rise
 
     @staticmethod
+    def cut_by_s(sta, s0, s1, length, tol=1e-9):
+        """측점 sta 의 횡단면이 [s0, s1) 구간 부재를 자르는가 (마지막 부재는 끝점 포함)"""
+        return (s0 - tol <= sta < s1 - tol) or (s1 >= length - tol and s0 - tol <= sta <= s1 + tol)
+
+    @staticmethod
+    def cut_by_t(t0, t1, t_cut=0.0, tol=1e-9):
+        """종단면(t = t_cut)이 [t0, t1) 구간 부재를 자르는가"""
+        return t0 - tol <= t_cut < t1 - tol
+
+    @staticmethod
     def local_to_global(s, t, bp_x, bp_y, theta):
         return (bp_x + s * math.cos(theta) - t * math.sin(theta),
                 bp_y + s * math.sin(theta) + t * math.cos(theta))

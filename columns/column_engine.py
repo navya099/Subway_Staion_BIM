@@ -1,5 +1,6 @@
 from config.master_config import StationProjectConfig
 from helper.box_helper import CommonHelper
+from helper.view_item import ViewItem
 from columns.circle_column import CircleColumn
 from columns.column_data import ColumnData
 from columns.column_package import ColumnPackage
@@ -132,32 +133,67 @@ class ColumnEngine:
                     self._footprint(col), col.pos_z, col.pos_z + col.shape.height, bp_x, bp_y, theta)
                 col.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_COLUMN"}) for f in faces]
 
-    def add_column_plan(self, msp):
-        """평면도: 최하층(없으면 첫 번째 설정 층) 기둥 단면 (절단 레벨 FL+2.0m 기준 대표층)"""
-        if not self.column_packages:
-            return
-        package = next((k for k in self.column_packages if k.level == self.level_name(1)), self.column_packages[0])
-        for col in package.columns:
-            if isinstance(col.shape, CircleColumn):
-                msp.add_circle((col.pos_x, col.pos_y), col.shape.radius, dxfattribs={'layer': 'PLAN_OUTLINE'})
-            else:
-                msp.add_lwpolyline(self._footprint(col), close=True, dxfattribs={'layer': 'PLAN_OUTLINE'})
+    # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
+    @staticmethod
+    def _chord(col: ColumnData, offset: float) -> float:
+        """기둥 중심에서 offset 만큼 떨어진 절단면에서의 반폭. 사각기둥은 offset 무관, 원기둥은 현(chord)"""
+        if isinstance(col.shape, CircleColumn):
+            r = col.shape.radius
+            return (r * r - offset * offset) ** 0.5 if abs(offset) < r else 0.0
+        return 0.0
 
-    def add_column_section(self, sta, x_offset, msp):
-        """횡단면도: 측점 sta에서 층·열별 기둥 (한 열에 혼합 규격이 있으면 가장 두꺼운 폭으로 표시)"""
-        for floor_n in self.cp.target_floors:
-            for row in self.cp.floors[floor_n].rows:
-                ht = max(spec.half_t for spec in row.pattern)
-                z_bot, z_top = self.z_range(floor_n, sta, row.t_offset - ht, row.t_offset + ht)
-                cx = x_offset + row.t_offset
-                msp.add_lwpolyline([(cx - ht, z_bot), (cx + ht, z_bot), (cx + ht, z_top), (cx - ht, z_top)],
-                                   close=True, dxfattribs={'layer': 'SEC_CONCRETE'})
-
-    def add_column_profile(self, msp, x_pts):
-        """종단면도: 모든 기둥의 측면 윤곽"""
+    def section_items(self, sta):
+        """횡단면도: 측점 sta 에서 절단되는 기둥(해치) + 앞쪽에 보이는 기둥(가장 가까운 것만, 윤곽선)"""
+        cut, beyond, cut_keys = [], {}, set()
         for package in self.column_packages:
             for col in package.columns:
-                hs = col.shape.half_s
-                z1, z2 = col.pos_z, col.pos_z + col.shape.height
-                msp.add_lwpolyline([(col.pos_x - hs, z1), (col.pos_x + hs, z1), (col.pos_x + hs, z2), (col.pos_x - hs, z2)],
-                                   close=True, dxfattribs={'layer': 'PROF_CONCRETE'})
+                z_bot, z_top = col.pos_z, col.pos_z + col.shape.height
+                s_lo, s_hi = col.pos_x - col.shape.half_s, col.pos_x + col.shape.half_s
+                ht = col.shape.half_t
+                key = (col.level, round(col.pos_y, 4), round(ht, 4))
+                if s_lo - 1e-9 <= sta < s_hi - 1e-9:
+                    ht_cut = self._chord(col, sta - col.pos_x) if isinstance(col.shape, CircleColumn) else ht
+                    if ht_cut > 0:
+                        cut_keys.add(key)
+                        cut.append(ViewItem.rect(col.name, "SEC_CONCRETE", col.pos_y - ht_cut, col.pos_y + ht_cut,
+                                                 z_bot, z_top, hatch_layer="SEC_HATCH"))
+                elif s_lo >= sta - 1e-9 and (key not in beyond or s_lo < beyond[key][0]):
+                    beyond[key] = (s_lo, ViewItem.rect(col.name, "SEC_BEYOND", col.pos_y - ht, col.pos_y + ht, z_bot, z_top))
+        return cut + [it for k, (_, it) in beyond.items() if k not in cut_keys]
+
+    def profile_items(self):
+        """종단면도(선형 중심 t=0 절단): 중심선을 지나는 기둥(해치) + 측면에 보이는 기둥(동일 형상은 한 번만)"""
+        cut, beyond, cut_keys = [], {}, set()
+        for package in self.column_packages:
+            for col in package.columns:
+                z_bot, z_top = col.pos_z, col.pos_z + col.shape.height
+                hs, ht = col.shape.half_s, col.shape.half_t
+                if isinstance(col.shape, CircleColumn):
+                    hs_cut = self._chord(col, col.pos_y)       # t=0 평면이 원을 자르는 현의 반폭
+                else:
+                    hs_cut = hs
+                if CommonHelper.cut_by_t(col.pos_y - ht, col.pos_y + ht) and hs_cut > 0:
+                    key = tuple(round(v, 3) for v in (col.pos_x - hs_cut, col.pos_x + hs_cut, z_bot, z_top))
+                    cut_keys.add(key)
+                    cut.append(ViewItem.rect(col.name, "PROF_CONCRETE", col.pos_x - hs_cut, col.pos_x + hs_cut,
+                                             z_bot, z_top, hatch_layer="PROF_HATCH"))
+                else:
+                    key = tuple(round(v, 3) for v in (col.pos_x - hs, col.pos_x + hs, z_bot, z_top))
+                    beyond.setdefault(key, ViewItem.rect(col.name, "PROF_BEYOND", col.pos_x - hs, col.pos_x + hs, z_bot, z_top))
+        return cut + [it for k, it in beyond.items() if k not in cut_keys]
+
+    def plan_items(self, cut_h):
+        """평면도: 바닥 슬래브 상면 + cut_h 높이에서 절단되는 기둥 단면 (원기둥은 원, 사각기둥은 사각형)"""
+        items = []
+        for package in self.column_packages:
+            for col in package.columns:
+                zc = self.cfg.lv(col.pos_x) - self.sp.offset + cut_h
+                if not (col.pos_z - 1e-9 <= zc < col.pos_z + col.shape.height - 1e-9):
+                    continue
+                if isinstance(col.shape, CircleColumn):
+                    items.append(ViewItem(col.name, "PLAN_OUTLINE", circle=(col.pos_x, col.pos_y, col.shape.radius)))
+                else:
+                    hs, ht = col.shape.half_s, col.shape.half_t
+                    items.append(ViewItem.rect(col.name, "PLAN_OUTLINE", col.pos_x - hs, col.pos_x + hs,
+                                               col.pos_y - ht, col.pos_y + ht))
+        return items

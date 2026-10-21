@@ -1,5 +1,6 @@
 from config.master_config import StationProjectConfig
 from helper.box_helper import CommonHelper
+from helper.view_item import ViewItem
 from slabs.rectangular_slab import RectangularSlab
 from slabs.slab_data import SlabData
 from slabs.slab_package import SlabPackage
@@ -89,3 +90,31 @@ class SlabEngine:
                 faces = CommonHelper.create_sloped_box_faces_global(
                     s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, bp_x, bp_y, theta)
                 slab.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"}) for f in faces]
+
+    # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
+    def section_items(self, sta):
+        """횡단면도: 측점 sta 의 절단면에 걸리는 슬래브 (중간 슬래브는 층 이름 라벨 포함)"""
+        items = []
+        half_w = self.sp.width / 2.0
+        for package in self.slab_packages:
+            for sl in package.slabs:
+                s0, s1, t0, t1, z0, z1 = self.slab_corners(sl)
+                if CommonHelper.cut_by_s(sta, s0, s1, self.sp.length):
+                    zb = z0 + (sta - s0) / (s1 - s0) * (z1 - z0)
+                    th = sl.shape.thickness
+                    label = (f"{package.level} SLAB", half_w + 1.0, zb + th / 2.0, 0.4, "SEC_TEXT") \
+                        if sl.kind == SlabKind.MID else None
+                    items.append(ViewItem.rect(sl.name, "SEC_CONCRETE", t0, t1, zb, zb + th,
+                                               hatch_layer="SEC_HATCH", label=label))
+        return items
+
+    def profile_items(self):
+        """종단면도(선형 중심 t=0 절단): 중심선을 자르는 슬래브"""
+        items = []
+        for package in self.slab_packages:
+            for sl in package.slabs:
+                s0, s1, t0, t1, z0, z1 = self.slab_corners(sl)
+                if CommonHelper.cut_by_t(t0, t1):
+                    items.append(ViewItem.sloped(sl.name, "PROF_CONCRETE", s0, s1, z0, z1, sl.shape.thickness,
+                                                 hatch_layer="PROF_HATCH"))
+        return items

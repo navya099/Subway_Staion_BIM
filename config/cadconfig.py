@@ -23,6 +23,8 @@ LAYER_DEFINITIONS = {
     "PROF_CENTER": {"color": 1},
     "PROF_TEXT": {"color": 2},
     "PROF_HATCH": {"color": 8},
-    "STRUCT_COLUMN": {"color": 3}
+    "STRUCT_COLUMN": {"color": 3},
+    "SEC_BEYOND": {"color": 8},     # 횡단면도의 절단되지 않고 보이는 부재 (기둥)
+    "PROF_BEYOND": {"color": 8}     # 종단면도의 절단되지 않고 보이는 부재 (승강장, 측면 기둥)
 
 }

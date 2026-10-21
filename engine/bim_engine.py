@@ -14,7 +14,7 @@ class BIMEngine:
         length = cfg.station.length
         return [
             engine.generate_3d_dxf(out / "정거장3d모델.dxf"),
-            engine.generate_section_dxf([0.0, length / 2.0, length], out / "정거장단면도.dxf"),
+            engine.generate_section_dxf([length * 0.25, length * 0.5, length * 0.75], out / "정거장단면도.dxf"),
             engine.generate_plan_dxf(out / "정거장평면도.dxf"),
             engine.generate_profile_dxf(out / "정거장종단면도.dxf"),
             engine.generate_ifc(out / "station_model.ifc"),

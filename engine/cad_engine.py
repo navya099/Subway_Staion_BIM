@@ -7,6 +7,7 @@ from config.cadconfig import LAYER_DEFINITIONS
 from config.master_config import StationProjectConfig
 from exporter.ifc_exporter import IFCExporter
 from helper.box_helper import CommonHelper
+from helper.view_item import draw_view_items
 from platforms.platform_engine import PlatformEngine
 from slabs.slab_engine import SlabEngine
 from walls.wall_engine import WallEngine
@@ -62,7 +63,24 @@ class StationCADEngine:
         self._save(doc, filename)
         return os.path.abspath(filename)
 
-    # --- [2. 2D 횡단면도 생성 엔진] ---
+    # --- [2D 공통] ---
+    PLAN_CUT_H = 2.0   # 평면도 절단 높이 (바닥 슬래브 상면 기준, m)
+
+    def _fmt_sta(self, s: float) -> str:
+        """정거장 로컬 거리 s → 절대 측점 문자열 (예: 134.45 → 0+134.45)"""
+        sta = self.cfg.station.start_station + s
+        km = int(sta // 1000)
+        return f"{km}+{sta - km * 1000:06.2f}"
+
+    def _collect(self, hook: str, *args):
+        """서브 엔진 중 hook 메서드를 가진 엔진의 ViewItem 을 모두 모음"""
+        items = []
+        for engine in self.sub_engines:
+            if hasattr(engine, hook):
+                items.extend(getattr(engine, hook)(*args))
+        return items
+
+    # --- [2. 2D 횡단면도 생성 엔진] --- (측점 sta 의 절단면을 BIM 객체에서 직접 추출)
     def generate_section_dxf(self, sta_list: list[float], filename="c:/temp/정거장단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
@@ -75,50 +93,22 @@ class StationCADEngine:
             floor_top_z = align_lv - p.offset
             floor_bot_z = floor_top_z - p.floor_t
             roof_top_z = floor_top_z + p.height
-            roof_bot_z = roof_top_z - p.slab_t
 
             # 주석 및 중심선
-            msp.add_text(f"SECTION STA. 0+{int(sta):03d} (SLOPE {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.0, 'layer': 'SEC_TEXT'}).set_placement((x_offset, roof_top_z + 3.0))
+            msp.add_text(f"SECTION STA. {self._fmt_sta(sta)} (SLOPE {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.0, 'layer': 'SEC_TEXT'}).set_placement((x_offset, roof_top_z + 3.0))
             msp.add_line((x_offset, floor_bot_z - 2.0), (x_offset, roof_top_z + 2.0), dxfattribs={'layer': 'SEC_CENTER'})
             msp.add_text("C.L.", dxfattribs={'height': 0.6, 'layer': 'SEC_TEXT'}).set_placement((x_offset + 0.2, roof_top_z + 1.0))
 
             msp.add_text(f"Align.L = {align_lv:.2f}m", dxfattribs={'height': 0.5, 'layer': 'SEC_TEXT'}).set_placement((x_offset + half_w + 1.0, align_lv))
             msp.add_line((x_offset - half_w - 0.5, align_lv), (x_offset + half_w + 0.5, align_lv), dxfattribs={'layer': 'SEC_CENTER'})
 
-            # 다각형 부재 생성
-            polygons = [
-                [(x_offset - half_w, floor_bot_z), (x_offset + half_w, floor_bot_z), (x_offset + half_w, floor_top_z), (x_offset - half_w, floor_top_z)],
-                [(x_offset - half_w, roof_bot_z), (x_offset + half_w, roof_bot_z), (x_offset + half_w, roof_top_z), (x_offset - half_w, roof_top_z)],
-                [(x_offset - half_w, floor_top_z), (x_offset - half_w + p.wall_t, floor_top_z), (x_offset - half_w + p.wall_t, roof_bot_z), (x_offset - half_w, roof_bot_z)],
-                [(x_offset + half_w - p.wall_t, floor_top_z), (x_offset + half_w, floor_top_z), (x_offset + half_w, roof_bot_z), (x_offset + half_w - p.wall_t, roof_bot_z)]
-            ]
-
-            # 승강장 추가
-            # --- [서브 엔진들 2D 횡단면 일괄 추가] ---
-            for engine in self.sub_engines:
-                if hasattr(engine, 'add_platform_section'):
-                    engine.add_platform_section(floor_top_z, x_offset, half_w, msp)
-                if hasattr(engine, 'add_column_section'):
-                    engine.add_column_section(sta, x_offset, msp)
-
-            story_h = p.height / p.floors
-            for i in range(1, p.floors):
-                z_pos = floor_top_z + (i * story_h)
-                polygons.append([
-                    (x_offset - half_w + p.wall_t, z_pos - p.slab_t / 2),
-                    (x_offset + half_w - p.wall_t, z_pos - p.slab_t / 2),
-                    (x_offset + half_w - p.wall_t, z_pos + p.slab_t / 2),
-                    (x_offset - half_w + p.wall_t, z_pos + p.slab_t / 2)
-                ])
-                msp.add_text(f"B{p.floors - i + 1}F SLAB", dxfattribs={'height': 0.4, 'layer': 'SEC_TEXT'}).set_placement((x_offset + half_w + 1.0, z_pos))
-
-            CommonHelper.draw_polygons_with_hatch(msp, polygons, poly_layer="SEC_CONCRETE", hatch_layer="SEC_HATCH")
-
+            # 부재 단면: 각 엔진(벽체·슬래브·승강장·기둥)이 자기 객체의 절단면을 제공
+            draw_view_items(msp, self._collect('section_items', sta), du=x_offset)
 
         self._save(doc, filename)
         return os.path.abspath(filename)
 
-    # --- [3. 2D 평면도 생성 엔진] ---
+    # --- [3. 2D 평면도 생성 엔진] --- (절단 높이 FL+PLAN_CUT_H 기준)
     def generate_plan_dxf(self, filename="c:/temp/정거장평면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
@@ -127,71 +117,27 @@ class StationCADEngine:
         msp.add_line((-10.0, 0), (p.length + 10.0, 0), dxfattribs={'layer': 'PLAN_CENTER'})
         msp.add_text("C.L.", dxfattribs={'height': 1.0, 'layer': 'PLAN_TEXT'}).set_placement((p.length + 12.0, -0.5))
 
-        msp.add_lwpolyline([(0, -half_w), (p.length, -half_w), (p.length, half_w), (0, half_w)], close=True, dxfattribs={'layer': 'PLAN_OUTLINE'})
-        msp.add_lwpolyline([(p.wall_t, -half_w + p.wall_t), (p.length - p.wall_t, -half_w + p.wall_t),
-                            (p.length - p.wall_t, half_w - p.wall_t), (p.wall_t, half_w - p.wall_t)], close=True, dxfattribs={'layer': 'PLAN_OUTLINE'})
-
         cur_sta = 0.0
-        while cur_sta <= p.length:
+        while cur_sta <= p.length + 1e-9:
             msp.add_line((cur_sta, -half_w - 2.0), (cur_sta, half_w + 2.0), dxfattribs={'layer': 'PLAN_SECTION_LINE'})
-            msp.add_text(f"STA.0+{int(cur_sta):03d}", dxfattribs={'height': 0.6, 'layer': 'PLAN_TEXT'}).set_placement((cur_sta - 1.5, half_w + 2.5))
+            msp.add_text(f"STA.{self._fmt_sta(cur_sta)}", dxfattribs={'height': 0.6, 'layer': 'PLAN_TEXT'}).set_placement((cur_sta - 1.5, half_w + 2.5))
             cur_sta += p.sta_tick
 
-        # --- [서브 엔진들 2D 평면 요소 일괄 추가] ---
-        for engine in self.sub_engines:
-            if hasattr(engine, 'add_platform_plan'):
-                engine.add_platform_plan(msp)
-            if hasattr(engine, 'add_column_plan'):
-                engine.add_column_plan(msp)
-        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+2.0m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
+        draw_view_items(msp, self._collect('plan_items', self.PLAN_CUT_H))
+        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
 
         self._save(doc, filename)
         return os.path.abspath(filename)
 
-    # --- [4. 2D 종단면도 생성 엔진] ---
+    # --- [4. 2D 종단면도 생성 엔진] --- (선형 중심 t=0 절단)
     def generate_profile_dxf(self, filename="c:/temp/정거장종단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
-
-        seg_size = 5.0
         start_lv = self.cfg.lv(0)
-        end_lv = self.cfg.lv(p.length)
 
         msp.add_line((-10.0, self.cfg.lv(-10.0)), (p.length + 10.0, self.cfg.lv(p.length + 10.0)), dxfattribs={'layer': 'PROF_CENTER'})
 
-        polygons = []
-        x_pts = []
-        x_c = 0.0
-        while x_c <= p.length:
-            x_pts.append(x_c)
-            x_c += seg_size
-        if x_pts[-1] < p.length: x_pts.append(p.length)
-
-        # 천장/바닥 슬래브 종단 띠
-        roof_pts = [(x, self.cfg.lv(x) - p.offset + p.height) for x in x_pts] + [(x, self.cfg.lv(x) - p.offset + p.height - p.slab_t) for x in reversed(x_pts)]
-        floor_pts = [(x, self.cfg.lv(x) - p.offset) for x in x_pts] + [(x, self.cfg.lv(x) - p.offset - p.floor_t) for x in reversed(x_pts)]
-        polygons.extend([roof_pts, floor_pts])
-
-        # 중간 슬래브
-        story_h = p.height / p.floors
-        for i in range(1, p.floors):
-            mid_pts = [(x, self.cfg.lv(x) - p.offset + (i * story_h) + p.slab_t / 2) for x in x_pts] + \
-                      [(x, self.cfg.lv(x) - p.offset + (i * story_h) - p.slab_t / 2) for x in reversed(x_pts)]
-            polygons.append(mid_pts)
-
-        # 마감 벽체
-        f_top_start, f_top_end = start_lv - p.offset, end_lv - p.offset
-        polygons.append([(0, f_top_start), (p.wall_t, f_top_start), (p.wall_t, f_top_start + p.height - p.slab_t), (0, f_top_start + p.height - p.slab_t)])
-        polygons.append([(p.length - p.wall_t, f_top_end), (p.length, f_top_end), (p.length, f_top_end + p.height - p.slab_t), (p.length - p.wall_t, f_top_end + p.height - p.slab_t)])
-
-        CommonHelper.draw_polygons_with_hatch(msp, polygons, poly_layer="PROF_CONCRETE", hatch_layer="PROF_HATCH")
-
-        # --- [서브 엔진들 2D 종단면 일괄 추가] ---
-        for engine in self.sub_engines:
-            if hasattr(engine, 'add_platform_profile'):
-                engine.add_platform_profile(msp, x_pts)
-            if hasattr(engine, 'add_column_profile'):
-                engine.add_column_profile(msp, x_pts)
+        draw_view_items(msp, self._collect('profile_items'))
         msp.add_text(f"STATION PROFILE VIEW (SLOPE: {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 
         self._save(doc, filename)

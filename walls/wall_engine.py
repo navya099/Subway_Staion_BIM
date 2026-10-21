@@ -3,7 +3,8 @@ from helper.box_helper import CommonHelper
 from walls.rectangular_wall import RectangularWall
 from walls.wall_data import WallData
 from walls.wall_package import WallPackage
-from walls.wall_shape_type import WallShapeType
+from helper.view_item import ViewItem
+from walls.wall_shape_type import WallRole, WallShapeType
 
 
 class WallEngine:
@@ -39,14 +40,14 @@ class WallEngine:
         return CommonHelper.prism_corners(wall.pos_x, wall.pos_y, wall.pos_z, sh.length, sh.width, sh.rise)
 
     def _wall_defs(self):
-        """(코드, 계열명, s0, s1, t0, t1)"""
+        """(코드, 역할, 계열명, s0, s1, t0, t1)"""
         p = self.sp
         hw, wt = p.width / 2.0, p.wall_t
         return [
-            ("START", "콘크리트-마감벽", 0.0, wt, -hw, hw),
-            ("L", "콘크리트-외벽", wt, p.length - wt, -hw, -hw + wt),
-            ("R", "콘크리트-외벽", wt, p.length - wt, hw - wt, hw),
-            ("END", "콘크리트-마감벽", p.length - wt, p.length, -hw, hw),
+            ("START", WallRole.START, "콘크리트-마감벽", 0.0, wt, -hw, hw),
+            ("L", WallRole.LEFT, "콘크리트-외벽", wt, p.length - wt, -hw, -hw + wt),
+            ("R", WallRole.RIGHT, "콘크리트-외벽", wt, p.length - wt, hw - wt, hw),
+            ("END", WallRole.END, "콘크리트-마감벽", p.length - wt, p.length, -hw, hw),
         ]
 
     # ---------- 생성 ----------
@@ -62,7 +63,7 @@ class WallEngine:
             if z_hi - z_lo <= 0:
                 raise ValueError(f"{level} 벽체 높이가 0 이하입니다. 층 높이/슬래브 두께를 확인하세요.")
 
-            for code, family, s0, s1, t0, t1 in self._wall_defs():
+            for code, role, family, s0, s1, t0, t1 in self._wall_defs():
                 lv0, lv1 = self.cfg.lv(s0) - p.offset, self.cfg.lv(s1) - p.offset
                 shape = RectangularWall(
                     wall_type=WallShapeType.RECTANGLE,
@@ -72,6 +73,7 @@ class WallEngine:
                     family_name=family,
                     type_name=f"{int(round(p.wall_t * 1000))}mm",
                     level=level,
+                    role=role,
                     pos_x=(s0 + s1) / 2.0,
                     pos_y=(t0 + t1) / 2.0,
                     pos_z=(lv0 + lv1) / 2.0 + z_lo,
@@ -92,3 +94,45 @@ class WallEngine:
                 faces = CommonHelper.create_sloped_box_faces_global(
                     s0, s1, t0, t1, z0, z1, z0 + h, z1 + h, bp_x, bp_y, theta)
                 wall.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"}) for f in faces]
+
+    # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
+    def section_items(self, sta):
+        """횡단면도: 측점 sta 의 절단면에 걸리는 벽체 (층별로 나뉜 벽체는 하나로 합쳐 그림)"""
+        items = []
+        for package in self.wall_packages:
+            for w in package.walls:
+                s0, s1, t0, t1, z0, z1 = self.wall_corners(w)
+                if CommonHelper.cut_by_s(sta, s0, s1, self.sp.length):
+                    zb = z0 + (sta - s0) / (s1 - s0) * (z1 - z0)
+                    items.append(ViewItem.rect(w.name, "SEC_CONCRETE", t0, t1, zb, zb + w.shape.height,
+                                               hatch_layer="SEC_HATCH", merge=True))
+        return items
+
+    def profile_items(self):
+        """종단면도(선형 중심 t=0 절단): 중심선을 자르는 마감벽"""
+        items = []
+        for package in self.wall_packages:
+            for w in package.walls:
+                s0, s1, t0, t1, z0, z1 = self.wall_corners(w)
+                if CommonHelper.cut_by_t(t0, t1):
+                    items.append(ViewItem.sloped(w.name, "PROF_CONCRETE", s0, s1, z0, z1, w.shape.height,
+                                                 hatch_layer="PROF_HATCH", merge=True))
+        return items
+
+    def plan_items(self, cut_h):
+        """평면도: 바닥 슬래브 상면 + cut_h 높이에서 절단되는 벽체의 바깥/안쪽 윤곽"""
+        cut = []
+        for package in self.wall_packages:
+            for w in package.walls:
+                s0, s1, t0, t1, z0, z1 = self.wall_corners(w)
+                zc = self.cfg.lv((s0 + s1) / 2.0) - self.sp.offset + cut_h
+                zb = (z0 + z1) / 2.0
+                if zb - 1e-9 <= zc < zb + w.shape.height - 1e-9:
+                    cut.append((w, (s0, s1, t0, t1)))
+        by_role = {w.role: c for w, c in cut}
+        if len(by_role) == 4:
+            st, en, lf, rt = (by_role[WallRole.START], by_role[WallRole.END],
+                              by_role[WallRole.LEFT], by_role[WallRole.RIGHT])
+            return [ViewItem.rect("WALL_OUTER", "PLAN_OUTLINE", st[0], en[1], lf[2], rt[3]),
+                    ViewItem.rect("WALL_INNER", "PLAN_OUTLINE", st[1], en[0], lf[3], rt[2])]
+        return [ViewItem.rect(w.name, "PLAN_OUTLINE", c[0], c[1], c[2], c[3]) for w, c in cut]

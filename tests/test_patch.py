@@ -443,3 +443,105 @@ def test_no_overlap_between_members(cols):
             if min(ahi, bhi) - max(alo, blo) > tol:
                 bad.append((a[0], b[0]))
     assert bad == []
+
+
+# ---------------- 2D 도면 (객체 기반) ----------------
+from helper.view_item import ViewItem, merge_items
+
+NO_COLUMNS = lambda: ColumnParameters(floors={1: FloorColumnSpec(rows=[])})
+
+
+def _q(path, layer, kind="LWPOLYLINE"):
+    return list(ezdxf.readfile(path).modelspace().query(f'{kind}[layer=="{layer}"]'))
+
+
+def _bbox(pl):
+    pts = [(p[0], p[1]) for p in pl.get_points()]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def test_section_cut_members_and_wall_merge(tmp_path):
+    cfg = make_cfg(); st = cfg.station
+    path = StationCADEngine(cfg).generate_section_dxf([12.0], tmp_path / "s.dxf")   # 기둥 중심 s=12 를 자름
+    conc = _q(path, "SEC_CONCRETE")
+    assert len(conc) == 1 + 1 + 2 + 2 + 3          # 바닥, 천장, 중간 2, 외벽 2(층별 벽체가 하나로 합쳐짐), 절단 기둥 3
+    assert len(_q(path, "SEC_PLATFORM")) == 6        # 승강장 슬래브 2 + 지지벽체 4
+    assert _q(path, "SEC_BEYOND") == []              # 같은 열의 앞쪽 기둥은 절단 기둥과 동일 형상이라 생략
+    walls = [pl for pl in conc if abs((_bbox(pl)[1] - _bbox(pl)[0]) - st.wall_t) < 1e-6 and (_bbox(pl)[3] - _bbox(pl)[2]) > st.height - 1]
+    assert len(walls) == 2 and all(abs((_bbox(w)[3] - _bbox(w)[2]) - (st.height - st.slab_t)) < 1e-6 for w in walls)
+
+
+def test_section_inside_end_wall(tmp_path):
+    path = StationCADEngine(make_cfg(NO_COLUMNS())).generate_section_dxf([0.5], tmp_path / "s.dxf")
+    assert len(_q(path, "SEC_CONCRETE")) == 3       # 바닥 + 천장 + 시점 마감벽(전폭 1개)
+    assert _q(path, "SEC_PLATFORM") == []           # 승강장은 마감벽 안쪽부터
+
+
+def test_section_matches_objects(tmp_path):
+    """도면의 바닥 슬래브/승강장 슬래브 좌표 = BIM 객체에서 계산한 값 (단일 데이터 원천)"""
+    cfg = make_cfg(); st = cfg.station; pf = cfg.platform
+    sta = 60.0
+    path = StationCADEngine(cfg).generate_section_dxf([sta], tmp_path / "s.dxf")
+    floor = next(pl for pl in _q(path, "SEC_CONCRETE") if abs((_bbox(pl)[1] - _bbox(pl)[0]) - st.width) < 1e-6
+                 and _bbox(pl)[2] < cfg.lv(sta) - st.offset)
+    assert _bbox(floor)[2] == pytest.approx(cfg.lv(sta) - st.offset - st.floor_t)
+    slab = next(pl for pl in _q(path, "SEC_PLATFORM") if abs((_bbox(pl)[3] - _bbox(pl)[2]) - pf.plat_thick) < 1e-6)
+    assert _bbox(slab)[2] == pytest.approx(cfg.lv(sta) - st.offset + pf.plat_height)
+
+
+def test_section_circle_chord_and_beyond():
+    cp = ColumnParameters(floors={1: FloorColumnSpec([ColumnRowSpec(0.0, 10.0, 1.0, [CIRC(0.5)])])})
+    eng = StationCADEngine(make_cfg(cp))
+    near = eng.columns.section_items(2.3)            # 중심 s=2 에서 0.3m 떨어진 절단 → 현의 반폭 0.4
+    cut = [i for i in near if i.layer == "SEC_CONCRETE"]
+    assert len(cut) == 1 and (cut[0].u1 - cut[0].u0) == pytest.approx(0.8)
+    between = eng.columns.section_items(7.0)         # 기둥 사이: 절단 없음, 앞쪽(s=12) 기둥 1개만 보임
+    assert [i.layer for i in between] == ["SEC_BEYOND"]
+
+
+def test_profile_cut_and_beyond(tmp_path):
+    path = StationCADEngine(make_cfg(NO_COLUMNS())).generate_profile_dxf(tmp_path / "p.dxf")
+    assert len(_q(path, "PROF_CONCRETE")) == 1 + 1 + 2 + 2    # 바닥, 천장, 중간 2, 마감벽 2(층별 합침)
+    assert len(_q(path, "PROF_BEYOND")) == 2                  # 측면에서 보이는 승강장: 슬래브 + 다리(좌/우·선로측/벽체측 다리는 측면 형상이 같아 1회)
+    texts = [t.dxf.text for t in ezdxf.readfile(path).modelspace().query("TEXT")]
+    assert "PLATFORM SLAB (FL+1.10m)" in texts
+
+
+def test_profile_user_example_dedupes_side_columns(tmp_path):
+    eng = StationCADEngine(make_cfg(user_example()))
+    path = eng.generate_profile_dxf(tmp_path / "p.dxf")
+    beyond = _q(path, "PROF_BEYOND")
+    assert len(beyond) == 20 + 2     # B2F 의 t=±3 열은 같은 s 라 20개만 + 승강장(슬래브, 다리) 2
+
+
+def test_plan_cut_level_and_members(tmp_path):
+    path = StationCADEngine(make_cfg(NO_COLUMNS())).generate_plan_dxf(tmp_path / "p.dxf")
+    assert len(_q(path, "PLAN_OUTLINE")) == 2 + 2     # 벽체 바깥/안쪽 + 승강장 좌/우
+    texts = [t.dxf.text for t in ezdxf.readfile(path).modelspace().query("TEXT")]
+    assert any("CUT LEVEL: FL+2.0m" in t for t in texts)
+
+
+def test_plan_shows_only_columns_cut_by_level(tmp_path):
+    cp = ColumnParameters(floors={1: FloorColumnSpec([ColumnRowSpec(0.0, 10.0, 1.0, [CIRC(0.5)])]),
+                                  2: FloorColumnSpec([ColumnRowSpec(0.0, 10.0, 1.0, [RECT(0.8, 0.8)])]),
+                                  3: FloorColumnSpec()})
+    path = StationCADEngine(make_cfg(cp)).generate_plan_dxf(tmp_path / "p.dxf")
+    assert len(_q(path, "PLAN_OUTLINE", "CIRCLE")) == 20          # B3F 원기둥만 절단 (B2F 사각기둥은 FL+2.0m 위)
+
+
+def test_station_label_uses_absolute_station(tmp_path):
+    cfg = make_cfg(); cfg.station.start_station = 1234.5
+    path = StationCADEngine(cfg).generate_section_dxf([25.0], tmp_path / "s.dxf")
+    texts = [t.dxf.text for t in ezdxf.readfile(path).modelspace().query("TEXT")]
+    assert any("1+259.50" in t for t in texts)
+
+
+def test_merge_items_only_touching():
+    a = ViewItem.rect("a", "L", 0, 1, 0, 5, merge=True)
+    b = ViewItem.rect("b", "L", 0, 1, 5, 9, merge=True)       # a 위에 맞닿음 → 합쳐짐
+    c = ViewItem.rect("c", "L", 0, 1, 10, 12, merge=True)     # 떨어져 있음 → 별개
+    d = ViewItem.rect("d", "L", 2, 3, 0, 5, merge=True)       # 다른 u 구간 → 별개
+    out = merge_items([b, a, c, d])
+    spans = sorted((i.u0, i.vb0, i.vt0) for i in out)
+    assert spans == [(0, 0, 9), (0, 10, 12), (2, 0, 5)]

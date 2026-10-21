@@ -13,6 +13,13 @@ class CommonHelper:
             path.closed = True
 
     @staticmethod
+    def prism_corners(pos_x, pos_y, pos_z, length, width, rise):
+        """중심 기준 (s, t, 중심 s 하단 z) 부재 → (s0, s1, t0, t1, z(s0), z(s1)). 벽체·슬래브 공통"""
+        s0, t0 = pos_x - length / 2.0, pos_y - width / 2.0
+        z0 = pos_z - rise / 2.0
+        return s0, s0 + length, t0, t0 + width, z0, z0 + rise
+
+    @staticmethod
     def local_to_global(s, t, bp_x, bp_y, theta):
         return (bp_x + s * math.cos(theta) - t * math.sin(theta),
                 bp_y + s * math.sin(theta) + t * math.cos(theta))

@@ -24,7 +24,7 @@ def make_cfg(columns=None, floors=3):
     return StationProjectConfig(
         station=StationParameters(start_station=0.0, length=200.0, width=20.0, height=18.0, floors=floors,
                                   wall_t=1.0, floor_t=1.2, slab_t=0.4),
-        platform=PlatformParameters(4.4, 1.7, 0.2, 1.1),
+        platform=PlatformParameters(4.4, 1.7, 0.2, 1.1, support_t=0.3),
         column=columns or ColumnParameters(),
         align=AlignmentConfig(0, 286.4826, -85.3896, 123.45, 575.9987, 437.4075, 134.45))
 
@@ -107,7 +107,7 @@ def entries(floors=2):
         bp_x="286.4826", bp_y="-85.3896", bp_z="123.45", ep_x="575.9987", ep_y="437.4075", ep_z="134.45",
         bp_station="0.0", start_station="0.0", length="200", width="20", offset="0", height="12",
         floors=str(floors), wall_t="1.0", floor_t="1.2", slab_t="1.0", track_spacing="4.4", plat_offset="1.7",
-        plat_thick="0.2", plat_height="1.1", platform_type="0", col_interval="10", col_width="0.8",
+        plat_thick="0.2", plat_height="1.1", support_t="0.3", platform_type="0", col_interval="10", col_width="0.8",
         col_depth="0.8", sync_all=True).items()}
     return e
 
@@ -165,11 +165,11 @@ def test_ifc_walls_geometry_matches_model(tmp_path):
     eng = StationCADEngine(cfg)
     path = eng.generate_ifc(tmp_path / "m.ifc")
     f = ifcopenshell.open(path)
-    walls = f.by_type("IfcWall")
+    walls = [w for w in f.by_type("IfcWall") if w.Name.startswith("WALL_")]   # PLATW_ 는 승강장 지지벽체
     assert len(walls) == 12
     by_storey = {}
     for rel in f.by_type("IfcRelContainedInSpatialStructure"):  # 층마다 벽/기둥 rel이 따로 있음 → 합산
-        n = len([e for e in rel.RelatedElements if e.is_a("IfcWall")])
+        n = len([e for e in rel.RelatedElements if e.is_a("IfcWall") and e.Name.startswith("WALL_")])
         by_storey[rel.RelatingStructure.Name] = by_storey.get(rel.RelatingStructure.Name, 0) + n
     assert by_storey == {"B3F": 4, "B2F": 4, "B1F": 4}
 
@@ -194,3 +194,252 @@ def test_ifc_walls_geometry_matches_model(tmp_path):
         assert v.min(axis=0) == pytest.approx(pts.min(axis=0), abs=1e-4), el.Name
         assert v.max(axis=0) == pytest.approx(pts.max(axis=0), abs=1e-4), el.Name
         assert ifcopenshell.util.shape.get_volume(shp.geometry) == pytest.approx(w.shape.volume, rel=1e-6), el.Name
+
+
+# ---------------- 슬래브 ----------------
+from slabs.slab_engine import SlabEngine
+from slabs.slab_shape_type import SlabKind
+
+
+def test_slabs_per_level_and_kinds():
+    se = SlabEngine(make_cfg())
+    pk = {p.level: [s.name for s in p.slabs] for p in se.slab_packages}
+    assert pk == {"B3F": ["SLAB_B3F_FLOOR"], "B2F": ["SLAB_B2F_MID"], "B1F": ["SLAB_B1F_MID", "SLAB_B1F_ROOF"]}
+    kinds = {s.name: s.kind for p in se.slab_packages for s in p.slabs}
+    assert kinds["SLAB_B3F_FLOOR"] == SlabKind.FLOOR and kinds["SLAB_B1F_ROOF"] == SlabKind.ROOF
+
+
+def test_slab_plus_wall_volume_matches_envelope():
+    """슬래브+벽체 체적 = 외곽 박스 - 내부 공동 + 중간 슬래브 (겹침/누락 없음)"""
+    cfg = make_cfg(); st = cfg.station
+    solid = (sum(p.total_volume for p in SlabEngine(cfg).slab_packages)
+             + sum(p.total_volume for p in WallEngine(cfg).wall_packages))
+    W, L, wt = st.width, st.length, st.wall_t
+    ext = W * L * (st.floor_t + st.height)
+    void = (W - 2 * wt) * (L - 2 * wt) * (st.height - st.slab_t)
+    mids = (st.floors - 1) * (W - 2 * wt) * (L - 2 * wt) * st.slab_t
+    assert solid == pytest.approx(ext - void + mids)
+
+
+def test_single_floor_station_builds(tmp_path):
+    cfg = make_cfg(ColumnParameters.uniform(1), floors=1)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(paths[-1])
+    assert {s.Name for s in f.by_type("IfcSlab") if s.Name.startswith("SLAB_")} == {"SLAB_1F_FLOOR", "SLAB_1F_ROOF"}
+
+
+def test_slab_3d_faces(tmp_path):
+    eng = StationCADEngine(make_cfg())
+    path = eng.generate_3d_dxf(tmp_path / "3d.dxf")
+    faces = len(ezdxf.readfile(path).modelspace().query('3DFACE[layer=="STRUCT_SLAB"]'))
+    assert faces == 4 * 6
+
+
+def test_ifc_slabs_geometry_matches_model(tmp_path):
+    cfg = make_cfg()
+    eng = StationCADEngine(cfg)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "s.ifc"))
+    slabs = [s for s in f.by_type("IfcSlab") if s.Name.startswith("SLAB_")]  # 승강장(PLAT_)은 별도
+    assert len(slabs) == 4
+    assert {s.Name: s.PredefinedType for s in slabs} == {
+        "SLAB_B3F_FLOOR": "BASESLAB", "SLAB_B2F_MID": "FLOOR", "SLAB_B1F_MID": "FLOOR", "SLAB_B1F_ROOF": "ROOF"}
+    storey_of = {}
+    for rel in f.by_type("IfcRelContainedInSpatialStructure"):
+        for e in rel.RelatedElements:
+            if e.is_a("IfcSlab") and e.Name.startswith("SLAB_"):
+                storey_of[e.Name] = rel.RelatingStructure.Name
+    assert storey_of == {"SLAB_B3F_FLOOR": "B3F", "SLAB_B2F_MID": "B2F", "SLAB_B1F_MID": "B1F", "SLAB_B1F_ROOF": "B1F"}
+
+    settings = ifcopenshell.geom.settings(); settings.set("use-world-coords", True)
+    ox, oy = cfg.origin(); th = cfg.align.theta
+    model = {s.name: s for p in eng.slabs.slab_packages for s in p.slabs}
+    for el in slabs:
+        sl = model[el.Name]
+        shp = ifcopenshell.geom.create_shape(settings, el)
+        v = np.array(shp.geometry.verts).reshape(-1, 3)
+        s0, s1, t0, t1, z0, z1 = eng.slabs.slab_corners(sl)
+        h = sl.shape.thickness
+        pts = np.array([(ox + s * math.cos(th) - t * math.sin(th), oy + s * math.sin(th) + t * math.cos(th), z)
+                        for s, t, z in [(s0, t0, z0), (s0, t1, z0), (s1, t0, z1), (s1, t1, z1),
+                                        (s0, t0, z0 + h), (s0, t1, z0 + h), (s1, t0, z1 + h), (s1, t1, z1 + h)]])
+        assert v.min(axis=0) == pytest.approx(pts.min(axis=0), abs=1e-4), el.Name
+        assert v.max(axis=0) == pytest.approx(pts.max(axis=0), abs=1e-4), el.Name
+        assert ifcopenshell.util.shape.get_volume(shp.geometry) == pytest.approx(sl.shape.volume, rel=1e-6), el.Name
+
+
+# ---------------- 승강장 (ㅠ형: 슬래브 + 지지벽체) ----------------
+from platforms.platform_engine import PlatformEngine
+from platforms.platform_type import PlatformPart, PlatformSide
+
+
+def test_platform_objects_and_volume():
+    cfg = make_cfg(); st, pf = cfg.station, cfg.platform
+    pe = PlatformEngine(cfg)
+    assert [p.level for p in pe.platform_packages] == ["B3F"]
+    plats = pe.platform_packages[0].platforms
+    assert [p.name for p in plats] == [
+        "PLAT_B3F_L", "PLATW_B3F_L_TRACK", "PLATW_B3F_L_OUT", "PLAT_B3F_R", "PLATW_B3F_R_TRACK", "PLATW_B3F_R_OUT"]
+    width = (st.width / 2 - st.wall_t) - (pf.track_spacing / 2 + pf.plat_offset)   # 5.1m
+    L = st.length - 2 * st.wall_t
+    slabs = [p for p in plats if p.part == PlatformPart.SLAB]
+    legs = [p for p in plats if p.part == PlatformPart.SUPPORT_WALL]
+    assert len(slabs) == 2 and len(legs) == 4
+    assert slabs[0].shape.width == pytest.approx(width)
+    assert pe.platform_packages[0].total_volume == pytest.approx(
+        2 * width * L * pf.plat_thick + 4 * pf.support_t * L * pf.plat_height)
+    # 다리: 바닥 슬래브 상면 ~ 승강장 슬래브 하면, 슬래브 끝단과 일치(ㅠ형)
+    for leg in legs:
+        s0, s1, t0, t1, z0, z1 = pe.platform_corners(leg)
+        assert z0 == pytest.approx(cfg.lv(s0) - st.offset)            # 바닥 슬래브 상면
+        assert leg.shape.thickness == pytest.approx(pf.plat_height)
+        assert leg.shape.width == pytest.approx(pf.support_t)
+    for slab in slabs:
+        assert pe.platform_corners(slab)[4] == pytest.approx(cfg.lv(st.wall_t) - st.offset + pf.plat_height)
+    # 좌/우 대칭, 벽체 안쪽 면 사이에 위치
+    assert slabs[0].pos_y == pytest.approx(-slabs[1].pos_y)
+    for p in plats:
+        s0, s1, t0, t1, z0, z1 = pe.platform_corners(p)
+        assert s0 == pytest.approx(st.wall_t) and s1 == pytest.approx(st.length - st.wall_t)
+        assert min(t0, t1) >= -(st.width / 2 - st.wall_t) - 1e-9 and max(t0, t1) <= st.width / 2 - st.wall_t + 1e-9
+
+
+def test_platform_without_support_walls():
+    cfg = make_cfg(); cfg.platform.support_t = 0.0
+    names = [p.name for p in PlatformEngine(cfg).platform_packages[0].platforms]
+    assert names == ["PLAT_B3F_L", "PLAT_B3F_R"]
+
+
+def test_platform_3d_faces_once(tmp_path):
+    eng = StationCADEngine(make_cfg())
+    path = eng.generate_3d_dxf(tmp_path / "3d.dxf")
+    faces = len(ezdxf.readfile(path).modelspace().query('3DFACE[layer=="STRUCT_PLATFORM"]'))
+    assert faces == 6 * 6          # 슬래브 2 + 지지벽체 4 (이전: 5m 세그먼트마다 반복)
+
+
+def test_platform_section_draws_pi_shape(tmp_path):
+    eng = StationCADEngine(make_cfg())
+    path = eng.generate_section_dxf([100.0], tmp_path / "sec.dxf")
+    polys = ezdxf.readfile(path).modelspace().query('LWPOLYLINE[layer=="SEC_PLATFORM"]')
+    assert len(polys) == 2 + 4     # 슬래브 2 + 다리 4
+
+
+def test_columns_follow_platform_or_floor():
+    """승강장 위 기둥은 승강장 상면, 선로 사이 기둥은 바닥 슬래브 상면에 선다"""
+    cp = ColumnParameters(sync_with_platform=True, floors={
+        1: FloorColumnSpec([ColumnRowSpec(0.0, 10.0, 1.0, [RECT(0.4, 1.0)]),
+                            ColumnRowSpec(6.0, 10.0, 1.0, [CIRC(0.5)])]),
+        2: FloorColumnSpec(), 3: FloorColumnSpec()})
+    cfg = make_cfg(cp); st, pf = cfg.station, cfg.platform
+    eng = StationCADEngine(cfg)
+    b3 = eng.columns.column_packages[0]
+    for c in b3.columns:
+        floor_top = cfg.lv(c.pos_x) - st.offset
+        expected = floor_top + (pf.plat_height + pf.plat_thick if c.pos_y == 6.0 else 0.0)
+        assert c.pos_z == pytest.approx(expected), c.name
+    plat = eng.platform.platform_packages[0].platforms[0]
+    s0, s1, *_ , z0, z1 = eng.platform.platform_corners(plat)
+    on = next(c for c in b3.columns if c.pos_y == 6.0)
+    assert on.pos_z == pytest.approx(z0 + (on.pos_x - s0) / (s1 - s0) * (z1 - z0) + plat.shape.thickness)
+
+
+def test_column_straddling_platform_edge_raises():
+    cp = ColumnParameters(floors={1: FloorColumnSpec([ColumnRowSpec(3.9, 10.0, 1.0, [CIRC(0.5)])])})
+    with pytest.raises(ValueError):
+        StationCADEngine(make_cfg(cp, floors=3))
+
+
+def test_user_example_columns_clear_of_platforms():
+    eng = StationCADEngine(make_cfg(user_example()))
+    for plat in eng.platform.platform_packages[0].platforms:
+        _, _, pt0, pt1, _, _ = eng.platform.platform_corners(plat)
+        for c in eng.columns.column_packages[0].columns:    # 승강장과 같은 높이대는 최하층(B3F)뿐
+            lo, hi = c.pos_y - c.shape.half_t, c.pos_y + c.shape.half_t
+            assert hi <= min(pt0, pt1) or lo >= max(pt0, pt1)
+
+
+def test_platform_validation():
+    cfg = make_cfg(); cfg.platform.track_spacing = 20.0      # 선로간격이 정거장 폭을 넘음
+    with pytest.raises(ValueError):
+        PlatformEngine(cfg)
+    cfg = make_cfg(); cfg.platform.support_t = 3.0           # 다리 2개가 슬래브 폭을 넘음
+    with pytest.raises(ValueError):
+        PlatformEngine(cfg)
+    cfg = make_cfg(); cfg.platform.plat_type = "1"           # 섬식 미지원
+    with pytest.raises(NotImplementedError):
+        PlatformEngine(cfg)
+    cfg = make_cfg(); cfg.platform.plat_thick = 0.0          # 승강장 미설정 → 객체 없음
+    assert PlatformEngine(cfg).platform_packages == []
+
+
+def test_ifc_platforms_geometry_matches_model(tmp_path):
+    cfg = make_cfg()
+    eng = StationCADEngine(cfg)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "p.ifc"))
+    slabs = [e for e in f.by_type("IfcSlab") if e.Name.startswith("PLAT_")]
+    legs = [e for e in f.by_type("IfcWall") if e.Name.startswith("PLATW_")]
+    assert {e.Name: (e.PredefinedType, e.ObjectType) for e in slabs} == {
+        "PLAT_B3F_L": ("USERDEFINED", "PLATFORM"), "PLAT_B3F_R": ("USERDEFINED", "PLATFORM")}
+    assert len(legs) == 4 and all(e.PredefinedType == "SOLIDWALL" and e.ObjectType == "PLATFORM_SUPPORT" for e in legs)
+    storeys = {e.Name: rel.RelatingStructure.Name for rel in f.by_type("IfcRelContainedInSpatialStructure")
+               for e in rel.RelatedElements if e.Name.startswith("PLAT")}
+    assert set(storeys.values()) == {"B3F"} and len(storeys) == 6
+
+    settings = ifcopenshell.geom.settings(); settings.set("use-world-coords", True)
+    ox, oy = cfg.origin(); th = cfg.align.theta
+    model = {p.name: p for pk in eng.platform.platform_packages for p in pk.platforms}
+    for el in slabs + legs:
+        pl = model[el.Name]
+        shp = ifcopenshell.geom.create_shape(settings, el)
+        v = np.array(shp.geometry.verts).reshape(-1, 3)
+        s0, s1, t0, t1, z0, z1 = eng.platform.platform_corners(pl)
+        h = pl.shape.thickness
+        pts = np.array([(ox + s * math.cos(th) - t * math.sin(th), oy + s * math.sin(th) + t * math.cos(th), z)
+                        for s, t, z in [(s0, t0, z0), (s0, t1, z0), (s1, t0, z1), (s1, t1, z1),
+                                        (s0, t0, z0 + h), (s0, t1, z0 + h), (s1, t0, z1 + h), (s1, t1, z1 + h)]])
+        assert v.min(axis=0) == pytest.approx(pts.min(axis=0), abs=1e-4), el.Name
+        assert v.max(axis=0) == pytest.approx(pts.max(axis=0), abs=1e-4), el.Name
+        assert ifcopenshell.util.shape.get_volume(shp.geometry) == pytest.approx(pl.shape.volume, rel=1e-6), el.Name
+
+
+# ---------------- 전체 모델 간섭(겹침) 검사 ----------------
+def _parts(eng):
+    """모든 부재를 (이름, s0, s1, t0, t1, z(s)->(하단, 상단)) 로 통일. 구배가 모두 같아 s별 z구간만 비교하면 됨"""
+    out = []
+
+    def prism(name, s0, s1, t0, t1, z0, z1, h):
+        out.append((name, s0, s1, t0, t1, lambda s, z0=z0, z1=z1, s0=s0, s1=s1, h=h:
+                    (z0 + (s - s0) / (s1 - s0) * (z1 - z0), z0 + (s - s0) / (s1 - s0) * (z1 - z0) + h)))
+
+    for pk in eng.walls.wall_packages:
+        for w in pk.walls:
+            c = eng.walls.wall_corners(w); prism(w.name, *c, w.shape.height)
+    for pk in eng.slabs.slab_packages:
+        for sl in pk.slabs:
+            c = eng.slabs.slab_corners(sl); prism(sl.name, *c, sl.shape.thickness)
+    for pk in eng.platform.platform_packages:
+        for pl in pk.platforms:
+            c = eng.platform.platform_corners(pl); prism(pl.name, *c, pl.shape.thickness)
+    for pk in eng.columns.column_packages:
+        for c in pk.columns:
+            hs, ht = c.shape.half_s, c.shape.half_t
+            zr = (c.pos_z, c.pos_z + c.shape.height)
+            out.append((c.name, c.pos_x - hs, c.pos_x + hs, c.pos_y - ht, c.pos_y + ht, lambda s, zr=zr: zr))
+    return out
+
+
+@pytest.mark.parametrize("cols", [None, "user"])
+def test_no_overlap_between_members(cols):
+    eng = StationCADEngine(make_cfg(user_example() if cols else None))
+    parts = _parts(eng)
+    tol = 0.02          # 수직 기둥이 구배 슬래브에 맞닿는 곳의 미소 편차(구배×반폭) 허용
+    bad = []
+    for i, a in enumerate(parts):
+        for b in parts[i + 1:]:
+            ds = min(a[2], b[2]) - max(a[1], b[1]); dt = min(a[4], b[4]) - max(a[3], b[3])
+            if ds <= tol or dt <= tol:
+                continue
+            sm = (max(a[1], b[1]) + min(a[2], b[2])) / 2
+            (alo, ahi), (blo, bhi) = a[5](sm), b[5](sm)
+            if min(ahi, bhi) - max(alo, blo) > tol:
+                bad.append((a[0], b[0]))
+    assert bad == []

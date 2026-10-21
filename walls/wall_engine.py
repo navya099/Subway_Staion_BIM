@@ -36,9 +36,7 @@ class WallEngine:
     def wall_corners(self, wall: WallData) -> tuple[float, float, float, float, float, float]:
         """(s0, s1, t0, t1, z_bot(s0), z_bot(s1))"""
         sh = wall.shape
-        s0, t0 = wall.pos_x - sh.length / 2.0, wall.pos_y - sh.width / 2.0
-        z0 = wall.pos_z - sh.rise / 2.0
-        return s0, s0 + sh.length, t0, t0 + sh.width, z0, z0 + sh.rise
+        return CommonHelper.prism_corners(wall.pos_x, wall.pos_y, wall.pos_z, sh.length, sh.width, sh.rise)
 
     def _wall_defs(self):
         """(코드, 계열명, s0, s1, t0, t1)"""

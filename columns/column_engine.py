@@ -26,16 +26,36 @@ class ColumnEngine:
         p = self.sp
         return f"B{p.floors - floor_n + 1}F" if p.floors > 1 else f"{floor_n}F"
 
-    def z_range(self, floor_n: int, s: float) -> tuple[float, float]:
-        """층 floor_n 기둥의 하단/상단 표고 (정거장 로컬 거리 s 위치)"""
+    def platform_overlap(self, t_lo: float, t_hi: float) -> str:
+        """직교방향 구간 [t_lo, t_hi] 와 승강장(좌/우)의 관계: 'none' | 'over'(완전히 위) | 'straddle'(걸침)"""
+        pf, p = self.pf, self.sp
+        if pf.plat_thick <= 0:
+            return "none"
+        edge = pf.track_spacing / 2.0 + pf.plat_offset
+        inner = p.width / 2.0 - p.wall_t
+        eps = 1e-9
+        result = "none"
+        for lo, hi in ((-inner, -edge), (edge, inner)):
+            if min(t_hi, hi) - max(t_lo, lo) > eps:
+                result = "over" if (t_lo >= lo - eps and t_hi <= hi + eps) else "straddle"
+        return result
+
+    def z_range(self, floor_n: int, s: float, t_lo: float = 0.0, t_hi: float = 0.0) -> tuple[float, float]:
+        """층 floor_n 기둥의 하단/상단 표고 (정거장 로컬 거리 s, 직교방향 구간 t_lo~t_hi 위치)"""
         p, pf, cp = self.sp, self.pf, self.cp
         story_h = p.height / p.floors
         floor_top_z = self.cfg.lv(s) - p.offset
-        if floor_n == 1 and cp.sync_with_platform:
-            z_bot = floor_top_z + pf.plat_height + pf.plat_thick
+        # 하단: 최하층 = 바닥 슬래브 상면(승강장 동기화 시 승강장 상면), 그 외 = 중간 슬래브 상면
+        if floor_n == 1:
+            on_platform = cp.sync_with_platform and self.platform_overlap(t_lo, t_hi) == "over"
+            z_bot = floor_top_z + (pf.plat_height + pf.plat_thick if on_platform else 0.0)
         else:
             z_bot = floor_top_z + (floor_n - 1) * story_h + p.slab_t / 2
-        z_top = floor_top_z + floor_n * story_h - p.slab_t / 2
+        # 상단: 최상층 = 천장 슬래브 하면, 그 외 = 중간 슬래브 하면
+        if floor_n < p.floors:
+            z_top = floor_top_z + floor_n * story_h - p.slab_t / 2
+        else:
+            z_top = floor_top_z + p.height - p.slab_t
         return z_bot, z_top
 
     @staticmethod
@@ -81,7 +101,10 @@ class ColumnEngine:
                 for i in range(n):
                     spec = row.pattern[i % len(row.pattern)]
                     s = s_first + i * row.interval
-                    z_bot, z_top = self.z_range(floor_n, s)
+                    t_lo, t_hi = row.t_offset - spec.half_t, row.t_offset + spec.half_t
+                    if floor_n == 1 and self.platform_overlap(t_lo, t_hi) == "straddle":
+                        raise ValueError(f"{level} {row_idx}열 기둥이 승강장 끝단에 걸쳐 있습니다 (t={row.t_offset:.2f}m).")
+                    z_bot, z_top = self.z_range(floor_n, s, t_lo, t_hi)
                     if z_top - z_bot <= 0:
                         raise ValueError(f"{level} 기둥 높이가 0 이하입니다 (s={s:.1f}m). 승강장 높이/슬래브 두께를 확인하세요.")
 
@@ -123,9 +146,9 @@ class ColumnEngine:
     def add_column_section(self, sta, x_offset, msp):
         """횡단면도: 측점 sta에서 층·열별 기둥 (한 열에 혼합 규격이 있으면 가장 두꺼운 폭으로 표시)"""
         for floor_n in self.cp.target_floors:
-            z_bot, z_top = self.z_range(floor_n, sta)
             for row in self.cp.floors[floor_n].rows:
                 ht = max(spec.half_t for spec in row.pattern)
+                z_bot, z_top = self.z_range(floor_n, sta, row.t_offset - ht, row.t_offset + ht)
                 cx = x_offset + row.t_offset
                 msp.add_lwpolyline([(cx - ht, z_bot), (cx + ht, z_bot), (cx + ht, z_top), (cx - ht, z_top)],
                                    close=True, dxfattribs={'layer': 'SEC_CONCRETE'})

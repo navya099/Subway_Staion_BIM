@@ -8,6 +8,10 @@ from columns.column_engine import ColumnEngine
 from columns.circle_column import CircleColumn
 from columns.rectangular_column import RectangularColumn
 from config.master_config import StationProjectConfig
+from platforms.platform_engine import PlatformEngine
+from platforms.platform_type import PlatformPart
+from slabs.slab_engine import SlabEngine
+from slabs.slab_shape_type import SlabKind
 from walls.wall_engine import WallEngine
 
 
@@ -189,27 +193,97 @@ class IFCExporter:
                     RelatedElements=elements
                 )
 
+    def export_platforms(self, platform_engine: PlatformEngine):
+        """승강장(ㅠ형)을 슬래브는 IfcSlab(USERDEFINED: PLATFORM), 지지벽체는 IfcWall(PLATFORM_SUPPORT)로 매핑"""
+        for package in platform_engine.platform_packages:
+            storey = self.storeys[package.level]
+            elements = []
+            for plat in package.platforms:
+                if not plat.shape:
+                    continue
+                s0, s1, t0, t1, z0, z1 = platform_engine.platform_corners(plat)
+                sh = plat.shape
+                is_slab = plat.part == PlatformPart.SLAB
+                ifc_plat = self.file.create_entity(
+                    "IfcSlab" if is_slab else "IfcWall",
+                    GlobalId=ifcopenshell.guid.compress(uuid.UUID(plat.guid).hex),
+                    Name=plat.name,
+                    ObjectType="PLATFORM" if is_slab else "PLATFORM_SUPPORT",
+                    ObjectPlacement=self._create_local_placement(s0, t0, z0),
+                    Representation=self._create_sloped_prism_geometry(
+                        sh.length, sh.width, sh.thickness, sh.rise, "PlatformProfile" if is_slab else "PlatformSupportProfile"),
+                    PredefinedType="USERDEFINED" if is_slab else "SOLIDWALL"
+                )
+                if plat.material:
+                    self._assign_material(ifc_plat, plat.material)
+                elements.append(ifc_plat)
+
+            if elements:
+                self.file.create_entity(
+                    "IfcRelContainedInSpatialStructure",
+                    GlobalId=ifcopenshell.guid.new(),
+                    RelatingStructure=storey,
+                    RelatedElements=elements
+                )
+
+    _SLAB_PREDEFINED = {SlabKind.FLOOR: "BASESLAB", SlabKind.MID: "FLOOR", SlabKind.ROOF: "ROOF"}
+
+    def export_slabs(self, slab_engine: SlabEngine):
+        """SlabEngine의 SlabPackage/SlabData를 순회하며 IfcSlab으로 매핑 (소속 층 IfcBuildingStorey에 포함)"""
+        for package in slab_engine.slab_packages:
+            storey = self.storeys[package.level]
+            elements = []
+            for slab in package.slabs:
+                if not slab.shape:
+                    continue
+                s0, s1, t0, t1, z0, z1 = slab_engine.slab_corners(slab)
+                sh = slab.shape
+                ifc_slab = self.file.create_entity(
+                    "IfcSlab",
+                    GlobalId=ifcopenshell.guid.compress(uuid.UUID(slab.guid).hex),
+                    Name=slab.name,
+                    ObjectType=slab.type_name,
+                    ObjectPlacement=self._create_local_placement(s0, t0, z0),
+                    Representation=self._create_sloped_prism_geometry(
+                        sh.length, sh.width, sh.thickness, sh.rise, "SlabProfile"),
+                    PredefinedType=self._SLAB_PREDEFINED[slab.kind]
+                )
+                if slab.material:
+                    self._assign_material(ifc_slab, slab.material)
+                elements.append(ifc_slab)
+
+            if elements:
+                self.file.create_entity(
+                    "IfcRelContainedInSpatialStructure",
+                    GlobalId=ifcopenshell.guid.new(),
+                    RelatingStructure=storey,
+                    RelatedElements=elements
+                )
+
     def _create_wall_geometry(self, shape):
-        """s–z 평행사변형 단면(구배 반영)을 t 방향 두께만큼 압출한 Solid.
-        배치 원점 = 벽체 최소 모서리, 로컬 X = s, Y = t, Z = 상향."""
+        return self._create_sloped_prism_geometry(shape.length, shape.width, shape.height, shape.rise, "WallProfile")
+
+    def _create_sloped_prism_geometry(self, length, width, height, rise, profile_name):
+        """s–z 평행사변형 단면(구배 반영)을 t 방향 width만큼 압출한 Solid (벽체·슬래브 공통).
+        배치 원점 = 부재 최소 모서리, 로컬 X = s, Y = t, Z = 상향."""
         f = self.file
-        pts = [(0.0, 0.0), (shape.length, shape.rise), (shape.length, shape.rise + shape.height), (0.0, shape.height)]
+        pts = [(0.0, 0.0), (length, rise), (length, rise + height), (0.0, height)]
         poly = f.create_entity(
             "IfcPolyline",
             Points=[f.create_entity("IfcCartesianPoint", Coordinates=(float(x), float(z))) for x, z in pts + [pts[0]]])
-        profile = f.create_entity("IfcArbitraryClosedProfileDef", ProfileType="AREA", ProfileName="WallProfile",
+        profile = f.create_entity("IfcArbitraryClosedProfileDef", ProfileType="AREA", ProfileName=profile_name,
                                   OuterCurve=poly)
-        # 압출 축을 -Y(벽 로컬)로 두고 Y=thickness에서 시작 → t0 ~ t0+width 범위를 채움, 프로파일 Y축은 상향(+Z)
+        # 압출 축을 -Y(로컬)로 두고 Y=width에서 시작 → t0 ~ t0+width 범위를 채움, 프로파일 Y축은 상향(+Z)
         position = f.create_entity(
             "IfcAxis2Placement3D",
-            Location=f.create_entity("IfcCartesianPoint", Coordinates=(0.0, float(shape.width), 0.0)),
+            Location=f.create_entity("IfcCartesianPoint", Coordinates=(0.0, float(width), 0.0)),
             Axis=f.create_entity("IfcDirection", DirectionRatios=(0.0, -1.0, 0.0)),
             RefDirection=f.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)))
         solid = f.create_entity(
             "IfcExtrudedAreaSolid",
             SweptArea=profile, Position=position,
             ExtrudedDirection=f.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
-            Depth=float(shape.width))
+            Depth=float(width))
         shape_rep = f.create_entity(
             "IfcShapeRepresentation",
             ContextOfItems=f.by_type("IfcGeometricRepresentationContext")[0],

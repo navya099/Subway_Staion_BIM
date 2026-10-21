@@ -16,7 +16,8 @@ class PlatformTab:
             ("track_spacing", "선로 간격 D (m):", "4.4"),
             ("plat_offset", "선로중심~승강장 끝단 거리 (m):", "1.7"),
             ("plat_thick", "승강장 슬래브 두께 (m):", "0.2"),
-            ("plat_height", "바닥 기준 승강장 높이 (m):", "1.1")
+            ("plat_height", "바닥 기준 승강장 높이 (m):", "1.1"),
+            ("support_t", "승강장 지지벽체 두께 (m, 0=없음):", "0.3")
         ]
         for key, lbl, val in plat_fields:
             row_f = tk.Frame(self.parent)

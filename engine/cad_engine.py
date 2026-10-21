@@ -8,6 +8,7 @@ from config.master_config import StationProjectConfig
 from exporter.ifc_exporter import IFCExporter
 from helper.box_helper import CommonHelper
 from platforms.platform_engine import PlatformEngine
+from slabs.slab_engine import SlabEngine
 from walls.wall_engine import WallEngine
 
 
@@ -17,9 +18,10 @@ class StationCADEngine:
         # --- [서브 부재 엔진 등록 리스트] ---
         # 추후 ColumnEngine, StairEngine 구현 시 이 리스트에 추가만 하면 자동 연동!
         self.platform = PlatformEngine(config)
+        self.slabs = SlabEngine(config)
         self.walls = WallEngine(config)
         self.columns = ColumnEngine(config)
-        self.sub_engines = [self.platform, self.walls, self.columns]
+        self.sub_engines = [self.platform, self.slabs, self.walls, self.columns]
     @staticmethod
     def _save(doc, filename):
         filename = str(filename)
@@ -43,42 +45,15 @@ class StationCADEngine:
         a = self.cfg.align
         theta = a.theta
         bp_x, bp_y = self.cfg.origin()
-        half_w = p.width / 2.0
 
         msp.add_line((a.bp_x, a.bp_y, a.bp_z), (a.ep_x, a.ep_y, a.ep_z), dxfattribs={"layer": "ALIGNMENT_CL"})
 
-        seg_size = 5.0
-        x_curr = 0.0
-        while x_curr < p.length:
-            x_next = min(x_curr + seg_size, p.length)
-            lv1, lv2 = self.cfg.lv(x_curr), self.cfg.lv(x_next)
-
-            f_top1, f_top2 = lv1 - p.offset, lv2 - p.offset
-            f_bot1, f_bot2 = f_top1 - p.floor_t, f_top2 - p.floor_t
-            r_top1, r_top2 = f_top1 + p.height, f_top2 + p.height
-            r_bot1, r_bot2 = r_top1 - p.slab_t, r_top2 - p.slab_t
-
-            # 바닥/천장 슬래브
-            for f in CommonHelper.create_sloped_box_faces_global(x_curr, x_next, -half_w, half_w, f_bot1, f_bot2, f_top1, f_top2, bp_x, bp_y, theta):
-                msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"})
-            for f in CommonHelper.create_sloped_box_faces_global(x_curr, x_next, -half_w, half_w, r_bot1, r_bot2, r_top1, r_top2, bp_x, bp_y, theta):
-                msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"})
-
-            # 중간 슬래브
-            story_h = p.height / p.floors
-            for i in range(1, p.floors):
-                z1, z2 = f_top1 + (i * story_h), f_top2 + (i * story_h)
-                for f in CommonHelper.create_sloped_box_faces_global(x_curr, x_next, -half_w, half_w, z1 - p.slab_t / 2, z2 - p.slab_t / 2, z1 + p.slab_t / 2, z2 + p.slab_t / 2, bp_x, bp_y, theta):
-                    msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"})
-
-            # --- [서브 엔진들 3D 메쉬 자동 일괄 추가] ---
-            for engine in self.sub_engines:
-                if hasattr(engine, 'add_platform_mesh'):
-                    engine.add_platform_mesh(msp, x_curr, x_next, f_top1, f_top2, half_w, bp_x, bp_y, theta)
-            x_curr = x_next
-
-        # 벽체·기둥은 세그먼트 루프 밖에서 한 번만 작도 (구배는 부재 자체의 rise로 표현)
+        # 모든 부재는 객체당 1회 작도 (구배는 부재 자체의 rise로 표현)
         for engine in self.sub_engines:
+            if hasattr(engine, 'add_platform_mesh'):
+                engine.add_platform_mesh(msp, bp_x, bp_y, theta)
+            if hasattr(engine, 'add_slab_mesh'):
+                engine.add_slab_mesh(msp, bp_x, bp_y, theta)
             if hasattr(engine, 'add_wall_mesh'):
                 engine.add_wall_mesh(msp, bp_x, bp_y, theta)
             if hasattr(engine, 'add_column_mesh'):
@@ -224,6 +199,8 @@ class StationCADEngine:
 
     def generate_ifc(self, output_path: str = "c:/temp/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)
+        exporter.export_platforms(self.platform)
+        exporter.export_slabs(self.slabs)
         exporter.export_walls(self.walls)
         exporter.export_columns(self.columns)
         # 추후 Slab, Platform 등도 exporter.export_slabs(...) 형태로 확장

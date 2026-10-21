@@ -29,7 +29,8 @@ class TkAdapter:
             plat_offset=float(entries["plat_offset"].get()),
             plat_thick=float(entries["plat_thick"].get()),
             plat_height=float(entries["plat_height"].get()),
-            plat_type=str(entries["platform_type"].get())
+            plat_type=str(entries["platform_type"].get()),
+            support_t=float(entries["support_t"].get())
         )
         column_p = TkAdapter._collect_columns(entries, station_p.floors)
         al = AlignmentConfig(

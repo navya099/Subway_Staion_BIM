@@ -160,12 +160,12 @@ class ColumnEngine:
                     raise ValueError(f"{package.level}: {a.name} 와 {b.name} 기둥이 서로 겹칩니다 (열 위치/간격/크기를 확인하세요)")
 
     # ---------- 작도 ----------
-    def add_column_mesh(self, msp, bp_x, bp_y, theta):
-        """3D 절대 좌표계 메쉬 (bp_x, bp_y = 정거장 시점의 WCS 좌표). 한 번만 호출할 것"""
+    def add_column_mesh(self, msp, world):
+        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
         for package in self.column_packages:
             for col in package.columns:
                 faces = CommonHelper.create_prism_faces_global(
-                    self._footprint(col), col.pos_z, col.pos_z + col.shape.height, bp_x, bp_y, theta)
+                    self._footprint(col), col.pos_z, col.pos_z + col.shape.height, world)
                 col.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_COLUMN"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------

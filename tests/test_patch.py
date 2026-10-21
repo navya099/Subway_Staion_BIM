@@ -535,6 +535,7 @@ def test_plan_shows_only_columns_cut_by_level(tmp_path):
 
 def test_station_label_uses_absolute_station(tmp_path):
     cfg = make_cfg(); cfg.station.start_station = 1234.5
+    cfg.align.bp_station = 1200.0            # 정거장은 선형 범위 안에 있어야 함 (STA 1200 ~ 1797.6)
     path = StationCADEngine(cfg).generate_section_dxf([25.0], tmp_path / "s.dxf")
     texts = [t.dxf.text for t in ezdxf.readfile(path).modelspace().query("TEXT")]
     assert any("1+259.50" in t for t in texts)
@@ -758,3 +759,136 @@ def test_module_names_after_cleanup():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assert "*.ifc" in open(os.path.join(root, ".gitignore"), encoding="utf-8").read()
     assert not os.path.exists(os.path.join(root, "station_model.ifc"))      # 생성물은 저장소에 두지 않음
+
+
+# ---------------- Alignment 인터페이스 ----------------
+import math
+
+from config.alignment import Alignment, AlignmentFrame, HeadingAlignment
+
+
+def equivalent_heading(a: AlignmentConfig) -> HeadingAlignment:
+    """BP/EP 로 정의한 직선과 같은 선형을 방향각/구배/연장으로 정의"""
+    return HeadingAlignment(bp_station=a.bp_station, bp_x=a.bp_x, bp_y=a.bp_y, bp_z=a.bp_z,
+                            heading_deg=math.degrees(a.theta), grade_permil=a.slope, length=a.length)
+
+
+SAMPLE = lambda: make_cfg().align
+
+
+@pytest.mark.parametrize("make", [SAMPLE, lambda: equivalent_heading(make_cfg().align)], ids=["BP_EP", "heading"])
+def test_alignment_contract(make):
+    a = make(); ref = make_cfg().align
+    assert a.is_straight and a.start_station == 0.0 and a.end_station == pytest.approx(ref.length)
+    for sta in (0.0, 37.5, 200.0, ref.length):
+        x, y = a.point_at(sta)
+        assert (x, y) == pytest.approx((ref.bp_x + sta * math.cos(ref.theta), ref.bp_y + sta * math.sin(ref.theta)))
+        assert a.azimuth_at(sta) == pytest.approx(ref.theta)
+        assert a.elevation_at(sta) == pytest.approx(ref.bp_z + ref.slope / 1000 * sta)
+        assert a.grade_at(sta) == pytest.approx(ref.slope / 1000)
+        f = a.frame_at(sta)
+        assert isinstance(f, AlignmentFrame) and f.station == sta and (f.x, f.y) == pytest.approx((x, y))
+        assert f.z == pytest.approx(a.elevation_at(sta)) and f.theta == pytest.approx(ref.theta)
+    assert a.polyline_stations() == [a.start_station, a.end_station]      # 직선은 양 끝점만
+
+
+def test_alignment_is_abstract():
+    with pytest.raises(TypeError):
+        Alignment()
+
+    class Incomplete(Alignment):         # 필수 메서드를 빠뜨린 구현
+        start_station = end_station = 0.0
+    with pytest.raises(TypeError):
+        Incomplete()
+
+
+class ParabolicProfile(Alignment):
+    """곡선·종곡선 선형 자리표시자: 직선 평면 + 포물선 종단 (is_straight 가 False 인 구현의 예)"""
+    start_station, end_station = 0.0, 1000.0
+
+    def point_at(self, station): return (station, 0.0)
+    def azimuth_at(self, station): return 0.0
+    def elevation_at(self, station): return 100.0 + 0.00001 * station ** 2
+
+
+def test_default_grade_is_numerical_derivative_and_polyline_is_sampled():
+    p = ParabolicProfile()
+    assert not p.is_straight
+    assert p.grade_at(300.0) == pytest.approx(2 * 0.00001 * 300.0, rel=1e-6)    # 구현체가 구배를 몰라도 표고에서 계산
+    assert p.frame_at(300.0).grade == pytest.approx(0.006, rel=1e-6)
+    sta = p.polyline_stations(step=5.0)
+    assert sta[0] == 0.0 and sta[-1] == 1000.0 and len(sta) == 201
+
+
+def test_config_seam_matches_alignment_and_local_frame():
+    cfg = make_cfg(); cfg.station.start_station = 100.0; a = cfg.align
+    assert cfg.lv(20.0) == pytest.approx(a.elevation_at(120.0))
+    assert cfg.theta_at(20.0) == pytest.approx(a.azimuth_at(120.0))
+    assert cfg.grade_permil(20.0) == pytest.approx(a.slope)
+    cx, cy = a.point_at(120.0); th = a.azimuth_at(120.0)
+    assert cfg.to_world(20.0, 0.0) == pytest.approx((cx, cy))
+    # t 는 진행방향 왼쪽(+90°)
+    assert cfg.to_world(20.0, 3.0) == pytest.approx((cx - 3.0 * math.sin(th), cy + 3.0 * math.cos(th)))
+    assert cfg.origin() == pytest.approx(a.point_at(100.0))
+
+
+def test_heading_alignment_gives_identical_model(tmp_path):
+    """같은 선형을 다른 구현(Alignment)으로 주면 3D 면과 IFC 배치가 완전히 같아야 함 (엔진이 구현체에 의존하지 않음)"""
+    base = make_cfg(user_example())
+    other = make_cfg(user_example())
+    other.align = equivalent_heading(base.align)
+
+    def snap(cfg, name):
+        eng = StationCADEngine(cfg)
+        faces = sorted(tuple(tuple(round(c, 6) for c in v) for v in (e.dxf.vtx0, e.dxf.vtx1, e.dxf.vtx2, e.dxf.vtx3))
+                       for e in ezdxf.readfile(eng.generate_3d_dxf(tmp_path / f"{name}.dxf")).modelspace().query("3DFACE"))
+        f = ifcopenshell.open(eng.generate_ifc(tmp_path / f"{name}.ifc"))
+        places = {el.Name: [round(c, 6) for c in el.ObjectPlacement.RelativePlacement.Location.Coordinates]
+                  for el in f.by_type("IfcElement")}
+        elev = {s.Name: round(s.Elevation, 6) for s in f.by_type("IfcBuildingStorey")}
+        return faces, places, elev
+    assert snap(base, "a") == snap(other, "b")
+
+
+def test_alignment_centerline_drawn_from_interface(tmp_path):
+    cfg = make_cfg(); a = cfg.align
+    path = StationCADEngine(cfg).generate_3d_dxf(tmp_path / "3d.dxf")
+    line = _q(path, "ALIGNMENT_CL", "POLYLINE")[0]
+    pts = [tuple(v.dxf.location) for v in line.vertices]
+    assert pts[0] == pytest.approx((a.bp_x, a.bp_y, a.bp_z)) and pts[-1] == pytest.approx((a.ep_x, a.ep_y, a.ep_z))
+
+
+def test_grade_label_comes_from_alignment(tmp_path):
+    cfg = make_cfg()
+    cfg.align = equivalent_heading(cfg.align)
+    path = StationCADEngine(cfg).generate_section_dxf([25.0], tmp_path / "s.dxf")
+    texts = [t.dxf.text for t in ezdxf.readfile(path).modelspace().query("TEXT")]
+    assert any("SLOPE 18.41‰" in t for t in texts)
+
+
+def test_station_must_lie_inside_alignment():
+    cfg = make_cfg(); end = cfg.align.end_station
+    cfg.station.start_station = end - cfg.station.length          # 끝에 딱 맞음 → 통과
+    cfg.validate()
+    cfg.station.start_station += 0.5                              # 0.5m 벗어남
+    with pytest.raises(ValueError, match="선형 범위"):
+        StationCADEngine(cfg)
+    cfg.station.start_station = -1.0
+    with pytest.raises(ValueError, match="선형 범위"):
+        cfg.validate()
+    shifted = make_cfg(); shifted.align = HeadingAlignment(bp_station=500.0, length=250.0, bp_x=0, bp_y=0, bp_z=10)
+    shifted.station.start_station = 500.0
+    shifted.validate()                                            # 선형이 500부터 시작해도 그 범위 안이면 통과
+
+
+def test_curved_alignment_is_rejected_with_clear_message():
+    cfg = make_cfg(); cfg.align = ParabolicProfile()
+    with pytest.raises(NotImplementedError, match="곡선/종곡선"):
+        StationCADEngine(cfg)
+
+
+def test_heading_alignment_validation():
+    with pytest.raises(ValueError):
+        HeadingAlignment(length=0).validate()
+    with pytest.raises(ValueError):
+        HeadingAlignment(heading_deg=float("nan")).validate()

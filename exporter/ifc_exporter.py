@@ -306,13 +306,10 @@ class IFCExporter:
 
     def _create_local_placement(self, s: float, t: float, z: float):
         """정거장 로컬 (s, t, z) → WCS 위치 + 선형 방위각 회전의 IfcLocalPlacement"""
-        ox, oy = self.config.origin()
-        theta = self.config.align.theta
+        x, y = self.config.to_world(s, t)
+        theta = self.config.theta_at(s)
         c, sn = math.cos(theta), math.sin(theta)
-        point = self.file.create_entity(
-            "IfcCartesianPoint",
-            Coordinates=[float(ox + s * c - t * sn), float(oy + s * sn + t * c), float(z)]
-        )
+        point = self.file.create_entity("IfcCartesianPoint", Coordinates=[float(x), float(y), float(z)])
         axis2placement = self.file.create_entity(
             "IfcAxis2Placement3D",
             Location=point,

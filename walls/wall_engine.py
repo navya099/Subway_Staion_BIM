@@ -85,14 +85,14 @@ class WallEngine:
             self.wall_packages.append(package)
 
     # ---------- 작도 ----------
-    def add_wall_mesh(self, msp, bp_x, bp_y, theta):
-        """3D 절대 좌표계 메쉬 (bp_x, bp_y = 정거장 시점의 WCS 좌표). 한 번만 호출할 것"""
+    def add_wall_mesh(self, msp, world):
+        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
         for package in self.wall_packages:
             for wall in package.walls:
                 s0, s1, t0, t1, z0, z1 = self.wall_corners(wall)
                 h = wall.shape.height
                 faces = CommonHelper.create_sloped_box_faces_global(
-                    s0, s1, t0, t1, z0, z1, z0 + h, z1 + h, bp_x, bp_y, theta)
+                    s0, s1, t0, t1, z0, z1, z0 + h, z1 + h, world)
                 wall.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------

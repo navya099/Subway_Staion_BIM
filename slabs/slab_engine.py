@@ -81,14 +81,14 @@ class SlabEngine:
         return next(n for n in range(1, self.sp.floors + 1) if self.level_name(n) == level)
 
     # ---------- 작도 ----------
-    def add_slab_mesh(self, msp, bp_x, bp_y, theta):
-        """3D 절대 좌표계 메쉬 (bp_x, bp_y = 정거장 시점의 WCS 좌표). 한 번만 호출할 것"""
+    def add_slab_mesh(self, msp, world):
+        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
         for package in self.slab_packages:
             for slab in package.slabs:
                 s0, s1, t0, t1, z0, z1 = self.slab_corners(slab)
                 th = slab.shape.thickness
                 faces = CommonHelper.create_sloped_box_faces_global(
-                    s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, bp_x, bp_y, theta)
+                    s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, world)
                 slab.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------

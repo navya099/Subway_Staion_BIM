@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 import math
 
+from config.alignment import Alignment
+
 
 @dataclass
-class AlignmentConfig:
-    """선형 파라미터 데이터 클래스
+class AlignmentConfig(Alignment):
+    """선형 파라미터 데이터 클래스 (BP/EP 좌표로 정의한 직선 + 일정 구배 선형. GUI 입력 형식)
         Attributes:
             bp_station: 선형 시작 측점
             bp_x: 시작 x좌표
@@ -76,3 +78,28 @@ class AlignmentConfig:
         # 선형 구배를 반영한 표고 선형 보간
         # 표고 = 시점 표고 + (구배(‰) / 1000) * 거리
         return self.bp_z + (self.slope / 1000.0) * dist_from_bp
+
+    # ---------- Alignment 인터페이스 ----------
+    @property
+    def start_station(self) -> float:
+        return self.bp_station
+
+    @property
+    def end_station(self) -> float:
+        return self.bp_station + self.length
+
+    @property
+    def is_straight(self) -> bool:
+        return True
+
+    def point_at(self, station: float) -> tuple[float, float]:
+        return self.origin_at(station)
+
+    def azimuth_at(self, station: float) -> float:
+        return self.theta
+
+    def elevation_at(self, station: float) -> float:
+        return self.calc_align_lv(station)
+
+    def grade_at(self, station: float, h: float = 0.01) -> float:
+        return self.slope / 1000.0

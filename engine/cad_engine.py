@@ -40,23 +40,22 @@ class StationCADEngine:
     def generate_3d_dxf(self, filename="output/정거장3d모델.dxf") -> str:
         doc, msp = self._init_doc()
 
-        # 선형 제원(BP/EP)은 설정값 사용. bp_x, bp_y = 정거장 시점(s=0)의 WCS 좌표
+        # 선형은 Alignment 인터페이스로만 접근: 중심선은 선형 전 구간, 부재 배치는 world(s, t) 변환
         a = self.cfg.align
-        theta = a.theta
-        bp_x, bp_y = self.cfg.origin()
-
-        msp.add_line((a.bp_x, a.bp_y, a.bp_z), (a.ep_x, a.ep_y, a.ep_z), dxfattribs={"layer": "ALIGNMENT_CL"})
+        world = self.cfg.to_world
+        msp.add_polyline3d([(*a.point_at(st), a.elevation_at(st)) for st in a.polyline_stations()],
+                           dxfattribs={"layer": "ALIGNMENT_CL"})
 
         # 모든 부재는 객체당 1회 작도 (구배는 부재 자체의 rise로 표현)
         for engine in self.sub_engines:
             if hasattr(engine, 'add_platform_mesh'):
-                engine.add_platform_mesh(msp, bp_x, bp_y, theta)
+                engine.add_platform_mesh(msp, world)
             if hasattr(engine, 'add_slab_mesh'):
-                engine.add_slab_mesh(msp, bp_x, bp_y, theta)
+                engine.add_slab_mesh(msp, world)
             if hasattr(engine, 'add_wall_mesh'):
-                engine.add_wall_mesh(msp, bp_x, bp_y, theta)
+                engine.add_wall_mesh(msp, world)
             if hasattr(engine, 'add_column_mesh'):
-                engine.add_column_mesh(msp, bp_x, bp_y, theta)
+                engine.add_column_mesh(msp, world)
 
         self._save(doc, filename)
         return os.path.abspath(filename)
@@ -93,7 +92,7 @@ class StationCADEngine:
             roof_top_z = floor_top_z + p.height
 
             # 주석 및 중심선
-            msp.add_text(f"SECTION STA. {self._fmt_sta(sta)} (SLOPE {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.0, 'layer': 'SEC_TEXT'}).set_placement((x_offset, roof_top_z + 3.0))
+            msp.add_text(f"SECTION STA. {self._fmt_sta(sta)} (SLOPE {self.cfg.grade_permil(sta):.2f}‰)", dxfattribs={'height': 1.0, 'layer': 'SEC_TEXT'}).set_placement((x_offset, roof_top_z + 3.0))
             msp.add_line((x_offset, floor_bot_z - 2.0), (x_offset, roof_top_z + 2.0), dxfattribs={'layer': 'SEC_CENTER'})
             msp.add_text("C.L.", dxfattribs={'height': 0.6, 'layer': 'SEC_TEXT'}).set_placement((x_offset + 0.2, roof_top_z + 1.0))
 
@@ -135,7 +134,7 @@ class StationCADEngine:
         msp.add_line((-10.0, self.cfg.lv(-10.0)), (p.length + 10.0, self.cfg.lv(p.length + 10.0)), dxfattribs={'layer': 'PROF_CENTER'})
 
         draw_view_items(msp, self._collect('profile_items'))
-        msp.add_text(f"STATION PROFILE VIEW (SLOPE: {self.cfg.align.slope:.2f}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
+        msp.add_text(f"STATION PROFILE VIEW (SLOPE: {self.cfg.grade_permil(0.0):.2f}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 
         self._save(doc, filename)
         return os.path.abspath(filename)

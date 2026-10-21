@@ -81,14 +81,14 @@ class PlatformEngine:
         self.platform_packages.append(package)
 
     # ---------- 작도 ----------
-    def add_platform_mesh(self, msp, bp_x, bp_y, theta):
-        """3D 절대 좌표계 메쉬 (bp_x, bp_y = 정거장 시점의 WCS 좌표). 한 번만 호출할 것"""
+    def add_platform_mesh(self, msp, world):
+        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
         for package in self.platform_packages:
             for plat in package.platforms:
                 s0, s1, t0, t1, z0, z1 = self.platform_corners(plat)
                 th = plat.shape.thickness
                 faces = CommonHelper.create_sloped_box_faces_global(
-                    s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, bp_x, bp_y, theta)
+                    s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, world)
                 plat.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_PLATFORM"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------

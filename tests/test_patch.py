@@ -119,10 +119,13 @@ def test_adapter_maps_slabs_and_defaults():
 
 
 def test_adapter_per_floor_circle():
-    e = entries(); e["floor_1_type"] = W("원기둥"); e["floor_1_radius"] = W("0.6")
+    from gui.column_draft import CIRCLE, ColumnDrafts
+    e = entries(); e["column_drafts"] = d = ColumnDrafts(); d.ensure_floors(2)
+    d.floors[2].rows[0].patterns[0].shape = CIRCLE
+    d.floors[2].rows[0].patterns[0].diameter = "1.2"          # 지름 1.2 → 반지름 0.6
     cfg = TkAdapter.collect_entries(e)
     spec = cfg.column.floors[2].rows[0].pattern[0]
-    assert spec.shape_type == T.CIRCLE and spec.radius == 0.6
+    assert spec.shape_type == T.CIRCLE and spec.radius == pytest.approx(0.6)
     assert cfg.column.floors[1].rows[0].pattern[0].shape_type == T.RECTANGLE
 
 
@@ -545,3 +548,108 @@ def test_merge_items_only_touching():
     out = merge_items([b, a, c, d])
     spans = sorted((i.u0, i.vb0, i.vt0) for i in out)
     assert spans == [(0, 0, 9), (0, 10, 12), (2, 0, 5)]
+
+
+# ---------------- 열별 기둥 입력 모델 (화면 비의존) ----------------
+from gui.column_draft import (CIRCLE as D_CIRCLE, RECT as D_RECT, ColumnDrafts, PatternDraft, RowDraft,
+                              estimate_count, level_name)
+
+
+def user_example_drafts():
+    d = ColumnDrafts(); d.ensure_floors(3)
+    p = d.floors[1].rows[0].patterns[0]; p.width, p.depth = "0.4", "1.0"
+    d.floors[2].rows = [RowDraft("-3.0", "10.0", "1.0", [PatternDraft(D_CIRCLE, diameter="1.0")]),
+                        RowDraft("3.0", "10.0", "1.0", [PatternDraft(D_CIRCLE, diameter="1.0")])]
+    d.floors[3].rows = [RowDraft("0.0", "8.0", "1.0", [PatternDraft(D_CIRCLE, diameter="1.0"),
+                                                       PatternDraft(D_RECT, width="0.8", depth="0.8")])]
+    return d
+
+
+def test_drafts_reproduce_user_example():
+    params = user_example_drafts().to_params(3)
+    eng = StationCADEngine(make_cfg(params))
+    pk = {p.level: p for p in eng.columns.column_packages}
+    assert (pk["B3F"].total_count, pk["B2F"].total_count, pk["B1F"].total_count) == (20, 40, 25)
+    assert params.floors[2].rows[0].pattern[0].radius == pytest.approx(0.5)      # 지름 1.0 → 반지름 0.5
+
+
+def test_drafts_ensure_floors_keeps_existing_input():
+    d = ColumnDrafts(); d.ensure_floors(2)
+    d.floors[1].rows[0].interval = "7.5"
+    assert d.ensure_floors(3) is True and d.floors[1].rows[0].interval == "7.5" and 3 in d.floors
+    assert d.ensure_floors(3) is False
+    d.ensure_floors(1)
+    assert list(d.floors) == [1] and d.floors[1].rows[0].interval == "7.5"
+
+
+@pytest.mark.parametrize("edit,msg", [
+    (lambda d: setattr(d.floors[1].rows[0], "interval", "abc"), "B3F 1열: 배치 간격이(가) 숫자가 아닙니다"),
+    (lambda d: setattr(d.floors[2].rows[0], "interval", "0"), "B2F 1열: 배치 간격은(는) 0보다 커야 합니다"),
+    (lambda d: setattr(d.floors[3].rows[0], "start_offset", "-1"), "B1F 1열: 시작 여유은(는) 0 이상이어야 합니다"),
+    (lambda d: setattr(d.floors[1].rows[0].patterns[0], "width", ""), "B3F 1열 패턴 1: 폭이(가) 숫자가 아닙니다"),
+    (lambda d: setattr(d.floors[2].rows[0], "patterns", []), "B2F 1열: 기둥 규격(패턴)이 비어 있습니다"),
+])
+def test_drafts_report_where_input_is_wrong(edit, msg):
+    d = ColumnDrafts(); d.ensure_floors(3)
+    edit(d)
+    with pytest.raises(ValueError) as e:
+        d.to_params(3)
+    assert msg in str(e.value)
+
+
+def test_drafts_floor_without_rows_has_no_columns():
+    d = ColumnDrafts(); d.ensure_floors(3); d.floors[2].rows = []
+    params = d.to_params(3)
+    assert params.target_floors == [1, 3]
+
+
+def test_estimate_count_matches_engine():
+    cfg = make_cfg(user_example_drafts().to_params(3)); st = cfg.station
+    eng = StationCADEngine(cfg)
+    d = user_example_drafts()
+    counts = [sum(estimate_count(r, st.length, st.wall_t) for r in d.floors[n].rows) for n in (1, 2, 3)]
+    assert counts == [pk.total_count for pk in eng.columns.column_packages]
+    assert estimate_count(RowDraft(interval="x"), 200, 1) is None
+
+
+# ---------------- 기둥 배치 검증 (직접 입력값 보호) ----------------
+def _cols(rows, floors=3):
+    return ColumnParameters(floors={1: FloorColumnSpec(rows=rows)})
+
+
+def test_rows_overlapping_each_other_raise():
+    rows = [ColumnRowSpec(0.0, 10.0, 1.0, [RECT(0.8, 0.8)]), ColumnRowSpec(0.5, 10.0, 1.0, [RECT(0.8, 0.8)])]
+    with pytest.raises(ValueError, match="겹칩니다"):
+        StationCADEngine(make_cfg(_cols(rows)))
+
+
+def test_adjacent_but_not_overlapping_rows_pass():
+    rows = [ColumnRowSpec(0.0, 10.0, 1.0, [RECT(0.8, 0.8)]), ColumnRowSpec(0.8, 10.0, 1.0, [RECT(0.8, 0.8)])]
+    StationCADEngine(make_cfg(_cols(rows)))          # 면이 맞닿기만 함
+
+
+def test_diagonal_circles_do_not_false_positive():
+    rows = [ColumnRowSpec(0.0, 10.0, 1.0, [CIRC(0.5)]), ColumnRowSpec(0.8, 10.0, 1.0, [CIRC(0.5)])]
+    with pytest.raises(ValueError):                  # 같은 s 에서 중심 거리 0.8 < 지름 1.0 → 겹침
+        StationCADEngine(make_cfg(_cols(rows)))
+    rows = [ColumnRowSpec(0.0, 0.8, 1.0, [CIRC(0.5)])]    # 같은 열에서 간격 0.8 < 지름 → 겹침
+    with pytest.raises(ValueError):
+        StationCADEngine(make_cfg(_cols(rows)))
+
+
+def test_mixed_pattern_overlap_detected():
+    rows = [ColumnRowSpec(0.0, 0.5, 1.0, [CIRC(0.5), RECT(0.8, 0.8)])]
+    with pytest.raises(ValueError):
+        StationCADEngine(make_cfg(_cols(rows)))
+
+
+def test_column_outside_walls_raises():
+    rows = [ColumnRowSpec(8.7, 10.0, 1.0, [CIRC(0.5)])]      # 안쪽 반폭 9.0, 8.7+0.5 > 9.0
+    with pytest.raises(ValueError, match="벽체 안쪽 면"):
+        StationCADEngine(make_cfg(_cols(rows)))
+
+
+def test_start_offset_smaller_than_half_width_raises():
+    rows = [ColumnRowSpec(0.0, 10.0, 0.3, [RECT(1.0, 0.8)])]   # 반폭 0.5 > 시작 여유 0.3 → 마감벽과 겹침
+    with pytest.raises(ValueError, match="시작 여유"):
+        StationCADEngine(make_cfg(_cols(rows)))

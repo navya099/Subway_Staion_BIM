@@ -20,7 +20,6 @@ class StationBIMApp:
         self.root.resizable(False, True)
 
         self._build_ui()
-        self.column_tab.update_column_floor_ui()  # 초기 층별 입력칸 생성
 
     def _build_ui(self):
         # 전체 메인 탭 노트북 생성
@@ -44,6 +43,8 @@ class StationBIMApp:
         notebook.add(tab_column, text="  3. 중앙 기둥  ")
         self.column_tab = ColumnTab(tab_column, self.entries)
         self.column_tab.build()
+        # 1번 탭에서 길이/외벽 두께를 바꾼 뒤 기둥 탭으로 오면 예상 기둥 개수를 다시 계산
+        notebook.bind("<<NotebookTabChanged>>", lambda e: self.column_tab.refresh_counts())
 
         # 탭 4: 출력 설정
         tab_print = ttk.Frame(notebook)

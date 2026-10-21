@@ -95,6 +95,14 @@ class ColumnEngine:
                 if not row.pattern:
                     raise ValueError(f"{level} {row_idx}열: 기둥 규격(pattern)이 비어 있습니다.")
 
+                inner = p.width / 2.0 - p.wall_t
+                ht_max = max(sp.half_t for sp in row.pattern)
+                hs_max = max(sp.half_s for sp in row.pattern)
+                if abs(row.t_offset) + ht_max > inner + 1e-9:
+                    raise ValueError(f"{level} {row_idx}열: 기둥이 벽체 안쪽 면을 벗어납니다 "
+                                     f"(t 위치 {row.t_offset:.2f}m, 기둥 반폭 {ht_max:.2f}m, 안쪽 반폭 {inner:.2f}m)")
+                if row.start_offset < hs_max - 1e-9:
+                    raise ValueError(f"{level} {row_idx}열: 시작 여유({row.start_offset:.2f}m)가 기둥 반폭({hs_max:.2f}m)보다 작아 마감벽과 겹칩니다")
                 s_first = p.wall_t + row.start_offset
                 s_last = p.length - p.wall_t - row.start_offset
                 n = int((s_last - s_first) / row.interval + 1e-9) + 1 if s_last >= s_first else 0
@@ -122,7 +130,34 @@ class ColumnEngine:
                         shape_type=spec.shape_type,
                         shape=self._make_shape(spec, z_top - z_bot),
                     ))
+            self._check_overlaps(package)
             self.column_packages.append(package)
+
+    # ---------- 검증 ----------
+    @staticmethod
+    def _overlap(a: ColumnData, b: ColumnData) -> bool:
+        """같은 층 기둥 두 개의 평면 겹침 (원-원, 원-사각, 사각-사각을 정확히 판정)"""
+        tol = 1e-6
+        ca, cb = isinstance(a.shape, CircleColumn), isinstance(b.shape, CircleColumn)
+        if ca and cb:
+            return ((a.pos_x - b.pos_x) ** 2 + (a.pos_y - b.pos_y) ** 2) ** 0.5 < a.shape.radius + b.shape.radius - tol
+        if ca or cb:
+            c, r = (a, b) if ca else (b, a)
+            nx = min(max(c.pos_x, r.pos_x - r.shape.half_s), r.pos_x + r.shape.half_s)
+            ny = min(max(c.pos_y, r.pos_y - r.shape.half_t), r.pos_y + r.shape.half_t)
+            return ((c.pos_x - nx) ** 2 + (c.pos_y - ny) ** 2) ** 0.5 < c.shape.radius - tol
+        return (min(a.pos_x + a.shape.half_s, b.pos_x + b.shape.half_s) - max(a.pos_x - a.shape.half_s, b.pos_x - b.shape.half_s) > tol and
+                min(a.pos_y + a.shape.half_t, b.pos_y + b.shape.half_t) - max(a.pos_y - a.shape.half_t, b.pos_y - b.shape.half_t) > tol)
+
+    def _check_overlaps(self, package: ColumnPackage):
+        cols = sorted(package.columns, key=lambda c: c.pos_x)
+        reach = max((c.shape.half_s for c in cols), default=0.0) * 2
+        for i, a in enumerate(cols):
+            for b in cols[i + 1:]:
+                if b.pos_x - a.pos_x > reach + 1e-9:
+                    break
+                if self._overlap(a, b):
+                    raise ValueError(f"{package.level}: {a.name} 와 {b.name} 기둥이 서로 겹칩니다 (열 위치/간격/크기를 확인하세요)")
 
     # ---------- 작도 ----------
     def add_column_mesh(self, msp, bp_x, bp_y, theta):

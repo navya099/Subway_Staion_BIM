@@ -1,8 +1,8 @@
-from columns.column_params import (ColumnParameters, ColumnRowSpec, ColumnSpec, FloorColumnSpec)
-from columns.column_shape_type import ColumnShapeType
+from columns.column_params import ColumnParameters
 from config.alignment_config import AlignmentConfig
 from config.master_config import StationProjectConfig
 from config.station_config import StationParameters
+from gui.column_draft import ColumnDrafts
 from platforms.platform_params import PlatformParameters
 
 
@@ -46,22 +46,7 @@ class TkAdapter:
 
     @staticmethod
     def _collect_columns(entries, floors: int) -> ColumnParameters:
-        """층별 기둥 입력 → 층당 1열(중앙) 배치. 열별 입력 UI가 생기면 rows를 여러 개로 확장하면 됨."""
-        interval = float(entries["col_interval"].get())
-        g_w, g_d = float(entries["col_width"].get()), float(entries["col_depth"].get())
-
-        def num(key, default):
-            w = entries.get(key)
-            return float(w.get()) if w is not None else default
-
-        per_floor = {}
-        for n in range(1, floors + 1):  # n=1: 최하층 (UI의 floor_{n-1}_* 와 대응)
-            idx = n - 1
-            type_w = entries.get(f"floor_{idx}_type")
-            if type_w is not None and type_w.get() == '원기둥':
-                spec = ColumnSpec(ColumnShapeType.CIRCLE, radius=num(f"floor_{idx}_radius", 0.5))
-            else:
-                spec = ColumnSpec(ColumnShapeType.RECTANGLE,
-                                  width=num(f"floor_{idx}_width", g_w), depth=num(f"floor_{idx}_depth", g_d))
-            per_floor[n] = FloorColumnSpec(rows=[ColumnRowSpec(t_offset=0.0, interval=interval, pattern=[spec])])
-        return ColumnParameters(sync_with_platform=bool(entries["sync_all"].get()), floors=per_floor)
+        """기둥 탭의 층별·열별 초안(ColumnDrafts)에서 수집. 초안이 없으면 전 층 기본 1열"""
+        drafts = entries.get("column_drafts") or ColumnDrafts()
+        sync = entries["sync_all"].get() if "sync_all" in entries else True
+        return drafts.to_params(floors, sync=bool(sync))

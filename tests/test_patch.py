@@ -5,7 +5,7 @@ import ezdxf
 import ifcopenshell
 import pytest
 
-from boxs.box_shape import BoxShape
+from boxes.box_shape import BoxShape
 from columns.column_params import (ColumnParameters, ColumnRowSpec, ColumnSpec, FloorColumnSpec)
 from columns.column_shape_type import ColumnShapeType as T
 from config.alignment_config import AlignmentConfig
@@ -653,3 +653,108 @@ def test_start_offset_smaller_than_half_width_raises():
     rows = [ColumnRowSpec(0.0, 10.0, 0.3, [RECT(1.0, 0.8)])]   # 반폭 0.5 > 시작 여유 0.3 → 마감벽과 겹침
     with pytest.raises(ValueError, match="시작 여유"):
         StationCADEngine(make_cfg(_cols(rows)))
+
+
+# ---------------- P2 정리: 입력 검증 / 기본값 / IFC 공간구조 / 이름·경로 ----------------
+import dataclasses
+import importlib.util
+import inspect
+
+from platforms.platform_type import PlatformType
+
+
+@pytest.mark.parametrize("edit,msg", [
+    (lambda c: setattr(c.station, "length", -5), "정거장 길이은(는) 0보다 커야"),
+    (lambda c: setattr(c.station, "width", float("nan")), "정거장 폭은(는) 0보다 커야"),
+    (lambda c: setattr(c.station, "floors", 2.5), "층수는 1 이상의 정수"),
+    (lambda c: setattr(c.station, "wall_t", 10.0), "외벽 두께(10.0m)의 2배"),
+    (lambda c: setattr(c.station, "slab_t", 6.0), "층 높이"),
+    (lambda c: setattr(c.station, "sta_tick", 0), "측점 표기 간격"),
+    (lambda c: setattr(c.platform, "plat_thick", -0.1), "승강장 슬래브 두께은(는) 0 이상"),
+    (lambda c: setattr(c.platform, "plat_type", "0"), "승강장 타입이 올바르지 않습니다"),
+    (lambda c: (setattr(c.align, "ep_x", c.align.bp_x), setattr(c.align, "ep_y", c.align.bp_y)), "평면 좌표가 같습니다"),
+    (lambda c: setattr(c.align, "bp_z", float("inf")), "유한하지 않은 숫자"),
+])
+def test_config_validate_rejects_bad_values(edit, msg):
+    cfg = make_cfg(); edit(cfg)
+    with pytest.raises(ValueError) as e:
+        cfg.validate()
+    assert msg in str(e.value)
+    with pytest.raises(ValueError):
+        StationCADEngine(cfg)            # 엔진 생성 시점에도 같은 검사가 걸림
+
+
+def test_valid_config_passes_validate():
+    make_cfg().validate()
+    StationProjectConfig().validate()    # 기본값 자체도 유효해야 함
+
+
+def test_adapter_reports_which_field_is_wrong():
+    e = entries(); e["length"] = W("abc")
+    with pytest.raises(ValueError, match="정거장 전체 길이: 숫자가 아닙니다 \\('abc'\\)"):
+        TkAdapter.collect_entries(e)
+    e = entries(); e["floors"] = W("2.5")
+    with pytest.raises(ValueError, match="층수: 정수가 아닙니다"):
+        TkAdapter.collect_entries(e)
+    e = entries(); e["support_t"] = W("")
+    with pytest.raises(ValueError, match="승강장 지지벽체 두께"):
+        TkAdapter.collect_entries(e)
+    e = entries(); e["wall_t"] = W("12")             # 변환은 되지만 제원 검증에서 걸림
+    with pytest.raises(ValueError, match="외벽 두께"):
+        TkAdapter.collect_entries(e)
+
+
+def test_adapter_platform_type_is_enum():
+    assert TkAdapter.collect_entries(entries()).platform.plat_type == PlatformType.NORMAL
+    e = entries(); e["platform_type"] = W("1")
+    cfg = TkAdapter.collect_entries(e)
+    with pytest.raises(NotImplementedError):
+        StationCADEngine(cfg)
+
+
+def test_defaults_have_single_source():
+    """기본 파라미터로 만든 모델이 바로 유효하고, 기둥 초안 기본값은 모델 기본값을 그대로 씀"""
+    from gui.column_draft import PatternDraft as PD, RowDraft as RD
+    spec, row = ColumnSpec(), ColumnRowSpec()
+    assert (float(PD().width), float(PD().depth), float(PD().diameter) / 2) == (spec.width, spec.depth, spec.radius)
+    assert (float(RD().t_offset), float(RD().interval), float(RD().start_offset)) == (row.t_offset, row.interval, row.start_offset)
+    cfg = StationProjectConfig()
+    assert cfg.station.floors == 2 and cfg.station.slab_t == 1.0 and cfg.platform.plat_thick == 0.2
+    StationCADEngine(cfg)
+
+
+def test_ifc_spatial_structure_is_placed(tmp_path):
+    cfg = make_cfg()
+    f = ifcopenshell.open(StationCADEngine(cfg).generate_ifc(tmp_path / "s.ifc"))
+    site, building = f.by_type("IfcSite")[0], f.by_type("IfcBuilding")[0]
+    assert site.ObjectPlacement is not None and building.ObjectPlacement.PlacementRelTo == site.ObjectPlacement
+    st = cfg.station
+    story_h = st.height / st.floors
+    base = cfg.lv(0.0) - st.offset
+    for storey in f.by_type("IfcBuildingStorey"):
+        n = {"B3F": 1, "B2F": 2, "B1F": 3}[storey.Name]
+        expected = base + (n - 1) * story_h
+        assert storey.Elevation == pytest.approx(expected)                         # 부재와 같은 절대 표고 체계
+        z = storey.ObjectPlacement.RelativePlacement.Location.Coordinates[2]
+        assert z == pytest.approx(expected) and storey.ObjectPlacement.PlacementRelTo == building.ObjectPlacement
+
+
+def test_plan_station_ticks_by_index(tmp_path):
+    cfg = make_cfg(); cfg.station.length = 5.0; cfg.station.sta_tick = 0.1
+    path = StationCADEngine(cfg).generate_plan_dxf(tmp_path / "p.dxf")
+    assert len(_q(path, "PLAN_SECTION_LINE", "LINE")) == 51        # 0.0 ~ 5.0, 실수 누적 오차로 끝점이 빠지지 않음
+
+
+def test_default_output_paths_are_relative():
+    for name in ("generate_3d_dxf", "generate_section_dxf", "generate_plan_dxf", "generate_profile_dxf", "generate_ifc"):
+        default = inspect.signature(getattr(StationCADEngine, name)).parameters
+        default = [p.default for p in default.values() if p.default is not inspect._empty][-1]
+        assert default.startswith("output/") and "c:" not in default.lower()
+
+
+def test_module_names_after_cleanup():
+    assert importlib.util.find_spec("boxes.box_shape") and importlib.util.find_spec("helper.geometry_helper")
+    assert importlib.util.find_spec("boxs") is None and importlib.util.find_spec("helper.box_helper") is None
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert "*.ifc" in open(os.path.join(root, ".gitignore"), encoding="utf-8").read()
+    assert not os.path.exists(os.path.join(root, "station_model.ifc"))      # 생성물은 저장소에 두지 않음

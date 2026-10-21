@@ -3,8 +3,8 @@ from enum import Enum
 
 class PlatformType(Enum):
     """승강장 설치 타입"""
-    NORMAL = 0
-    ISLAND = 1
+    NORMAL = 0   # 상대식 (선로 바깥 좌/우)
+    ISLAND = 1   # 섬식 (미지원)
 
 
 class PlatformSide(Enum):

@@ -5,7 +5,7 @@ from gui.gui_app import StationBIMApp
 
 def main():
     root = tk.Tk()
-    app = StationBIMApp(root)
+    StationBIMApp(root)
     root.mainloop()
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from columns.column_params import ColumnParameters, ColumnRowSpec, ColumnSpec, FloorColumnSpec
 from columns.column_shape_type import ColumnShapeType
 
+_SPEC, _ROW = ColumnSpec(), ColumnRowSpec()   # 초기값은 모델 기본값이 단일 출처
+
 RECT = "사각기둥"
 CIRCLE = "원기둥"
 SHAPES = [RECT, CIRCLE]
@@ -16,17 +18,17 @@ SHAPES = [RECT, CIRCLE]
 class PatternDraft:
     """열 안에서 순환 반복되는 기둥 규격 1개 (입력창 문자열 그대로 보관)"""
     shape: str = RECT
-    width: str = "0.8"       # 사각: 진행방향 폭 (m)
-    depth: str = "0.8"       # 사각: 직교방향 두께 (m)
-    diameter: str = "1.0"    # 원: 지름 (m)
+    width: str = str(_SPEC.width)             # 사각: 진행방향 폭 (m)
+    depth: str = str(_SPEC.depth)             # 사각: 직교방향 두께 (m)
+    diameter: str = str(_SPEC.radius * 2)     # 원: 지름 (m)
 
 
 @dataclass
 class RowDraft:
     """기둥 1열 (선형 직교방향 위치 t 에 놓인 기둥 줄)"""
-    t_offset: str = "0.0"
-    interval: str = "10.0"
-    start_offset: str = "1.0"
+    t_offset: str = str(_ROW.t_offset)
+    interval: str = str(_ROW.interval)
+    start_offset: str = str(_ROW.start_offset)
     patterns: list = field(default_factory=lambda: [PatternDraft()])
 
 

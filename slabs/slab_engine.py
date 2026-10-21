@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from helper.box_helper import CommonHelper
+from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
 from slabs.rectangular_slab import RectangularSlab
 from slabs.slab_data import SlabData

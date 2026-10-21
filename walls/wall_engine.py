@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from helper.box_helper import CommonHelper
+from helper.geometry_helper import CommonHelper
 from walls.rectangular_wall import RectangularWall
 from walls.wall_data import WallData
 from walls.wall_package import WallPackage

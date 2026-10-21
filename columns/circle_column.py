@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
-from typing import ClassVar
 from columns.column_shape import ColumnShape
 from columns.column_shape_type import ColumnShapeType
 

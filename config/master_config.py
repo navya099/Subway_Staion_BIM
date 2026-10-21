@@ -19,6 +19,12 @@ class StationProjectConfig:
         if not self.column.floors:
             self.column.floors = ColumnParameters.uniform(self.station.floors).floors
 
+    def validate(self):
+        """모든 제원 검사 (GUI 입력 변환 직후, 엔진 생성 직전에 호출)"""
+        self.station.validate()
+        self.platform.validate()
+        self.align.validate()
+
     def lv(self, s: float) -> float:
         """정거장 로컬 거리 s(0~L)에서의 선형 표고 (정거장 시작 측점 반영)"""
         return self.align.calc_align_lv(self.station.start_station + s)

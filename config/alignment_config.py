@@ -15,12 +15,19 @@ class AlignmentConfig:
             ep_z: 끝 z좌표
     """
     bp_station: float = 0.0
-    bp_x: float = 0.0
-    bp_y: float = 0.0
-    bp_z: float = 0.0
-    ep_x: float = 0.0
-    ep_y: float = 0.0
-    ep_z: float = 0.0
+    bp_x: float = 286.4826         # 샘플 선형 (GUI 초기값도 동일)
+    bp_y: float = -85.3896
+    bp_z: float = 123.45
+    ep_x: float = 575.9987
+    ep_y: float = 437.4075
+    ep_z: float = 134.45
+
+    def validate(self):
+        vals = (self.bp_station, self.bp_x, self.bp_y, self.bp_z, self.ep_x, self.ep_y, self.ep_z)
+        if not all(math.isfinite(v) for v in vals):
+            raise ValueError("선형 제원에 유한하지 않은 숫자가 있습니다")
+        if self.length <= 0:
+            raise ValueError("선형 시작점(BP)과 끝점(EP)의 평면 좌표가 같습니다. 선형 방향을 정할 수 없어요")
 
     @property
     def length(self) -> float:

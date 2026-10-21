@@ -1,5 +1,4 @@
 import tkinter as tk
-from tkinter import ttk
 
 
 class PrintTab:
@@ -9,6 +8,5 @@ class PrintTab:
 
     def build(self):
         """탭 4: 출력옵션 제원 입력"""
-        pad_opts = {'padx': 15, 'pady': 8}
         tk.Label(self.parent, text="[ 출력옵션 제원 입력 ]", font=("Malgun Gothic", 10, "bold"), fg="#2E7D32").pack(
             anchor="w", padx=15, pady=(15, 5))

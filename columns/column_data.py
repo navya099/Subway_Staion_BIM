@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 from bim_data.common_bim_data import CommonBIMData
 from columns.column_shape_type import ColumnShapeType

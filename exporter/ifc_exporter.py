@@ -77,32 +77,46 @@ class IFCExporter:
             RepresentationContexts=[geom_context]
         )
 
-    def _setup_spatial_structure(self):
-        """IfcSite, IfcBuilding 및 층별 IfcBuildingStorey 공간 계층 구성"""
-        owner_history = self.file.by_type("IfcOwnerHistory")[0] if self.file.by_type("IfcOwnerHistory") else None
+    def _placement(self, z: float = 0.0, relative_to=None):
+        """(0, 0, z) 에 놓인 IfcLocalPlacement (공간 구조 요소용)"""
+        point = self.file.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, float(z)))
+        axis2 = self.file.create_entity("IfcAxis2Placement3D", Location=point)
+        return self.file.create_entity("IfcLocalPlacement", PlacementRelTo=relative_to, RelativePlacement=axis2)
 
+    def _setup_spatial_structure(self):
+        """IfcSite, IfcBuilding 및 층별 IfcBuildingStorey 공간 계층 구성 (모두 WCS 원점 기준 배치)
+
+        부재는 WCS 절대 좌표로 배치되므로 층의 Elevation 도 절대 표고
+        (정거장 시점 s=0 에서의 바닥 슬래브 상면 + 층 하단 높이)로 둔다.
+        """
         # 1. Site
-        site = self.file.create_entity("IfcSite", GlobalId=ifcopenshell.guid.new(), Name="Station Site")
+        site_placement = self._placement()
+        site = self.file.create_entity("IfcSite", GlobalId=ifcopenshell.guid.new(), Name="Station Site",
+                                       ObjectPlacement=site_placement)
         self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=self.project,
                                 RelatedObjects=[site])
 
         # 2. Building
-        building = self.file.create_entity("IfcBuilding", GlobalId=ifcopenshell.guid.new(), Name="지하철 정거장")
+        building_placement = self._placement(relative_to=site_placement)
+        building = self.file.create_entity("IfcBuilding", GlobalId=ifcopenshell.guid.new(), Name="지하철 정거장",
+                                           ObjectPlacement=building_placement)
         self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=site,
                                 RelatedObjects=[building])
 
         # 3. Storeys (층별 공간)
         p = self.config.station
         story_h = p.height / p.floors
+        floor_top_z = self.config.lv(0.0) - p.offset
 
         for floor_idx in range(1, p.floors + 1):
             level_name = f"B{p.floors - floor_idx + 1}F" if p.floors > 1 else f"{floor_idx}F"
-            elevation = (floor_idx - 1) * story_h
+            elevation = floor_top_z + (floor_idx - 1) * story_h
 
             storey = self.file.create_entity(
                 "IfcBuildingStorey",
                 GlobalId=ifcopenshell.guid.new(),
                 Name=level_name,
+                ObjectPlacement=self._placement(elevation, relative_to=building_placement),
                 Elevation=float(elevation)
             )
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=building,

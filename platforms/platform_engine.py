@@ -1,9 +1,9 @@
 from config.master_config import StationProjectConfig
-from helper.box_helper import CommonHelper
+from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
 from platforms.platform_data import PlatformData
 from platforms.platform_package import PlatformPackage
-from platforms.platform_type import PlatformPart, PlatformSide
+from platforms.platform_type import PlatformPart, PlatformSide, PlatformType
 from platforms.rectangular_platform import RectangularPlatform
 
 
@@ -35,7 +35,7 @@ class PlatformEngine:
     # ---------- 생성 ----------
     def _build_platform_bim_objects(self):
         p, sp = self.p, self.sp
-        if p.plat_type not in ("", "0"):
+        if p.plat_type != PlatformType.NORMAL:
             raise NotImplementedError("섬식 승강장은 아직 지원하지 않습니다 (상대식만 지원).")
         if p.plat_thick <= 0:
             return  # 승강장 미설정 → 객체 없음

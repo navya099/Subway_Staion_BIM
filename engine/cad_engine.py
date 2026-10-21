@@ -1,12 +1,10 @@
 import os
 import ezdxf
-import math
 
 from columns.column_engine import ColumnEngine
 from config.cadconfig import LAYER_DEFINITIONS
 from config.master_config import StationProjectConfig
 from exporter.ifc_exporter import IFCExporter
-from helper.box_helper import CommonHelper
 from helper.view_item import draw_view_items
 from platforms.platform_engine import PlatformEngine
 from slabs.slab_engine import SlabEngine
@@ -15,6 +13,7 @@ from walls.wall_engine import WallEngine
 
 class StationCADEngine:
     def __init__(self, config: StationProjectConfig):
+        config.validate()
         self.cfg = config
         # --- [서브 부재 엔진 등록 리스트] ---
         # 추후 ColumnEngine, StairEngine 구현 시 이 리스트에 추가만 하면 자동 연동!
@@ -38,9 +37,8 @@ class StationCADEngine:
         return doc, msp
 
     # --- [1. 3D 메쉬 생성 엔진] ---
-    def generate_3d_dxf(self, filename="c:/temp/정거장3d모델.dxf") -> str:
+    def generate_3d_dxf(self, filename="output/정거장3d모델.dxf") -> str:
         doc, msp = self._init_doc()
-        p = self.cfg.station
 
         # 선형 제원(BP/EP)은 설정값 사용. bp_x, bp_y = 정거장 시점(s=0)의 WCS 좌표
         a = self.cfg.align
@@ -81,7 +79,7 @@ class StationCADEngine:
         return items
 
     # --- [2. 2D 횡단면도 생성 엔진] --- (측점 sta 의 절단면을 BIM 객체에서 직접 추출)
-    def generate_section_dxf(self, sta_list: list[float], filename="c:/temp/정거장단면도.dxf") -> str:
+    def generate_section_dxf(self, sta_list: list[float], filename="output/정거장단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
         half_w = p.width / 2.0
@@ -109,7 +107,7 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     # --- [3. 2D 평면도 생성 엔진] --- (절단 높이 FL+PLAN_CUT_H 기준)
-    def generate_plan_dxf(self, filename="c:/temp/정거장평면도.dxf") -> str:
+    def generate_plan_dxf(self, filename="output/정거장평면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
         half_w = p.width / 2.0
@@ -117,11 +115,10 @@ class StationCADEngine:
         msp.add_line((-10.0, 0), (p.length + 10.0, 0), dxfattribs={'layer': 'PLAN_CENTER'})
         msp.add_text("C.L.", dxfattribs={'height': 1.0, 'layer': 'PLAN_TEXT'}).set_placement((p.length + 12.0, -0.5))
 
-        cur_sta = 0.0
-        while cur_sta <= p.length + 1e-9:
+        for i in range(int(p.length / p.sta_tick + 1e-9) + 1):   # sta_tick > 0 은 StationParameters.validate 가 보장
+            cur_sta = i * p.sta_tick
             msp.add_line((cur_sta, -half_w - 2.0), (cur_sta, half_w + 2.0), dxfattribs={'layer': 'PLAN_SECTION_LINE'})
             msp.add_text(f"STA.{self._fmt_sta(cur_sta)}", dxfattribs={'height': 0.6, 'layer': 'PLAN_TEXT'}).set_placement((cur_sta - 1.5, half_w + 2.5))
-            cur_sta += p.sta_tick
 
         draw_view_items(msp, self._collect('plan_items', self.PLAN_CUT_H))
         msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
@@ -130,7 +127,7 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     # --- [4. 2D 종단면도 생성 엔진] --- (선형 중심 t=0 절단)
-    def generate_profile_dxf(self, filename="c:/temp/정거장종단면도.dxf") -> str:
+    def generate_profile_dxf(self, filename="output/정거장종단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
         start_lv = self.cfg.lv(0)
@@ -143,7 +140,7 @@ class StationCADEngine:
         self._save(doc, filename)
         return os.path.abspath(filename)
 
-    def generate_ifc(self, output_path: str = "c:/temp/station_model.ifc") -> str:
+    def generate_ifc(self, output_path: str = "output/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)
         exporter.export_platforms(self.platform)
         exporter.export_slabs(self.slabs)

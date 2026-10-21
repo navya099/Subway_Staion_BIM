@@ -138,3 +138,64 @@ def test_bad_input_reports_floor_and_row(app):
     ct._vars[(2, 0, "interval")].set("-5")
     with pytest.raises(ValueError, match="B1F 1열"):
         TkAdapter.collect_entries(app.entries)
+
+
+def test_gui_initial_values_come_from_dataclass_defaults(app):
+    from config.alignment_config import AlignmentConfig
+    from config.station_config import StationParameters
+    from platforms.platform_params import PlatformParameters
+    for obj, keys in ((StationParameters(), ("length", "width", "start_station", "offset", "height", "floors", "wall_t",
+                                              "floor_t", "slab_t")),
+                      (AlignmentConfig(), ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station")),
+                      (PlatformParameters(), ("track_spacing", "plat_offset", "plat_thick", "plat_height", "support_t"))):
+        for k in keys:
+            assert app.entries[k].get() == str(getattr(obj, k)), k
+
+
+class _Recorder:
+    """messagebox / filedialog 대체: 호출 내용을 기록"""
+    def __init__(self, directory=""):
+        self.calls, self.directory = [], directory
+
+    def showerror(self, title, msg): self.calls.append(("error", msg))
+    def showinfo(self, title, msg): self.calls.append(("info", msg))
+    def askdirectory(self, **kw): return self.directory
+
+
+def test_generate_button_shows_error_for_bad_input(app, monkeypatch):
+    rec = _Recorder()
+    monkeypatch.setattr("gui.gui_app.messagebox", rec)
+    monkeypatch.setattr("gui.gui_app.filedialog", rec)
+    set_entry(app, "length", "abc")
+    app.on_generate()
+    assert rec.calls and rec.calls[0][0] == "error" and "정거장 전체 길이" in rec.calls[0][1]
+
+
+def test_generate_button_reports_engine_errors_with_location(app, monkeypatch, tmp_path):
+    rec = _Recorder(str(tmp_path))
+    monkeypatch.setattr("gui.gui_app.messagebox", rec)
+    monkeypatch.setattr("gui.gui_app.filedialog", rec)
+    app.column_tab.add_row(1)
+    app.column_tab._vars[(1, 1, "t_offset")].set("0.2")         # 같은 층 두 열이 겹침
+    app.on_generate()
+    kind, msg = rec.calls[0]
+    assert kind == "error" and "겹칩니다" in msg and "B2F" in msg
+    assert list(tmp_path.iterdir()) == []                       # 실패 시 반쯤 만든 파일을 남기지 않음
+
+
+def test_generate_button_success_writes_all_files(app, monkeypatch, tmp_path):
+    rec = _Recorder(str(tmp_path))
+    monkeypatch.setattr("gui.gui_app.messagebox", rec)
+    monkeypatch.setattr("gui.gui_app.filedialog", rec)
+    app.on_generate()
+    kind, msg = rec.calls[0]
+    assert kind == "info" and len(msg.strip().splitlines()) == 6        # 제목 줄 + 파일 5개
+    assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
+
+
+def test_generate_cancelled_dialog_does_nothing(app, monkeypatch, tmp_path):
+    rec = _Recorder("")                                          # 폴더 선택 취소
+    monkeypatch.setattr("gui.gui_app.messagebox", rec)
+    monkeypatch.setattr("gui.gui_app.filedialog", rec)
+    app.on_generate()
+    assert rec.calls == []

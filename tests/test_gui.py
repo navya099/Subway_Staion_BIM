@@ -199,3 +199,111 @@ def test_generate_cancelled_dialog_does_nothing(app, monkeypatch, tmp_path):
     monkeypatch.setattr("gui.gui_app.filedialog", rec)
     app.on_generate()
     assert rec.calls == []
+
+
+# ---------------- 곡선 선형 파일 불러오기 ----------------
+import shutil
+
+from config.alignment_config import AlignmentConfig
+from config.curved_alignment import CurvedAlignment
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SAMPLE = os.path.join(ROOT, "samples", "curve_alignment.json")
+SAMPLE_EL = os.path.join(ROOT, "samples", "curve_alignment_elements.json")
+
+
+class _Dialogs:
+    def __init__(self, open_path="", directory=""):
+        self.calls, self.open_path, self.directory = [], open_path, directory
+
+    def showerror(self, title, msg): self.calls.append(("error", title, msg))
+    def showinfo(self, title, msg): self.calls.append(("info", title, msg))
+    def askopenfilename(self, **kw): return self.open_path
+    def askdirectory(self, **kw): return self.directory
+
+
+def patch_dialogs(monkeypatch, **kw):
+    d = _Dialogs(**kw)
+    for mod in ("gui.station_tab", "gui.gui_app"):
+        monkeypatch.setattr(f"{mod}.messagebox", d)
+    monkeypatch.setattr("gui.station_tab.filedialog", d)
+    monkeypatch.setattr("gui.gui_app.filedialog", d)
+    return d
+
+
+def test_loading_curve_file_replaces_bp_ep_inputs(app, monkeypatch):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE)
+    tab = app.station_tab
+    tab.load_alignment_file()
+    assert isinstance(app.entries["alignment_source"].alignment, CurvedAlignment)
+    assert all(str(app.entries[k].cget("state")) == "disabled" for k in ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station"))
+    assert str(tab.reset_btn.cget("state")) == "normal" and "곡선" in tab.align_status.get() and "curve_alignment.json" in tab.align_status.get()
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.align is app.entries["alignment_source"].alignment and not cfg.align.is_straight
+    assert d.calls == []                                           # 정상 파일은 오류창 없음
+
+
+def test_loading_adjusts_start_station_when_outside_alignment(app, monkeypatch):
+    patch_dialogs(monkeypatch, open_path=SAMPLE_EL)               # 선형 STA 1000 ~ 1820, 기본 시작 측점 0.0 은 범위 밖
+    app.station_tab.load_alignment_file()
+    assert float(app.entries["start_station"].get()) == 1000.0
+    assert "시작 측점을 선형 시작" in app.station_tab.align_status.get()
+    TkAdapter.collect_entries(app.entries)                         # 이제 검증 통과
+
+
+def test_reset_returns_to_bp_ep_line(app, monkeypatch):
+    patch_dialogs(monkeypatch, open_path=SAMPLE)
+    app.station_tab.load_alignment_file()
+    app.station_tab.reset_alignment()
+    assert app.entries["alignment_source"].alignment is None
+    assert str(app.entries["bp_x"].cget("state")) == "normal" and str(app.station_tab.reset_btn.cget("state")) == "disabled"
+    assert isinstance(TkAdapter.collect_entries(app.entries).align, AlignmentConfig)
+
+
+def test_bad_alignment_file_shows_error_and_keeps_state(app, monkeypatch, tmp_path):
+    bad = tmp_path / "bad.json"; bad.write_text('{"type": "heading", "bp_x": 1}', encoding="utf-8")
+    d = patch_dialogs(monkeypatch, open_path=str(bad))
+    app.station_tab.load_alignment_file()
+    assert d.calls and d.calls[0][0] == "error" and "bad.json" in d.calls[0][2] and "필요한 항목이 없습니다" in d.calls[0][2]
+    assert app.entries["alignment_source"].alignment is None and str(app.entries["bp_x"].cget("state")) == "normal"
+
+
+def test_cancelled_file_dialog_changes_nothing(app, monkeypatch):
+    d = patch_dialogs(monkeypatch, open_path="")
+    app.station_tab.load_alignment_file()
+    assert d.calls == [] and app.entries["alignment_source"].alignment is None
+
+
+def test_station_outside_loaded_alignment_is_reported(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE, directory=str(tmp_path))
+    app.station_tab.load_alignment_file()
+    set_entry(app, "start_station", "900")                          # 정거장 끝 1100 > 선형 끝 1000
+    app.on_generate()
+    kind, _, msg = d.calls[-1]
+    assert kind == "error" and "선형 범위" in msg and list(tmp_path.iterdir()) == []
+
+
+def test_generate_with_curve_file_writes_curved_outputs(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE, directory=str(tmp_path))
+    app.station_tab.load_alignment_file()
+    set_entry(app, "start_station", "330")                          # 직선 → 완화곡선 → 원곡선을 지나는 구간
+    set_floors(app, 3)
+    set_entry(app, "height", "18")
+    app.on_generate()
+    kind, _, msg = d.calls[-1]
+    assert kind == "info", msg
+    assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
+    import ezdxf
+    plan = ezdxf.readfile(str(next(p for p in tmp_path.iterdir() if "평면도" in p.name)))
+    assert any("[WCS]" in t.dxf.text for t in plan.modelspace().query("TEXT"))
+    f = ifcopenshell.open(str(next(p for p in tmp_path.iterdir() if p.suffix == ".ifc")))
+    assert {e.Representation.Representations[0].RepresentationType for e in f.by_type("IfcWall")} == {"Tessellation"}
+
+
+def test_all_entries_fit_inside_the_window(app):
+    """창 너비(480px)를 넘어 입력칸이 잘리는 일이 없어야 함 (BP Z / EP Z 가 가려졌던 문제)"""
+    app.root.update()
+    right_edge = app.root.winfo_rootx() + app.root.winfo_width()
+    for k in ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station", "length", "start_station"):
+        e = app.entries[k]
+        assert e.winfo_rootx() + e.winfo_width() <= right_edge, k

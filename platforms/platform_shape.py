@@ -16,6 +16,11 @@ class PlatformShape(ABC):
     thickness: float = 0.0
 
     @property
+    def vertical(self) -> float:
+        """연직 치수 (슬래브는 두께, 지지벽체는 높이)"""
+        return self.thickness
+
+    @property
     @abstractmethod
     def volume(self) -> float:
         """승강장 부피 (자식 클래스에서 구현)"""

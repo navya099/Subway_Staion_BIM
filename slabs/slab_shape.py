@@ -19,6 +19,11 @@ class SlabShape(ABC):
     thickness: float = 0.0
 
     @property
+    def vertical(self) -> float:
+        """연직 치수 (슬래브는 두께)"""
+        return self.thickness
+
+    @property
     @abstractmethod
     def volume(self) -> float:
         """슬래브 부피 (자식 클래스에서 구현)"""

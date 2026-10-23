@@ -8,6 +8,7 @@ from columns.column_engine import ColumnEngine
 from columns.circle_column import CircleColumn
 from columns.rectangular_column import RectangularColumn
 from config.master_config import StationProjectConfig
+from helper import prism_member as PM
 from platforms.platform_engine import PlatformEngine
 from platforms.platform_type import PlatformPart
 from slabs.slab_engine import SlabEngine
@@ -185,14 +186,14 @@ class IFCExporter:
             for wall in package.walls:
                 if not wall.shape:
                     continue
-                s0, s1, t0, t1, z0, z1 = wall_engine.wall_corners(wall)
+                placement, representation = self._member_geometry(wall, "WallProfile")
                 ifc_wall = self.file.create_entity(
                     "IfcWall",
                     GlobalId=ifcopenshell.guid.compress(uuid.UUID(wall.guid).hex),
                     Name=wall.name,
                     ObjectType=wall.type_name,
-                    ObjectPlacement=self._create_local_placement(s0, t0, z0),  # 벽체 최소 모서리(s0, t0, 하단)
-                    Representation=self._create_wall_geometry(wall.shape),
+                    ObjectPlacement=placement,
+                    Representation=representation,
                     PredefinedType="SOLIDWALL"
                 )
                 if wall.material:
@@ -215,17 +216,16 @@ class IFCExporter:
             for plat in package.platforms:
                 if not plat.shape:
                     continue
-                s0, s1, t0, t1, z0, z1 = platform_engine.platform_corners(plat)
-                sh = plat.shape
                 is_slab = plat.part == PlatformPart.SLAB
+                placement, representation = self._member_geometry(
+                    plat, "PlatformProfile" if is_slab else "PlatformSupportProfile")
                 ifc_plat = self.file.create_entity(
                     "IfcSlab" if is_slab else "IfcWall",
                     GlobalId=ifcopenshell.guid.compress(uuid.UUID(plat.guid).hex),
                     Name=plat.name,
                     ObjectType="PLATFORM" if is_slab else "PLATFORM_SUPPORT",
-                    ObjectPlacement=self._create_local_placement(s0, t0, z0),
-                    Representation=self._create_sloped_prism_geometry(
-                        sh.length, sh.width, sh.thickness, sh.rise, "PlatformProfile" if is_slab else "PlatformSupportProfile"),
+                    ObjectPlacement=placement,
+                    Representation=representation,
                     PredefinedType="USERDEFINED" if is_slab else "SOLIDWALL"
                 )
                 if plat.material:
@@ -250,16 +250,14 @@ class IFCExporter:
             for slab in package.slabs:
                 if not slab.shape:
                     continue
-                s0, s1, t0, t1, z0, z1 = slab_engine.slab_corners(slab)
-                sh = slab.shape
+                placement, representation = self._member_geometry(slab, "SlabProfile")
                 ifc_slab = self.file.create_entity(
                     "IfcSlab",
                     GlobalId=ifcopenshell.guid.compress(uuid.UUID(slab.guid).hex),
                     Name=slab.name,
                     ObjectType=slab.type_name,
-                    ObjectPlacement=self._create_local_placement(s0, t0, z0),
-                    Representation=self._create_sloped_prism_geometry(
-                        sh.length, sh.width, sh.thickness, sh.rise, "SlabProfile"),
+                    ObjectPlacement=placement,
+                    Representation=representation,
                     PredefinedType=self._SLAB_PREDEFINED[slab.kind]
                 )
                 if slab.material:
@@ -274,8 +272,37 @@ class IFCExporter:
                     RelatedElements=elements
                 )
 
-    def _create_wall_geometry(self, shape):
-        return self._create_sloped_prism_geometry(shape.length, shape.width, shape.height, shape.rise, "WallProfile")
+    def _member_geometry(self, m, profile_name):
+        """벽체/슬래브/승강장 부재의 (배치, 형상).
+        직선 선형: 압출 Solid + 부재 최소 모서리 배치 (정확하고 가벼움).
+        곡선 선형: 선형을 따라 휜 부재라 압출로 표현할 수 없어, 표본 측점마다의 단면을 이은 닫힌 면 집합(IfcPolygonalFaceSet)으로
+        내보내고 좌표는 WCS 절대값이라 배치는 원점."""
+        cfg, sh = self.config, m.shape
+        if cfg.align.is_straight:
+            s0, s1, t0, t1, z0, z1 = PM.corners(cfg, m)
+            return (self._create_local_placement(s0, t0, z0),
+                    self._create_sloped_prism_geometry(sh.length, sh.width, sh.vertical, sh.rise, profile_name))
+        return self._placement(), self._create_tessellated_geometry(PM.sweep_quads(PM.rings(cfg, m)))
+
+    def _create_tessellated_geometry(self, quads):
+        """바깥 방향 사각 면 목록 → IfcPolygonalFaceSet (Tessellation) 형상"""
+        f = self.file
+        index, coords = {}, []
+
+        def idx(p):
+            key = tuple(round(c, 9) for c in p)
+            if key not in index:
+                coords.append(tuple(float(c) for c in p))
+                index[key] = len(coords)                      # IFC 인덱스는 1부터
+            return index[key]
+        faces = [f.create_entity("IfcIndexedPolygonalFace", CoordIndex=[idx(p) for p in q]) for q in quads]
+        face_set = f.create_entity("IfcPolygonalFaceSet", Coordinates=f.create_entity("IfcCartesianPointList3D", CoordList=coords),
+                                   Closed=True, Faces=faces)
+        shape_rep = f.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=f.by_type("IfcGeometricRepresentationContext")[0],
+            RepresentationIdentifier="Body", RepresentationType="Tessellation", Items=[face_set])
+        return f.create_entity("IfcProductDefinitionShape", Representations=[shape_rep])
 
     def _create_sloped_prism_geometry(self, length, width, height, rise, profile_name):
         """s–z 평행사변형 단면(구배 반영)을 t 방향 width만큼 압출한 Solid (벽체·슬래브 공통).

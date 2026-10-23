@@ -13,13 +13,6 @@ class CommonHelper:
             path.closed = True
 
     @staticmethod
-    def prism_corners(pos_x, pos_y, pos_z, length, width, rise):
-        """중심 기준 (s, t, 중심 s 하단 z) 부재 → (s0, s1, t0, t1, z(s0), z(s1)). 벽체·슬래브 공통"""
-        s0, t0 = pos_x - length / 2.0, pos_y - width / 2.0
-        z0 = pos_z - rise / 2.0
-        return s0, s0 + length, t0, t0 + width, z0, z0 + rise
-
-    @staticmethod
     def cut_by_s(sta, s0, s1, length, tol=1e-9):
         """측점 sta 의 횡단면이 [s0, s1) 구간 부재를 자르는가 (마지막 부재는 끝점 포함)"""
         return (s0 - tol <= sta < s1 - tol) or (s1 >= length - tol and s0 - tol <= sta <= s1 + tol)
@@ -34,10 +27,9 @@ class CommonHelper:
         return [(cs + r * math.cos(2 * math.pi * i / n), ct + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
 
     @staticmethod
-    def create_prism_faces_global(poly, z_bot, z_top, world):
-        """로컬 (s,t) 다각형 단면을 z_bot~z_top으로 압출한 3DFACE 목록 (사각형은 6면)
-        world: (s, t) → WCS (x, y) 변환 함수 (StationProjectConfig.to_world)"""
-        g = [world(s, t) for s, t in poly]
+    def create_prism_faces_global(poly, z_bot, z_top):
+        """WCS 평면 다각형 단면을 z_bot~z_top으로 압출한 3DFACE 목록 (사각형은 6면)"""
+        g = list(poly)
         bot = [(x, y, z_bot) for x, y in g]
         top = [(x, y, z_top) for x, y in g]
         n = len(g)

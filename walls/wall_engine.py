@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from helper.geometry_helper import CommonHelper
+from helper import prism_member as PM
 from walls.rectangular_wall import RectangularWall
 from walls.wall_data import WallData
 from walls.wall_package import WallPackage
@@ -36,8 +36,7 @@ class WallEngine:
 
     def wall_corners(self, wall: WallData) -> tuple[float, float, float, float, float, float]:
         """(s0, s1, t0, t1, z_bot(s0), z_bot(s1))"""
-        sh = wall.shape
-        return CommonHelper.prism_corners(wall.pos_x, wall.pos_y, wall.pos_z, sh.length, sh.width, sh.rise)
+        return PM.corners(self.cfg, wall)
 
     def _wall_defs(self):
         """(코드, 역할, 계열명, s0, s1, t0, t1)"""
@@ -67,7 +66,8 @@ class WallEngine:
                 lv0, lv1 = self.cfg.lv(s0) - p.offset, self.cfg.lv(s1) - p.offset
                 shape = RectangularWall(
                     wall_type=WallShapeType.RECTANGLE,
-                    length=s1 - s0, width=t1 - t0, height=z_hi - z_lo, rise=lv1 - lv0)
+                    length=s1 - s0, width=t1 - t0, height=z_hi - z_lo, rise=lv1 - lv0,
+                    curve_factor=PM.curve_factor(self.cfg, s0, s1, (t0 + t1) / 2.0))
                 package.add_wall(WallData(
                     name=f"WALL_{level}_{code}",
                     family_name=family,
@@ -76,7 +76,7 @@ class WallEngine:
                     role=role,
                     pos_x=(s0 + s1) / 2.0,
                     pos_y=(t0 + t1) / 2.0,
-                    pos_z=(lv0 + lv1) / 2.0 + z_lo,
+                    pos_z=self.cfg.lv((s0 + s1) / 2.0) - p.offset + z_lo,   # 중심 s 에서의 하단 표고
                     rotation=0.0,
                     material="Concrete_C24",
                     shape_type=WallShapeType.RECTANGLE,
@@ -85,14 +85,11 @@ class WallEngine:
             self.wall_packages.append(package)
 
     # ---------- 작도 ----------
-    def add_wall_mesh(self, msp, world):
-        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
+    def add_wall_mesh(self, msp):
+        """3D 절대 좌표계 메쉬 (직선: 각기둥, 곡선: 선형을 따르는 스윕). 한 번만 호출할 것"""
         for package in self.wall_packages:
             for wall in package.walls:
-                s0, s1, t0, t1, z0, z1 = self.wall_corners(wall)
-                h = wall.shape.height
-                faces = CommonHelper.create_sloped_box_faces_global(
-                    s0, s1, t0, t1, z0, z1, z0 + h, z1 + h, world)
+                faces = PM.mesh_faces(self.cfg, wall)
                 wall.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
@@ -101,9 +98,9 @@ class WallEngine:
         items = []
         for package in self.wall_packages:
             for w in package.walls:
-                s0, s1, t0, t1, z0, z1 = self.wall_corners(w)
-                if CommonHelper.cut_by_s(sta, s0, s1, self.sp.length):
-                    zb = z0 + (sta - s0) / (s1 - s0) * (z1 - z0)
+                cut = PM.section_rect(self.cfg, w, sta)
+                if cut:
+                    t0, t1, zb = cut
                     items.append(ViewItem.rect(w.name, "SEC_CONCRETE", t0, t1, zb, zb + w.shape.height,
                                                hatch_layer="SEC_HATCH", merge=True))
         return items
@@ -113,10 +110,8 @@ class WallEngine:
         items = []
         for package in self.wall_packages:
             for w in package.walls:
-                s0, s1, t0, t1, z0, z1 = self.wall_corners(w)
-                if CommonHelper.cut_by_t(t0, t1):
-                    items.append(ViewItem.sloped(w.name, "PROF_CONCRETE", s0, s1, z0, z1, w.shape.height,
-                                                 hatch_layer="PROF_HATCH", merge=True))
+                if PM.cut_by_centerline(w):
+                    items.append(PM.profile_view(self.cfg, w, "PROF_CONCRETE", hatch_layer="PROF_HATCH", merge=True))
         return items
 
     def plan_items(self, cut_h):
@@ -126,7 +121,7 @@ class WallEngine:
             for w in package.walls:
                 s0, s1, t0, t1, z0, z1 = self.wall_corners(w)
                 zc = self.cfg.lv((s0 + s1) / 2.0) - self.sp.offset + cut_h
-                zb = (z0 + z1) / 2.0
+                zb = PM.z_at(self.cfg, w, (s0 + s1) / 2.0)
                 if zb - 1e-9 <= zc < zb + w.shape.height - 1e-9:
                     cut.append((w, (s0, s1, t0, t1)))
         by_role = {w.role: c for w, c in cut}

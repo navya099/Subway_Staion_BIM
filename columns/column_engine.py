@@ -1,3 +1,5 @@
+import math
+
 from config.master_config import StationProjectConfig
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
@@ -66,6 +68,15 @@ class ColumnEngine:
             return CommonHelper.circle_polygon(s, t, col.shape.radius)
         hs, ht = col.shape.half_s, col.shape.half_t
         return [(s - hs, t - ht), (s + hs, t - ht), (s + hs, t + ht), (s - hs, t + ht)]
+
+    def _world_footprint(self, col: ColumnData) -> list[tuple[float, float]]:
+        """기둥 평면 윤곽의 WCS 좌표. 기둥은 강체라서 중심만 선형 위 위치로 옮기고 단면은 그 측점의 진행방향으로 회전
+        (곡선에서도 사각 단면이 찌그러지지 않음)"""
+        cx, cy = self.cfg.to_world(col.pos_x, col.pos_y)
+        th = self.cfg.theta_at(col.pos_x)
+        c, s = math.cos(th), math.sin(th)
+        return [(cx + (u - col.pos_x) * c - (v - col.pos_y) * s, cy + (u - col.pos_x) * s + (v - col.pos_y) * c)
+                for u, v in self._footprint(col)]
 
     def _make_shape(self, spec: ColumnSpec, height: float):
         if spec.shape_type == ColumnShapeType.CIRCLE:
@@ -160,12 +171,12 @@ class ColumnEngine:
                     raise ValueError(f"{package.level}: {a.name} 와 {b.name} 기둥이 서로 겹칩니다 (열 위치/간격/크기를 확인하세요)")
 
     # ---------- 작도 ----------
-    def add_column_mesh(self, msp, world):
-        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
+    def add_column_mesh(self, msp):
+        """3D 절대 좌표계 메쉬. 한 번만 호출할 것"""
         for package in self.column_packages:
             for col in package.columns:
                 faces = CommonHelper.create_prism_faces_global(
-                    self._footprint(col), col.pos_z, col.pos_z + col.shape.height, world)
+                    self._world_footprint(col), col.pos_z, col.pos_z + col.shape.height)
                 col.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_COLUMN"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------

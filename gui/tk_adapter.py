@@ -64,14 +64,22 @@ class TkAdapter:
             support_t=_float(entries, "support_t")
         )
         column_p = TkAdapter._collect_columns(entries, station_p.floors)
-        al = AlignmentConfig(
+        al = TkAdapter._collect_alignment(entries)
+        cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al)
+        cfg.validate()
+        return cfg
+
+    @staticmethod
+    def _collect_alignment(entries):
+        """불러온 선형 파일이 있으면 그것을, 없으면 BP/EP 좌표 입력으로 만든 직선을 사용"""
+        source = entries.get("alignment_source")
+        if source is not None and source.alignment is not None:
+            return source.alignment
+        return AlignmentConfig(
             bp_station=_float(entries, "bp_station"),
             bp_x=_float(entries, "bp_x"), bp_y=_float(entries, "bp_y"), bp_z=_float(entries, "bp_z"),
             ep_x=_float(entries, "ep_x"), ep_y=_float(entries, "ep_y"), ep_z=_float(entries, "ep_z")
         )
-        cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al)
-        cfg.validate()
-        return cfg
 
     @staticmethod
     def _collect_columns(entries, floors: int) -> ColumnParameters:

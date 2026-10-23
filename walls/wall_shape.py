@@ -19,6 +19,11 @@ class WallShape(ABC):
     length: float = 0.0
 
     @property
+    def vertical(self) -> float:
+        """연직 치수 (벽체는 높이)"""
+        return self.height
+
+    @property
     @abstractmethod
     def volume(self) -> float:
         """벽체의 부피를 계산하는 추상 프로퍼티 (자식 클래스에서 반드시 구현해야 함)"""

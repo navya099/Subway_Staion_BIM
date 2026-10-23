@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from helper.geometry_helper import CommonHelper
+from helper import prism_member as PM
 from helper.view_item import ViewItem
 from platforms.platform_data import PlatformData
 from platforms.platform_package import PlatformPackage
@@ -18,6 +18,7 @@ class PlatformEngine:
     def __init__(self, config: StationProjectConfig):
         self.p = config.platform
         self.sp = config.station
+        self.cfg = config
         self.lv = config.lv  # 정거장 로컬 거리 s → 선형 표고
         self.platform_packages: list[PlatformPackage] = []
         self._build_platform_bim_objects()
@@ -29,8 +30,7 @@ class PlatformEngine:
 
     def platform_corners(self, plat: PlatformData) -> tuple[float, float, float, float, float, float]:
         """(s0, s1, t0, t1, z_bot(s0), z_bot(s1))"""
-        sh = plat.shape
-        return CommonHelper.prism_corners(plat.pos_x, plat.pos_y, plat.pos_z, sh.length, sh.width, sh.rise)
+        return PM.corners(self.cfg, plat)
 
     # ---------- 생성 ----------
     def _build_platform_bim_objects(self):
@@ -55,14 +55,15 @@ class PlatformEngine:
         level = self.level_name(1)
         package = PlatformPackage(level=level, package_id=f"PKG_{level}_PLATFORMS")
         lv0, lv1 = self.lv(s0) - sp.offset, self.lv(s1) - sp.offset
-        rise, mid_lv = lv1 - lv0, (lv0 + lv1) / 2.0
+        rise, mid_lv = lv1 - lv0, self.lv((s0 + s1) / 2.0) - sp.offset      # 중심 s 에서의 선형 표고
 
         def add(name, part, side, family, type_t, t0, t1, z_lo, vert):
             package.add_platform(PlatformData(
                 name=name, family_name=family, type_name=f"{int(round(type_t * 1000))}mm", level=level,
                 pos_x=(s0 + s1) / 2.0, pos_y=(t0 + t1) / 2.0, pos_z=mid_lv + z_lo, rotation=0.0,
                 material="Concrete_C24", part=part, side=side,
-                shape=RectangularPlatform(length=s1 - s0, width=t1 - t0, thickness=vert, rise=rise)))
+                shape=RectangularPlatform(length=s1 - s0, width=t1 - t0, thickness=vert, rise=rise,
+                                          curve_factor=PM.curve_factor(self.cfg, s0, s1, (t0 + t1) / 2.0))))
 
         st = p.support_t
         # 각 측: (측 코드, 측, 슬래브 t 범위, 선로측 다리 t 범위, 벽체측 다리 t 범위)
@@ -81,27 +82,23 @@ class PlatformEngine:
         self.platform_packages.append(package)
 
     # ---------- 작도 ----------
-    def add_platform_mesh(self, msp, world):
-        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
+    def add_platform_mesh(self, msp):
+        """3D 절대 좌표계 메쉬 (직선: 각기둥, 곡선: 선형을 따르는 스윕). 한 번만 호출할 것"""
         for package in self.platform_packages:
             for plat in package.platforms:
-                s0, s1, t0, t1, z0, z1 = self.platform_corners(plat)
-                th = plat.shape.thickness
-                faces = CommonHelper.create_sloped_box_faces_global(
-                    s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, world)
+                faces = PM.mesh_faces(self.cfg, plat)
                 plat.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_PLATFORM"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
     def section_items(self, sta):
         """횡단면도: 측점 sta 의 절단면에 걸리는 승강장 슬래브 + 지지벽체 (ㅠ형)"""
         items = []
-        L = self.sp.length
         for package in self.platform_packages:
             for pl in package.platforms:
-                s0, s1, t0, t1, z0, z1 = self.platform_corners(pl)
-                if not CommonHelper.cut_by_s(sta, s0, s1, L):
+                cut = PM.section_rect(self.cfg, pl, sta)
+                if not cut:
                     continue
-                zb = z0 + (sta - s0) / (s1 - s0) * (z1 - z0)
+                t0, t1, zb = cut
                 th = pl.shape.thickness
                 label = None
                 if pl.part == PlatformPart.SLAB:
@@ -117,7 +114,7 @@ class PlatformEngine:
         for package in self.platform_packages:
             for pl in package.platforms:
                 s0, s1, t0, t1, z0, z1 = self.platform_corners(pl)
-                if CommonHelper.cut_by_t(t0, t1):
+                if PM.cut_by_centerline(pl):
                     continue
                 key = tuple(round(v, 4) for v in (s0, s1, z0, z1, pl.shape.thickness))
                 if key in seen:
@@ -128,7 +125,7 @@ class PlatformEngine:
                     mid = (s0 + s1) / 2.0
                     top = (z0 + z1) / 2.0 + pl.shape.thickness
                     label = (f"PLATFORM SLAB (FL+{self.p.plat_height:.2f}m)", mid - 10.0, top + 0.5, 0.6, "PROF_TEXT")
-                items.append(ViewItem.sloped(pl.name, "PROF_BEYOND", s0, s1, z0, z1, pl.shape.thickness, label=label))
+                items.append(PM.profile_view(self.cfg, pl, "PROF_BEYOND", label=label))
         return items
 
     def plan_items(self, cut_h):

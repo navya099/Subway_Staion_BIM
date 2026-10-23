@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from helper.geometry_helper import CommonHelper
+from helper import prism_member as PM
 from helper.view_item import ViewItem
 from slabs.rectangular_slab import RectangularSlab
 from slabs.slab_data import SlabData
@@ -32,8 +32,7 @@ class SlabEngine:
 
     def slab_corners(self, slab: SlabData) -> tuple[float, float, float, float, float, float]:
         """(s0, s1, t0, t1, z_bot(s0), z_bot(s1))"""
-        sh = slab.shape
-        return CommonHelper.prism_corners(slab.pos_x, slab.pos_y, slab.pos_z, sh.length, sh.width, sh.rise)
+        return PM.corners(self.cfg, slab)
 
     def _slab_defs(self):
         """(용도, 소속 층 번호, 하단 높이(바닥 슬래브 상면 기준), 두께, s0, s1, t0, t1)"""
@@ -67,12 +66,13 @@ class SlabEngine:
                 level=level,
                 pos_x=(s0 + s1) / 2.0,
                 pos_y=(t0 + t1) / 2.0,
-                pos_z=(lv0 + lv1) / 2.0 + z_lo,
+                pos_z=self.cfg.lv((s0 + s1) / 2.0) - p.offset + z_lo,   # 중심 s 에서의 하단 표고
                 rotation=0.0,
                 material="Concrete_C24",
                 kind=kind,
                 shape_type=SlabShapeType.RECTANGLE,
-                shape=RectangularSlab(length=s1 - s0, width=t1 - t0, thickness=thick, rise=lv1 - lv0),
+                shape=RectangularSlab(length=s1 - s0, width=t1 - t0, thickness=thick, rise=lv1 - lv0,
+                                      curve_factor=PM.curve_factor(self.cfg, s0, s1, (t0 + t1) / 2.0)),
             ))
         # 최하층(바닥) → 최상층(천장) 순서 유지
         self.slab_packages = sorted(by_level.values(), key=lambda k: -self._level_no(k.level))
@@ -81,14 +81,11 @@ class SlabEngine:
         return next(n for n in range(1, self.sp.floors + 1) if self.level_name(n) == level)
 
     # ---------- 작도 ----------
-    def add_slab_mesh(self, msp, world):
-        """3D 절대 좌표계 메쉬. world = StationProjectConfig.to_world ((s, t) → WCS x, y). 한 번만 호출할 것"""
+    def add_slab_mesh(self, msp):
+        """3D 절대 좌표계 메쉬 (직선: 각기둥, 곡선: 선형을 따르는 스윕). 한 번만 호출할 것"""
         for package in self.slab_packages:
             for slab in package.slabs:
-                s0, s1, t0, t1, z0, z1 = self.slab_corners(slab)
-                th = slab.shape.thickness
-                faces = CommonHelper.create_sloped_box_faces_global(
-                    s0, s1, t0, t1, z0, z1, z0 + th, z1 + th, world)
+                faces = PM.mesh_faces(self.cfg, slab)
                 slab.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SLAB"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
@@ -98,9 +95,9 @@ class SlabEngine:
         half_w = self.sp.width / 2.0
         for package in self.slab_packages:
             for sl in package.slabs:
-                s0, s1, t0, t1, z0, z1 = self.slab_corners(sl)
-                if CommonHelper.cut_by_s(sta, s0, s1, self.sp.length):
-                    zb = z0 + (sta - s0) / (s1 - s0) * (z1 - z0)
+                cut = PM.section_rect(self.cfg, sl, sta)
+                if cut:
+                    t0, t1, zb = cut
                     th = sl.shape.thickness
                     label = (f"{package.level} SLAB", half_w + 1.0, zb + th / 2.0, 0.4, "SEC_TEXT") \
                         if sl.kind == SlabKind.MID else None
@@ -113,8 +110,6 @@ class SlabEngine:
         items = []
         for package in self.slab_packages:
             for sl in package.slabs:
-                s0, s1, t0, t1, z0, z1 = self.slab_corners(sl)
-                if CommonHelper.cut_by_t(t0, t1):
-                    items.append(ViewItem.sloped(sl.name, "PROF_CONCRETE", s0, s1, z0, z1, sl.shape.thickness,
-                                                 hatch_layer="PROF_HATCH"))
+                if PM.cut_by_centerline(sl):
+                    items.append(PM.profile_view(self.cfg, sl, "PROF_CONCRETE", hatch_layer="PROF_HATCH"))
         return items

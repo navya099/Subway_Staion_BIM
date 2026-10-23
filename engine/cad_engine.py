@@ -1,3 +1,4 @@
+import math
 import os
 import ezdxf
 
@@ -5,7 +6,7 @@ from columns.column_engine import ColumnEngine
 from config.cadconfig import LAYER_DEFINITIONS
 from config.master_config import StationProjectConfig
 from exporter.ifc_exporter import IFCExporter
-from helper.view_item import draw_view_items
+from helper.view_item import ViewItem, draw_view_items
 from platforms.platform_engine import PlatformEngine
 from slabs.slab_engine import SlabEngine
 from walls.wall_engine import WallEngine
@@ -42,20 +43,19 @@ class StationCADEngine:
 
         # 선형은 Alignment 인터페이스로만 접근: 중심선은 선형 전 구간, 부재 배치는 world(s, t) 변환
         a = self.cfg.align
-        world = self.cfg.to_world
         msp.add_polyline3d([(*a.point_at(st), a.elevation_at(st)) for st in a.polyline_stations()],
                            dxfattribs={"layer": "ALIGNMENT_CL"})
 
         # 모든 부재는 객체당 1회 작도 (구배는 부재 자체의 rise로 표현)
         for engine in self.sub_engines:
             if hasattr(engine, 'add_platform_mesh'):
-                engine.add_platform_mesh(msp, world)
+                engine.add_platform_mesh(msp)
             if hasattr(engine, 'add_slab_mesh'):
-                engine.add_slab_mesh(msp, world)
+                engine.add_slab_mesh(msp)
             if hasattr(engine, 'add_wall_mesh'):
-                engine.add_wall_mesh(msp, world)
+                engine.add_wall_mesh(msp)
             if hasattr(engine, 'add_column_mesh'):
-                engine.add_column_mesh(msp, world)
+                engine.add_column_mesh(msp)
 
         self._save(doc, filename)
         return os.path.abspath(filename)
@@ -106,24 +106,67 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     # --- [3. 2D 평면도 생성 엔진] --- (절단 높이 FL+PLAN_CUT_H 기준)
-    def generate_plan_dxf(self, filename="output/정거장평면도.dxf") -> str:
+    def generate_plan_dxf(self, filename="output/정거장평면도.dxf", mode="auto") -> str:
+        """평면도. mode: 'developed' = 선형을 곧게 편 전개 평면도 (s → x, t → y),
+        'world' = WCS 실제 평면도 (곡선을 따라 휜 모양), 'auto' = 직선 선형은 전개, 곡선 선형은 WCS"""
+        if mode not in ("auto", "developed", "world"):
+            raise ValueError(f"평면도 mode 는 auto / developed / world 중 하나여야 합니다 ({mode!r})")
+        curved = not self.cfg.align.is_straight
+        world_mode = mode == "world" or (mode == "auto" and curved)
         doc, msp = self._init_doc()
         p = self.cfg.station
         half_w = p.width / 2.0
+        xy = self.cfg.to_world if world_mode else (lambda s, t: (s, t))
 
-        msp.add_line((-10.0, 0), (p.length + 10.0, 0), dxfattribs={'layer': 'PLAN_CENTER'})
-        msp.add_text("C.L.", dxfattribs={'height': 1.0, 'layer': 'PLAN_TEXT'}).set_placement((p.length + 12.0, -0.5))
+        # 중심선
+        if world_mode:
+            a, base = self.cfg.align, p.start_station
+            lo, hi = max(a.start_station, base - 10.0), min(a.end_station, base + p.length + 10.0)
+            msp.add_lwpolyline([a.point_at(st) for st in a.sample_stations(lo, hi)], dxfattribs={'layer': 'PLAN_CENTER'})
+        else:
+            msp.add_line((-10.0, 0), (p.length + 10.0, 0), dxfattribs={'layer': 'PLAN_CENTER'})
+        msp.add_text("C.L.", dxfattribs={'height': 1.0, 'layer': 'PLAN_TEXT'}).set_placement(xy(p.length + 12.0, -0.5))
 
+        # 측점선 (선형에 직교)
         for i in range(int(p.length / p.sta_tick + 1e-9) + 1):   # sta_tick > 0 은 StationParameters.validate 가 보장
             cur_sta = i * p.sta_tick
-            msp.add_line((cur_sta, -half_w - 2.0), (cur_sta, half_w + 2.0), dxfattribs={'layer': 'PLAN_SECTION_LINE'})
-            msp.add_text(f"STA.{self._fmt_sta(cur_sta)}", dxfattribs={'height': 0.6, 'layer': 'PLAN_TEXT'}).set_placement((cur_sta - 1.5, half_w + 2.5))
+            msp.add_line(xy(cur_sta, -half_w - 2.0), xy(cur_sta, half_w + 2.0), dxfattribs={'layer': 'PLAN_SECTION_LINE'})
+            attribs = {'height': 0.6, 'layer': 'PLAN_TEXT'}
+            if world_mode:      # 글자를 선형 방향으로 돌리되 뒤집히지 않게
+                rot = math.degrees(self.cfg.theta_at(cur_sta)) % 360.0
+                attribs['rotation'] = rot + 180.0 if 90.0 < rot < 270.0 else rot
+            msp.add_text(f"STA.{self._fmt_sta(cur_sta)}", dxfattribs=attribs).set_placement(xy(cur_sta - 1.5, half_w + 2.5))
 
-        draw_view_items(msp, self._collect('plan_items', self.PLAN_CUT_H))
-        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, L={p.length}m, W={p.width}m)", dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((0, half_w + 6.0))
+        items = self._collect('plan_items', self.PLAN_CUT_H)
+        draw_view_items(msp, self._plan_items_world(items) if world_mode else items)
+        suffix = (" [WCS]" if world_mode else " [DEVELOPED]") if curved else ""
+        if world_mode:     # 제목은 도면 윤곽(측점선 끝 포함) 바깥 위쪽에 둠
+            edge = [self.cfg.to_world(s, t) for s in self.cfg.sample_s(0.0, p.length) for t in (-half_w - 2.0, half_w + 2.5)]
+            title_at = (min(x for x, _ in edge), max(y for _, y in edge) + 6.0)
+        else:
+            title_at = (0, half_w + 6.0)
+        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, L={p.length}m, W={p.width}m){suffix}",
+                     dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement(title_at)
 
         self._save(doc, filename)
         return os.path.abspath(filename)
+
+    def _plan_items_world(self, items):
+        """전개 평면(u=s, v=t)의 윤곽을 WCS 로 변환: 직사각형은 선형을 따라 표본 측점마다 휜 다각형, 원은 중심 이동"""
+        cfg, out = self.cfg, []
+        for it in items:
+            label = None
+            if it.label:
+                text, u, v, h, layer = it.label
+                label = (text, *cfg.to_world(u, v), h, layer)
+            if it.circle is not None:
+                cu, cv, r = it.circle
+                out.append(ViewItem(it.name, it.layer, circle=(*cfg.to_world(cu, cv), r), label=label))
+                continue
+            ss = cfg.sample_s(it.u0, it.u1)
+            pts = [cfg.to_world(s, it.vb0) for s in ss] + [cfg.to_world(s, it.vt0) for s in reversed(ss)]
+            out.append(ViewItem(it.name, it.layer, u0=it.u0, u1=it.u1, pts=pts, label=label))
+        return out
 
     # --- [4. 2D 종단면도 생성 엔진] --- (선형 중심 t=0 절단)
     def generate_profile_dxf(self, filename="output/정거장종단면도.dxf") -> str:
@@ -134,7 +177,8 @@ class StationCADEngine:
         msp.add_line((-10.0, self.cfg.lv(-10.0)), (p.length + 10.0, self.cfg.lv(p.length + 10.0)), dxfattribs={'layer': 'PROF_CENTER'})
 
         draw_view_items(msp, self._collect('profile_items'))
-        msp.add_text(f"STATION PROFILE VIEW (SLOPE: {self.cfg.grade_permil(0.0):.2f}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
+        label = "SLOPE" if self.cfg.align.is_straight else "GRADE AT START"
+        msp.add_text(f"STATION PROFILE VIEW ({label}: {self.cfg.grade_permil(0.0):.2f}‰)", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0))
 
         self._save(doc, filename)
         return os.path.abspath(filename)

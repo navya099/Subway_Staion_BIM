@@ -22,9 +22,12 @@ class ViewItem:
     hatch_layer: Optional[str] = None   # 지정하면 절단면 해치 작도
     merge: bool = False                 # 같은 u 구간에서 위아래로 맞닿은 부재를 하나로 합침 (층별로 나뉜 벽체)
     label: Optional[tuple] = None       # (text, u, v, height, layer)
+    pts: Optional[list] = None          # 지정하면 이 다각형을 그대로 사용 (종곡선처럼 위/아래 변이 곡선인 부재의 종단면)
 
     @property
     def poly(self) -> list[tuple[float, float]]:
+        if self.pts is not None:
+            return self.pts
         return [(self.u0, self.vb0), (self.u1, self.vb1), (self.u1, self.vt1), (self.u0, self.vt0)]
 
     @staticmethod
@@ -40,7 +43,7 @@ def merge_items(items: list[ViewItem], tol: float = 1e-6) -> list[ViewItem]:
     """merge=True 부재 중 같은 (레이어, u 구간)에서 위아래로 맞닿은 것을 합침"""
     out, groups = [], {}
     for it in items:
-        if it.merge and it.circle is None:
+        if it.merge and it.circle is None and it.pts is None:
             groups.setdefault((it.layer, round(it.u0, 6), round(it.u1, 6)), []).append(it)
         else:
             out.append(it)

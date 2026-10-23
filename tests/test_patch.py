@@ -748,8 +748,8 @@ def test_plan_station_ticks_by_index(tmp_path):
 
 def test_default_output_paths_are_relative():
     for name in ("generate_3d_dxf", "generate_section_dxf", "generate_plan_dxf", "generate_profile_dxf", "generate_ifc"):
-        default = inspect.signature(getattr(StationCADEngine, name)).parameters
-        default = [p.default for p in default.values() if p.default is not inspect._empty][-1]
+        params = inspect.signature(getattr(StationCADEngine, name)).parameters
+        default = next(v.default for k, v in params.items() if k in ("filename", "output_path"))
         assert default.startswith("output/") and "c:" not in default.lower()
 
 
@@ -881,10 +881,18 @@ def test_station_must_lie_inside_alignment():
     shifted.validate()                                            # 선형이 500부터 시작해도 그 범위 안이면 통과
 
 
-def test_curved_alignment_is_rejected_with_clear_message():
+def test_vertical_curve_alignment_is_supported(tmp_path):
+    """평면은 직선이고 종단만 포물선인 선형 (is_straight=False): 부재가 표본 측점으로 나뉘어 종곡선을 따름"""
     cfg = make_cfg(); cfg.align = ParabolicProfile()
-    with pytest.raises(NotImplementedError, match="곡선/종곡선"):
-        StationCADEngine(cfg)
+    eng = StationCADEngine(cfg)
+    wall = eng.walls.wall_packages[0].walls[1]                        # WALL_B3F_L
+    from helper import prism_member as PM
+    xs = PM.samples(cfg, wall)
+    assert len(xs) > 2 and xs[0] == pytest.approx(PM.s_range(wall)[0]) and xs[-1] == pytest.approx(PM.s_range(wall)[1])
+    for s_ in xs:                                                     # 하단 표고가 포물선 선형을 따름
+        assert PM.z_at(cfg, wall, s_) == pytest.approx(100.0 + 0.00001 * s_ ** 2 - cfg.station.offset + PM.z_off(cfg, wall))
+    paths = BIMEngine.build(cfg, tmp_path)
+    assert all(os.path.exists(p) for p in paths)
 
 
 def test_heading_alignment_validation():

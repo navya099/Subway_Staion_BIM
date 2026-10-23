@@ -62,6 +62,35 @@ class Alignment(ABC):
         """측점의 종단 구배 (m/m). 기본 구현은 표고의 중심 차분이며, 구현체가 해석해를 알면 재정의"""
         return (self.elevation_at(station + h) - self.elevation_at(station - h)) / (2.0 * h)
 
+    def curvature_at(self, station: float, h: float = 0.01) -> float:
+        """측점의 평면 곡률 (1/m, 좌회전 +). 기본 구현은 방향각의 중심 차분이며, 구현체가 해석해를 알면 재정의"""
+        d = self.azimuth_at(station + h) - self.azimuth_at(station - h)
+        return math.atan2(math.sin(d), math.cos(d)) / (2.0 * h)     # 2π 경계를 넘어도 안전
+
+    def breakpoints(self) -> list[float]:
+        """선형 요소가 바뀌는 측점 (곡선 시작/끝, 종곡선 시작/끝 등). 표본 추출 시 반드시 포함된다"""
+        return []
+
+    def sample_stations(self, a: float, b: float, step: float = 5.0, max_dtheta: float = 0.02) -> list[float]:
+        """측점 구간 [a, b] 를 折線 근사용으로 나눈 측점 목록.
+        직선은 양 끝점만. 곡선은 step 이하 간격이며, 현마다 방향 변화가 max_dtheta(rad) 를 넘지 않도록 촘촘히 나누고
+        변곡 측점(breakpoints)은 반드시 포함한다."""
+        if self.is_straight or b - a < 1e-9:
+            return [a, b]
+        bps = sorted(x for x in self.breakpoints() if a + 1e-6 < x < b - 1e-6)
+        pts, s = [a], a
+        while s < b - 1e-9:
+            k = max(abs(self.curvature_at(s)), abs(self.curvature_at(min(s + step, b))))
+            h = step if k < 1e-12 else min(step, max(0.5, max_dtheta / k))
+            nxt = min(s + h, b)
+            for bp in bps:
+                if s + 1e-6 < bp < nxt - 1e-9:
+                    nxt = bp
+                    break
+            pts.append(nxt)
+            s = nxt
+        return pts
+
     def frame_at(self, station: float) -> AlignmentFrame:
         x, y = self.point_at(station)
         return AlignmentFrame(station, x, y, self.elevation_at(station), self.azimuth_at(station),
@@ -69,11 +98,7 @@ class Alignment(ABC):
 
     def polyline_stations(self, step: float = 5.0) -> list[float]:
         """선형을 折線으로 그리기 위한 측점 목록. 직선은 양 끝점만, 그 외는 step 간격"""
-        a, b = self.start_station, self.end_station
-        if self.is_straight:
-            return [a, b]
-        n = max(1, math.ceil((b - a) / step))
-        return [a + (b - a) * i / n for i in range(n + 1)]
+        return self.sample_stations(self.start_station, self.end_station, step)
 
     def validate(self):
         """선형 제원 검사 (구현체가 재정의)"""

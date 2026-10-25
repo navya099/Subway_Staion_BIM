@@ -4,6 +4,9 @@ type = "straight": BP/EP 좌표 직선 (GUI 입력과 같은 형식)
     {"type": "straight", "bp_station": 0, "bp_x": 0, "bp_y": 0, "bp_z": 100, "ep_x": 500, "ep_y": 0, "ep_z": 105}
 type = "heading": 시점 + 방향각 + 구배 + 연장
     {"type": "heading", "bp_station": 0, "bp_x": 0, "bp_y": 0, "bp_z": 100, "heading_deg": 30, "grade_permil": 5, "length": 800}
+type = "points": 다른 프로그램에서 내보낸 좌표 목록(txt/csv)을 가리킴 (경로는 이 JSON 파일 기준 상대 경로 가능)
+    {"type": "points", "file": "alignment.txt", "order": "yxz", "start_station": 2000, "smooth_m": 5}
+    좌표 목록 파일을 직접 선택해도 됩니다 (.txt .csv .dat .xyz 등, 형식은 config/alignment_text.py 참고)
 type = "curve": 평면(교점 방식 또는 요소 나열) + 종단(변곡점)
     {"type": "curve",
      "horizontal": {"start_station": 0, "points": [[0,0],[500,0],[900,400],[1500,400]], "radii": [400,500], "spirals": [60,80]},
@@ -16,9 +19,11 @@ type = "curve": 평면(교점 방식 또는 요소 나열) + 종단(변곡점)
 """
 import json
 import math
+import os
 
 from config.alignment import Alignment, HeadingAlignment
 from config.alignment_config import AlignmentConfig
+from config.alignment_text import XYZOptions, load_xyz_alignment
 from config.curved_alignment import CurvedAlignment, HElement, HorizontalAlignment, VerticalProfile, horizontal_from_pi
 
 
@@ -122,7 +127,7 @@ def _vertical(v) -> VerticalProfile:
     return VerticalProfile(pvis)
 
 
-def alignment_from_dict(d: dict) -> Alignment:
+def alignment_from_dict(d: dict, base_dir=None) -> Alignment:
     _need(d, ["type"], "선형")
     kind = str(d["type"]).strip().lower()
     if kind == "straight":
@@ -133,30 +138,51 @@ def alignment_from_dict(d: dict) -> Alignment:
         keys = ["bp_station", "bp_x", "bp_y", "bp_z", "heading_deg", "grade_permil", "length"]
         _need(d, keys, "heading")
         a = HeadingAlignment(**{k: _num(d[k], k) for k in keys})
+    elif kind == "points":
+        _need(d, ["file"], "points")
+        path = str(d["file"])
+        if base_dir and not os.path.isabs(path):
+            path = os.path.join(base_dir, path)
+        opt = XYZOptions(order=str(d.get("order", "auto")),
+                         start_station=_num(d.get("start_station", 0.0), "start_station"),
+                         smooth_m=_num(d.get("smooth_m", 5.0), "smooth_m"))
+        a = load_xyz_alignment(path, opt)
     elif kind == "curve":
         _need(d, ["horizontal", "vertical"], "curve")
         a = CurvedAlignment(_horizontal(d["horizontal"]), _vertical(d["vertical"]))
     else:
-        raise ValueError(f"선형 type 은 straight / heading / curve 중 하나여야 합니다 ({d['type']!r})")
+        raise ValueError(f"선형 type 은 straight / heading / points / curve 중 하나여야 합니다 ({d['type']!r})")
     a.validate()
     return a
 
 
-def load_alignment(path) -> Alignment:
-    """JSON 파일에서 선형을 읽음. 형식이 틀리면 파일 이름과 위치를 밝혀 ValueError"""
+JSON_SUFFIXES = (".json",)
+
+
+def is_json_file(path) -> bool:
+    return str(path).lower().endswith(JSON_SUFFIXES)
+
+
+def load_alignment(path, options: XYZOptions | None = None) -> Alignment:
+    """선형 파일을 읽음. .json 은 선형 정의 파일, 그 밖의 확장자(txt, csv, dat 등)는 좌표 목록으로 읽는다.
+    형식이 틀리면 파일 이름과 위치를 밝혀 ValueError"""
+    if not is_json_file(path):
+        return load_xyz_alignment(path, options)
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"{path}: JSON 형식 오류 (줄 {e.lineno}, 열 {e.colno}): {e.msg}") from None
     except OSError as e:
         raise ValueError(f"{path}: 파일을 열 수 없습니다 ({e.strerror})") from None
     try:
-        return alignment_from_dict(data)
+        return alignment_from_dict(data, base_dir=os.path.dirname(os.path.abspath(path)))
     except ValueError as e:
         raise ValueError(f"{path}: {e}") from None
 
 
 def describe(a: Alignment) -> str:
     kind = {AlignmentConfig: "BP/EP 직선", HeadingAlignment: "방향각 직선"}.get(type(a), "곡선")
+    if hasattr(a, "point_count"):                                    # 좌표 목록 선형
+        kind = f"좌표 목록 {a.point_count}점, 최대 간격 {a.max_spacing:.1f}m"
     return f"{kind}, STA {a.start_station:.2f} ~ {a.end_station:.2f}"

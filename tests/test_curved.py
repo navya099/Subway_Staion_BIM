@@ -227,8 +227,8 @@ def test_to_world_offsets_follow_the_circle():
             assert math.hypot(x - cx, y - cy) == pytest.approx(400.0 - t, abs=1e-9)    # 왼쪽(+t)은 안쪽 = 반경이 작음
 
 
-def test_curved_model_has_no_interference():
-    eng = StationCADEngine(curved_cfg())
+def interference_pairs(eng, tol=0.02):
+    """부재를 로컬(s, t, z) 상자로 보고 겹치는 쌍을 찾음 (곡선/종곡선에서도 로컬 좌표계는 같으므로 유효)"""
     cfg, parts = eng.cfg, []
     for m in members(eng):
         s0, s1 = PM.s_range(m); t0, t1 = PM.t_range(m); v = m.shape.vertical
@@ -238,7 +238,7 @@ def test_curved_model_has_no_interference():
             hs, ht = c.shape.half_s, c.shape.half_t
             zr = (c.pos_z, c.pos_z + c.shape.height)
             parts.append((c.name, c.pos_x - hs, c.pos_x + hs, c.pos_y - ht, c.pos_y + ht, lambda s, zr=zr: zr))
-    tol, bad = 0.02, []
+    bad = []
     for i, a in enumerate(parts):
         for b in parts[i + 1:]:
             ds, dt = min(a[2], b[2]) - max(a[1], b[1]), min(a[4], b[4]) - max(a[3], b[3])
@@ -248,7 +248,11 @@ def test_curved_model_has_no_interference():
             (alo, ahi), (blo, bhi) = a[5](sm), b[5](sm)
             if min(ahi, bhi) - max(alo, blo) > tol:
                 bad.append((a[0], b[0]))
-    assert bad == []
+    return bad
+
+
+def test_curved_model_has_no_interference():
+    assert interference_pairs(StationCADEngine(curved_cfg())) == []
 
 
 # ===================================================== 3D DXF / IFC
@@ -393,7 +397,7 @@ def test_alignment_json_other_types_and_vertical_forms():
 
 @pytest.mark.parametrize("data,msg", [
     ({}, "선형: 필요한 항목이 없습니다 → type"),
-    ({"type": "spline"}, "straight / heading / curve"),
+    ({"type": "spline"}, "straight / heading / points / curve"),
     ({"type": "straight", "bp_x": 0}, "필요한 항목이 없습니다 → bp_station"),
     ({"type": "straight", "bp_station": 0, "bp_x": "abc", "bp_y": 0, "bp_z": 0, "ep_x": 1, "ep_y": 1, "ep_z": 0}, "bp_x: 숫자가 아닙니다"),
     ({"type": "straight", "bp_station": 0, "bp_x": True, "bp_y": 0, "bp_z": 0, "ep_x": 1, "ep_y": 1, "ep_z": 0}, "bp_x: 숫자여야"),

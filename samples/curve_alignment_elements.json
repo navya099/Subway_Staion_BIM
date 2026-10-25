@@ -1,0 +1,15 @@
+{
+  "description": "같은 종류의 곡선을 요소 나열 방식으로 입력한 예: 직선 → 완화곡선 → 원곡선 → 완화곡선 → 직선",
+  "type": "curve",
+  "horizontal": {
+    "start_station": 1000, "x": 0, "y": 0, "heading_deg": 0,
+    "elements": [
+      {"type": "line", "length": 200},
+      {"type": "spiral", "length": 80, "radius_start": null, "radius_end": 500, "direction": "left"},
+      {"type": "arc", "length": 160, "radius": 500, "direction": "left"},
+      {"type": "spiral", "length": 80, "radius_start": 500, "radius_end": "inf", "direction": "left"},
+      {"type": "line", "length": 300}
+    ]
+  },
+  "vertical": [[1000, 50, 0], [1400, 54, 120], [1820, 52, 0]]
+}

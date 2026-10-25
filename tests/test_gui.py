@@ -307,3 +307,99 @@ def test_all_entries_fit_inside_the_window(app):
     for k in ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station", "length", "start_station"):
         e = app.entries[k]
         assert e.winfo_rootx() + e.winfo_width() <= right_edge, k
+
+
+# ---------------- 좌표 목록(txt) 선형 불러오기 ----------------
+from config.alignment_text import XYZOptions
+from config.sampled_alignment import SampledAlignment
+from gui.xyz_options_dialog import XYZOptionsDialog
+
+SAMPLE_TXT = os.path.join(ROOT, "samples", "alignment_xyz_example.txt")
+
+
+def test_txt_alignment_goes_through_options_dialog(app, monkeypatch):
+    patch_dialogs(monkeypatch, open_path=SAMPLE_TXT)
+    asked = []
+    monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: asked.append(p) or XYZOptions(start_station=300.0))
+    app.station_tab.load_alignment_file()
+    a = app.entries["alignment_source"].alignment
+    assert asked == [SAMPLE_TXT] and isinstance(a, SampledAlignment) and a.start_station == 300.0
+    assert "좌표 목록 501점" in app.station_tab.align_status.get()
+    assert str(app.entries["bp_x"].cget("state")) == "disabled"
+    assert float(app.entries["start_station"].get()) == 300.0       # 기본 0 은 선형(300~) 밖이라 자동으로 맞춤
+
+
+def test_json_alignment_does_not_open_the_options_dialog(app, monkeypatch):
+    patch_dialogs(monkeypatch, open_path=SAMPLE)
+    monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: pytest.fail("JSON 에는 열 순서를 묻지 않음"))
+    app.station_tab.load_alignment_file()
+    assert isinstance(app.entries["alignment_source"].alignment, CurvedAlignment)
+
+
+def test_cancelling_the_options_dialog_loads_nothing(app, monkeypatch):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE_TXT)
+    monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: None)
+    app.station_tab.load_alignment_file()
+    assert app.entries["alignment_source"].alignment is None and d.calls == []
+
+
+def test_bad_txt_reports_file_and_line(app, monkeypatch, tmp_path):
+    bad = tmp_path / "bad.txt"; bad.write_text("X,Y,Z\n1,2,3\n2,3,4\n3,abc,5\n", encoding="utf-8")
+    d = patch_dialogs(monkeypatch, open_path=str(bad))
+    monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: XYZOptions())
+    app.station_tab.load_alignment_file()
+    assert d.calls[0][0] == "error" and "bad.txt: 4번째 줄: 숫자로 읽을 수 없는 값이 있습니다" in d.calls[0][2]
+    assert app.entries["alignment_source"].alignment is None
+
+
+def test_loading_shows_warnings_in_status(app, monkeypatch, tmp_path):
+    rows = [f"{300 + i * 25.0:.3f},{0:.3f},{100 + i * 0.05:.3f}" for i in range(12)]      # 25m 간격: 성김
+    f = tmp_path / "sparse.csv"; f.write_text("X,Y,Z\n" + "\n".join(rows), encoding="utf-8")
+    patch_dialogs(monkeypatch, open_path=str(f))
+    monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: XYZOptions(start_station=300.0))
+    app.station_tab.load_alignment_file()
+    assert "⚠" in app.station_tab.align_status.get() and "25.0m" in app.station_tab.align_status.get()
+    assert app.entries["alignment_source"].warnings
+
+
+def test_generate_from_txt_alignment(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE_TXT, directory=str(tmp_path))
+    monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: XYZOptions(start_station=300.0))
+    app.station_tab.load_alignment_file()
+    set_entry(app, "start_station", "330")
+    set_floors(app, 3); set_entry(app, "height", "18")
+    app.on_generate()
+    assert d.calls[-1][0] == "info", d.calls[-1]
+    assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
+
+
+# --- 옵션 대화상자 자체 ---
+def test_options_dialog_returns_selected_options(app):
+    dlg = XYZOptionsDialog(app.root, SAMPLE_TXT, modal=False)
+    app.root.update()
+    labels = list(dlg.combo.cget("values"))
+    assert labels[0].startswith("자동") and any("PENZD" in l for l in labels)
+    dlg.order_var.set(next(l for l in labels if "PENZD" in l)); dlg.start_var.set("2000,5"); dlg.smooth_var.set("8")
+    dlg.ok()
+    assert dlg.result == XYZOptions(order="-yxz", start_station=2000.5, smooth_m=8.0)
+
+
+def test_options_dialog_default_cancel_and_validation(app):
+    dlg = XYZOptionsDialog(app.root, SAMPLE_TXT, modal=False)
+    dlg.ok()
+    assert dlg.result == XYZOptions(order="auto", start_station=0.0, smooth_m=5.0)
+
+    dlg = XYZOptionsDialog(app.root, SAMPLE_TXT, modal=False)
+    dlg.start_var.set("abc"); dlg.ok()
+    assert dlg.result is None and "숫자" in dlg.error_var.get() and dlg.top.winfo_exists()
+    dlg.smooth_var.set("-3"); dlg.start_var.set("1"); dlg.ok()
+    assert dlg.result is None and "0 이상" in dlg.error_var.get()
+    dlg.cancel()
+    assert dlg.result is None and not dlg.top.winfo_exists()
+
+
+def test_options_dialog_shows_a_preview(app):
+    dlg = XYZOptionsDialog(app.root, SAMPLE_TXT, modal=False)
+    text = next(w for w in dlg.top.winfo_children() if isinstance(w, tk.Text))
+    assert "X, Y, Z" in text.get("1.0", "end") and "300.000" in text.get("1.0", "end")
+    dlg.cancel()

@@ -4,7 +4,8 @@ from tkinter import filedialog, messagebox
 
 from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
-from config.alignment_io import describe, load_alignment
+from config.alignment_io import describe, is_json_file, load_alignment
+from gui.xyz_options_dialog import XYZOptionsDialog
 from config.station_config import StationParameters
 
 
@@ -16,6 +17,7 @@ class AlignmentSource:
     """불러온 선형 파일 (없으면 BP/EP 좌표 입력을 사용)"""
     alignment: Alignment | None = None
     path: str = ""
+    warnings: tuple = ()
 
 
 class StationTab:
@@ -105,7 +107,7 @@ class StationTab:
         self.entries["alignment_source"] = self.source
         frame = tk.Frame(self.parent)
         frame.pack(anchor="w", padx=15, pady=(6, 0), fill="x")
-        tk.Button(frame, text="곡선 선형 파일(JSON) 불러오기…", font=("Malgun Gothic", 9),
+        tk.Button(frame, text="선형 파일 불러오기…", font=("Malgun Gothic", 9),
                   command=self.load_alignment_file).pack(side="left")
         self.reset_btn = tk.Button(frame, text="BP/EP 직선으로", font=("Malgun Gothic", 9), state="disabled",
                                    command=self.reset_alignment)
@@ -119,15 +121,24 @@ class StationTab:
             self.entries[k].configure(state=state)
 
     def load_alignment_file(self):
-        path = filedialog.askopenfilename(title="선형 파일 선택", filetypes=[("선형 JSON", "*.json"), ("모든 파일", "*.*")])
+        path = filedialog.askopenfilename(
+            title="선형 파일 선택",
+            filetypes=[("선형 파일", "*.json *.txt *.csv *.dat *.xyz *.asc"), ("선형 정의 JSON", "*.json"),
+                       ("좌표 목록 (txt, csv 등)", "*.txt *.csv *.dat *.xyz *.asc"), ("모든 파일", "*.*")])
         if not path:
             return
+        options = None
+        if not is_json_file(path):                          # 좌표 목록은 열 순서/시작 측점을 물어봄
+            options = self._ask_xyz_options(path)
+            if options is None:
+                return
         try:
-            a = load_alignment(path)
+            a = load_alignment(path, options)
         except ValueError as e:
             messagebox.showerror("선형 파일 오류", str(e))
             return
         self.source.alignment, self.source.path = a, path
+        self.source.warnings = tuple(getattr(a, "warnings", ()))
         self._set_coord_state("disabled")
         self.reset_btn.configure(state="normal")
         note = ""
@@ -139,10 +150,16 @@ class StationTab:
             self.entries["start_station"].delete(0, "end")
             self.entries["start_station"].insert(0, str(a.start_station))
             note = f"\n정거장 시작 측점을 선형 시작({a.start_station:g})에 맞췄습니다."
+        for w in self.source.warnings[:3]:
+            note += f"\n⚠ {w}"
         self.align_status.set(f"선형: {path.replace(chr(92), '/').rsplit('/', 1)[-1]} ({describe(a)}). BP/EP 입력은 사용하지 않습니다.{note}")
 
+    def _ask_xyz_options(self, path):
+        """좌표 목록 파일의 열 순서 / 시작 측점 / 평활 반폭을 묻는 대화상자 (취소하면 None)"""
+        return XYZOptionsDialog(self.parent.winfo_toplevel(), path).result
+
     def reset_alignment(self):
-        self.source.alignment, self.source.path = None, ""
+        self.source.alignment, self.source.path, self.source.warnings = None, "", ()
         self._set_coord_state("normal")
         self.reset_btn.configure(state="disabled")
         self.align_status.set("선형: 위의 BP/EP 좌표 (직선)")

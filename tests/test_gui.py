@@ -403,3 +403,110 @@ def test_options_dialog_shows_a_preview(app):
     text = next(w for w in dlg.top.winfo_children() if isinstance(w, tk.Text))
     assert "X, Y, Z" in text.get("1.0", "end") and "300.000" in text.get("1.0", "end")
     dlg.cancel()
+
+
+# ---------------- LandXML 선형 불러오기 ----------------
+from config.alignment_landxml import LandXMLOptions
+from gui.landxml_options_dialog import LandXMLOptionsDialog
+
+SAMPLE_XML = os.path.join(ROOT, "samples", "alignment_landxml_example.xml")
+
+
+def _two_alignment_xml(tmp_path):
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
+    from landxml_maker import make_landxml
+    from test_curved import s_curve
+    t = s_curve()
+    a = make_landxml(t, name="Main")
+    b = make_landxml(t, name="Branch", profile_name="Alt", prof_name="Opt").split('<Alignments name="Alignments">')[1].split("</Alignments>")[0]
+    p = tmp_path / "two.xml"
+    p.write_text(a.replace("</Alignments>", b + "</Alignments>"), encoding="utf-8")
+    return str(p)
+
+
+def test_single_alignment_landxml_loads_without_asking(app, monkeypatch):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE_XML)
+    monkeypatch.setattr(app.station_tab, "_ask_landxml_options", lambda *a: pytest.fail("선택지가 없으면 묻지 않음"))
+    app.station_tab.load_alignment_file()
+    a = app.entries["alignment_source"].alignment
+    assert isinstance(a, CurvedAlignment) and a.alignment_name == "Subway-Main" and d.calls == []
+    assert "LandXML 선형 'Subway-Main'" in app.station_tab.align_status.get()
+    assert str(app.entries["bp_x"].cget("state")) == "disabled"
+    TkAdapter.collect_entries(app.entries)                          # 시작 측점 0 은 선형(0~1000) 안이라 통과
+
+
+def test_multi_alignment_landxml_asks_which_one(app, monkeypatch, tmp_path):
+    path = _two_alignment_xml(tmp_path)
+    patch_dialogs(monkeypatch, open_path=path)
+    seen = []
+    monkeypatch.setattr(app.station_tab, "_ask_landxml_options",
+                        lambda p, infos: seen.append([i.name for i in infos]) or LandXMLOptions(alignment="Branch", profile="Alt / Opt"))
+    app.station_tab.load_alignment_file()
+    a = app.entries["alignment_source"].alignment
+    assert seen == [["Main", "Branch"]] and (a.alignment_name, a.profile_name) == ("Branch", "Alt / Opt")
+
+
+def test_cancelled_landxml_dialog_loads_nothing(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, open_path=_two_alignment_xml(tmp_path))
+    monkeypatch.setattr(app.station_tab, "_ask_landxml_options", lambda p, infos: None)
+    app.station_tab.load_alignment_file()
+    assert app.entries["alignment_source"].alignment is None and d.calls == []
+
+
+def test_broken_landxml_shows_error_and_keeps_state(app, monkeypatch, tmp_path):
+    bad = tmp_path / "bad.xml"; bad.write_text("<LandXML>\n<Alignments></LandXML>", encoding="utf-8")
+    d = patch_dialogs(monkeypatch, open_path=str(bad))
+    app.station_tab.load_alignment_file()
+    assert d.calls[0][0] == "error" and "bad.xml: XML 형식 오류 (줄 2" in d.calls[0][2]
+    assert app.entries["alignment_source"].alignment is None and str(app.entries["bp_x"].cget("state")) == "normal"
+
+
+def test_landxml_read_error_is_shown(app, monkeypatch, tmp_path):
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
+    from landxml_maker import make_landxml
+    from test_curved import s_curve
+    p = tmp_path / "unsym.xml"
+    p.write_text(make_landxml(s_curve()).replace("<PVI>1000.000000", "<UnsymParaCurve lengthIn='1' lengthOut='2'>450 104</UnsymParaCurve><PVI>1000.000000"), encoding="utf-8")
+    d = patch_dialogs(monkeypatch, open_path=str(p))
+    app.station_tab.load_alignment_file()
+    assert d.calls[0][0] == "error" and "비대칭 포물선 종곡선" in d.calls[0][2]
+
+
+def test_generate_from_landxml(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, open_path=SAMPLE_XML, directory=str(tmp_path))
+    app.station_tab.load_alignment_file()
+    set_entry(app, "start_station", "330")
+    set_floors(app, 3); set_entry(app, "height", "18")
+    app.on_generate()
+    assert d.calls[-1][0] == "info", d.calls[-1]
+    assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
+
+
+# --- 대화상자 자체 ---
+def _infos(tmp_path):
+    from config.alignment_landxml import scan_landxml
+    return scan_landxml(_two_alignment_xml(tmp_path))
+
+
+def test_landxml_dialog_defaults_and_selection(app, tmp_path):
+    dlg = LandXMLOptionsDialog(app.root, "two.xml", _infos(tmp_path), modal=False)
+    app.root.update()
+    assert list(dlg.align_combo.cget("values")) == ["Main", "Branch"] and dlg.profile_var.get() == "Design / FG"
+    assert "종단 1개" in dlg.info_var.get() or "종단 2개" in dlg.info_var.get()
+    dlg.align_var.set("Branch"); dlg._refresh()
+    assert list(dlg.profile_combo.cget("values")) == ["Alt / Opt"] and dlg.profile_var.get() == "Alt / Opt"
+    dlg.axis_var.set("동 북"); dlg.ok()
+    assert dlg.result == LandXMLOptions(alignment="Branch", profile="Alt / Opt", axis="EN")
+
+
+def test_landxml_dialog_default_cancel_and_profileless_alignment(app, tmp_path):
+    infos = _infos(tmp_path)
+    dlg = LandXMLOptionsDialog(app.root, "two.xml", infos, modal=False)
+    dlg.ok()
+    assert dlg.result == LandXMLOptions(alignment="Main", profile="Design / FG", axis="auto")
+    infos[1].profiles = []                                          # 종단이 없는 선형
+    dlg = LandXMLOptionsDialog(app.root, "two.xml", infos, modal=False)
+    dlg.align_var.set("Branch"); dlg._refresh(); dlg.ok()
+    assert dlg.result is None and "종단(Profile)이 없습니다" in dlg.error_var.get() and "⚠" in dlg.info_var.get()
+    dlg.cancel()
+    assert not dlg.top.winfo_exists()

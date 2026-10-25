@@ -7,6 +7,9 @@ type = "heading": 시점 + 방향각 + 구배 + 연장
 type = "points": 다른 프로그램에서 내보낸 좌표 목록(txt/csv)을 가리킴 (경로는 이 JSON 파일 기준 상대 경로 가능)
     {"type": "points", "file": "alignment.txt", "order": "yxz", "start_station": 2000, "smooth_m": 5}
     좌표 목록 파일을 직접 선택해도 됩니다 (.txt .csv .dat .xyz 등, 형식은 config/alignment_text.py 참고)
+type = "landxml": Civil 3D / Bentley 등이 내보낸 LandXML 파일을 가리킴 (alignment, profile, axis 는 선택)
+    {"type": "landxml", "file": "road.xml", "alignment": "CL-1", "profile": "Finished", "axis": "auto"}
+    LandXML 파일(.xml .landxml)을 직접 선택해도 됩니다 (형식은 config/alignment_landxml.py 참고)
 type = "curve": 평면(교점 방식 또는 요소 나열) + 종단(변곡점)
     {"type": "curve",
      "horizontal": {"start_station": 0, "points": [[0,0],[500,0],[900,400],[1500,400]], "radii": [400,500], "spirals": [60,80]},
@@ -23,6 +26,7 @@ import os
 
 from config.alignment import Alignment, HeadingAlignment
 from config.alignment_config import AlignmentConfig
+from config.alignment_landxml import LandXMLOptions, load_landxml_alignment
 from config.alignment_text import XYZOptions, load_xyz_alignment
 from config.curved_alignment import CurvedAlignment, HElement, HorizontalAlignment, VerticalProfile, horizontal_from_pi
 
@@ -147,27 +151,47 @@ def alignment_from_dict(d: dict, base_dir=None) -> Alignment:
                          start_station=_num(d.get("start_station", 0.0), "start_station"),
                          smooth_m=_num(d.get("smooth_m", 5.0), "smooth_m"))
         a = load_xyz_alignment(path, opt)
+    elif kind == "landxml":
+        _need(d, ["file"], "landxml")
+        path = str(d["file"])
+        if base_dir and not os.path.isabs(path):
+            path = os.path.join(base_dir, path)
+        a = load_landxml_alignment(path, LandXMLOptions(alignment=d.get("alignment"), profile=d.get("profile"),
+                                                        axis=str(d.get("axis", "auto"))))
     elif kind == "curve":
         _need(d, ["horizontal", "vertical"], "curve")
         a = CurvedAlignment(_horizontal(d["horizontal"]), _vertical(d["vertical"]))
     else:
-        raise ValueError(f"선형 type 은 straight / heading / points / curve 중 하나여야 합니다 ({d['type']!r})")
+        raise ValueError(f"선형 type 은 straight / heading / points / landxml / curve 중 하나여야 합니다 ({d['type']!r})")
     a.validate()
     return a
 
 
 JSON_SUFFIXES = (".json",)
+LANDXML_SUFFIXES = (".xml", ".landxml")
 
 
 def is_json_file(path) -> bool:
     return str(path).lower().endswith(JSON_SUFFIXES)
 
 
-def load_alignment(path, options: XYZOptions | None = None) -> Alignment:
-    """선형 파일을 읽음. .json 은 선형 정의 파일, 그 밖의 확장자(txt, csv, dat 등)는 좌표 목록으로 읽는다.
-    형식이 틀리면 파일 이름과 위치를 밝혀 ValueError"""
-    if not is_json_file(path):
-        return load_xyz_alignment(path, options)
+def is_landxml_file(path) -> bool:
+    return str(path).lower().endswith(LANDXML_SUFFIXES)
+
+
+def file_kind(path) -> str:
+    """'json' (선형 정의) | 'landxml' | 'text' (좌표 목록)"""
+    return "json" if is_json_file(path) else "landxml" if is_landxml_file(path) else "text"
+
+
+def load_alignment(path, options=None) -> Alignment:
+    """선형 파일을 읽음. .json 은 선형 정의 파일, .xml/.landxml 은 LandXML, 그 밖의 확장자(txt, csv, dat 등)는 좌표 목록.
+    options: 좌표 목록은 XYZOptions, LandXML 은 LandXMLOptions (JSON 은 사용하지 않음). 형식이 틀리면 파일 이름과 위치를 밝혀 ValueError"""
+    kind = file_kind(path)
+    if kind == "landxml":
+        return load_landxml_alignment(path, options if isinstance(options, LandXMLOptions) else None)
+    if kind == "text":
+        return load_xyz_alignment(path, options if isinstance(options, XYZOptions) else None)
     try:
         with open(path, encoding="utf-8-sig") as f:
             data = json.load(f)
@@ -185,4 +209,6 @@ def describe(a: Alignment) -> str:
     kind = {AlignmentConfig: "BP/EP 직선", HeadingAlignment: "방향각 직선"}.get(type(a), "곡선")
     if hasattr(a, "point_count"):                                    # 좌표 목록 선형
         kind = f"좌표 목록 {a.point_count}점, 최대 간격 {a.max_spacing:.1f}m"
+    elif getattr(a, "source", None) == "LandXML":
+        kind = f"LandXML 선형 '{a.alignment_name}' / 종단 '{a.profile_name}'"
     return f"{kind}, STA {a.start_station:.2f} ~ {a.end_station:.2f}"

@@ -397,7 +397,7 @@ def test_alignment_json_other_types_and_vertical_forms():
 
 @pytest.mark.parametrize("data,msg", [
     ({}, "선형: 필요한 항목이 없습니다 → type"),
-    ({"type": "spline"}, "straight / heading / points / curve"),
+    ({"type": "spline"}, "straight / heading / points / landxml / curve"),
     ({"type": "straight", "bp_x": 0}, "필요한 항목이 없습니다 → bp_station"),
     ({"type": "straight", "bp_station": 0, "bp_x": "abc", "bp_y": 0, "bp_z": 0, "ep_x": 1, "ep_y": 1, "ep_z": 0}, "bp_x: 숫자가 아닙니다"),
     ({"type": "straight", "bp_station": 0, "bp_x": True, "bp_y": 0, "bp_z": 0, "ep_x": 1, "ep_y": 1, "ep_z": 0}, "bp_x: 숫자여야"),

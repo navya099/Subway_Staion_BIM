@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <Units><Metric linearUnit="meter" /></Units>
+  <Project name="test" />
+  <Application name="TestExporter" />
+  
+  <Alignments name="Alignments">
+    <Alignment name="Subway-Main" length="1626.235347" staStart="0.000000" state="proposed">
+      <CoordGeom>
+        <Line length="304.164900" staStart="0.000000"><Start>0.000000 0.000000</Start><End>0.000000 304.164900</End></Line>
+        <Spiral rot="ccw" spiType="clothoid" radiusStart="INF" radiusEnd="400.000000" length="60.000000" staStart="304.164900"><Start>0.000000 304.164900</Start><PI>0.000000 344.176692</PI><End>1.499397 364.131159</End></Spiral>
+        <Curve rot="ccw" crvType="arc" radius="400.000000" length="254.159265" staStart="364.164900"><Start>1.499397 364.131159</Start><Center>400.374925 334.159276</Center><End>97.134013 595.013545</End><PI>11.355284 495.296487</PI></Curve>
+        <Spiral rot="ccw" spiType="clothoid" radiusStart="400.000000" radiusEnd="INF" length="60.000000" staStart="618.324166"><Start>97.134013 595.013545</Start><PI>110.183718 610.183718</PI><End>138.476327 638.476327</End></Spiral>
+        <Line length="122.531212" staStart="678.324166"><Start>138.476327 638.476327</Start><End>225.118978 725.118978</End></Line>
+        <Spiral rot="cw" spiType="clothoid" radiusStart="INF" radiusEnd="500.000000" length="80.000000" staStart="800.855378"><Start>225.118978 725.118978</Start><PI>262.843990 762.843990</PI><End>280.143523 783.159133</End></Spiral>
+        <Curve rot="cw" crvType="arc" radius="500.000000" length="312.699082" staStart="880.855378"><Start>280.143523 783.159133</Start><Center>-100.533211 1107.327645</Center><End>397.867642 1067.370298</End><PI>384.949187 906.234251</PI></Curve>
+        <Spiral rot="cw" spiType="clothoid" radiusStart="500.000000" radiusEnd="INF" length="80.000000" staStart="1193.554460"><Start>397.867642 1067.370298</Start><PI>400.000000 1093.967889</PI><End>400.000000 1147.319113</End></Spiral>
+        <Line length="352.680887" staStart="1273.554460"><Start>400.000000 1147.319113</Start><End>400.000000 1500.000000</End></Line>
+      </CoordGeom>
+      <Profile name="Design">
+        <ProfSurf name="EG" surfName="Existing"><PntList2D>0 99 1000 99</PntList2D></ProfSurf>
+        <ProfAlign name="FG">
+          <PVI>0.000000 100.000000</PVI>
+          <ParaCurve length="150.000000">450.000000 104.000000</ParaCurve>
+          <PVI>1000.000000 98.000000</PVI>
+        </ProfAlign>
+      </Profile>
+      
+    </Alignment>
+  </Alignments>
+</LandXML>

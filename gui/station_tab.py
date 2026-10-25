@@ -4,7 +4,9 @@ from tkinter import filedialog, messagebox
 
 from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
-from config.alignment_io import describe, is_json_file, load_alignment
+from config.alignment_io import describe, file_kind, load_alignment
+from config.alignment_landxml import LandXMLOptions, scan_landxml
+from gui.landxml_options_dialog import LandXMLOptionsDialog
 from gui.xyz_options_dialog import XYZOptionsDialog
 from config.station_config import StationParameters
 
@@ -123,15 +125,28 @@ class StationTab:
     def load_alignment_file(self):
         path = filedialog.askopenfilename(
             title="선형 파일 선택",
-            filetypes=[("선형 파일", "*.json *.txt *.csv *.dat *.xyz *.asc"), ("선형 정의 JSON", "*.json"),
-                       ("좌표 목록 (txt, csv 등)", "*.txt *.csv *.dat *.xyz *.asc"), ("모든 파일", "*.*")])
+            filetypes=[("선형 파일", "*.xml *.landxml *.json *.txt *.csv *.dat *.xyz *.asc"), ("LandXML", "*.xml *.landxml"),
+                       ("선형 정의 JSON", "*.json"), ("좌표 목록 (txt, csv 등)", "*.txt *.csv *.dat *.xyz *.asc"),
+                       ("모든 파일", "*.*")])
         if not path:
             return
-        options = None
-        if not is_json_file(path):                          # 좌표 목록은 열 순서/시작 측점을 물어봄
+        options, kind = None, file_kind(path)
+        if kind == "text":                                  # 좌표 목록은 열 순서/시작 측점을 물어봄
             options = self._ask_xyz_options(path)
             if options is None:
                 return
+        elif kind == "landxml":                             # LandXML 은 고를 것이 있을 때만 물어봄
+            try:
+                infos = scan_landxml(path)
+            except ValueError as e:
+                messagebox.showerror("선형 파일 오류", str(e))
+                return
+            if len(infos) == 1 and len(infos[0].profiles) <= 1:
+                options = LandXMLOptions()
+            else:
+                options = self._ask_landxml_options(path, infos)
+                if options is None:
+                    return
         try:
             a = load_alignment(path, options)
         except ValueError as e:
@@ -157,6 +172,10 @@ class StationTab:
     def _ask_xyz_options(self, path):
         """좌표 목록 파일의 열 순서 / 시작 측점 / 평활 반폭을 묻는 대화상자 (취소하면 None)"""
         return XYZOptionsDialog(self.parent.winfo_toplevel(), path).result
+
+    def _ask_landxml_options(self, path, infos):
+        """LandXML 의 선형 / 종단 / 좌표 순서를 고르는 대화상자 (취소하면 None)"""
+        return LandXMLOptionsDialog(self.parent.winfo_toplevel(), path, infos).result
 
     def reset_alignment(self):
         self.source.alignment, self.source.path, self.source.warnings = None, "", ()

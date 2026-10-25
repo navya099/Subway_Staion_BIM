@@ -206,9 +206,16 @@ def test_closure_warning_and_rejection(tmp_path):
         load_landxml_alignment(write(tmp_path, perturb_first_curve_end(make_landxml(truth), 3.0), "far.xml"))
 
 
-def test_non_clothoid_spiral_is_approximated_with_warning(tmp_path):
-    a = load_landxml_alignment(write(tmp_path, make_landxml(truth, spi_type="cubic")))
-    assert any("cubic" in w and "클로소이드" in w for w in a.warnings)
+def test_unsupported_spiral_type_is_matched_to_theta_with_warning(tmp_path):
+    """bloss 등 지원하지 않는 종류: 파일의 theta(끝 접선각)에 맞춘 클로소이드로 근사해 방향 오차가 누적되지 않게 함"""
+    a = load_landxml_alignment(write(tmp_path, make_landxml(truth, spi_type="bloss")))
+    assert sum("bloss" in w and "theta" in w for w in a.warnings) == 1            # 같은 종류는 한 번만 경고
+    same(a, truth)                                                                  # truth 의 theta = L/2R 이라 그대로 일치
+
+
+def test_unsupported_spiral_type_without_theta_warns_about_drift(tmp_path):
+    a = load_landxml_alignment(write(tmp_path, make_landxml(truth, spi_type="sinusoid", spiral_extras=False)))
+    assert any("sinusoid" in w and "누적" in w for w in a.warnings)
     same(a, truth)
 
 
@@ -254,3 +261,110 @@ def test_station_outside_landxml_alignment_is_reported(tmp_path):
     cfg.station.start_station = 900.0
     with pytest.raises(ValueError, match="선형 범위"):
         cfg.validate()
+
+
+# ===================================================== 3차 포물선 완화곡선 (Civil 3D japaneseCubic)
+import xml.etree.ElementTree as ET
+
+from config.curved_alignment import CubicSpiral
+
+REAL = os.path.join(ROOT, "samples", "civil3d_korea_cubic_spiral.xml")      # 실제 Civil 3D 2026 내보내기 (한국 중부원점, 21km, 3차 포물선 20개)
+
+
+def cubic_alignment():
+    els = [HElement(300.0), CubicSpiral(160.0, radius=650.0), HElement(220.0, 1 / 650, 1 / 650), CubicSpiral(160.0, radius=650.0, exit=True),
+           HElement(180.0), CubicSpiral(140.0, radius=500.0, sign=-1.0), HElement(120.0, -1 / 500, -1 / 500),
+           CubicSpiral(140.0, radius=500.0, sign=-1.0, exit=True), HElement(200.0)]
+    return CurvedAlignment(HorizontalAlignment(0.0, 1000.0, 2000.0, 0.4, els), VerticalProfile([(0, 50, 0), (900, 55, 100), (1620, 52, 0)]))
+
+
+def test_cubic_spirals_roundtrip_through_landxml(tmp_path):
+    t = cubic_alignment()
+    xml = make_landxml(t)
+    assert xml.count('spiType="japaneseCubic"') == 4 and "totalX=" in xml
+    a = load_landxml_alignment(write(tmp_path, xml))
+    assert a.warnings == [] and sum(isinstance(e, CubicSpiral) for e in a.horizontal.elements) == 4
+    same(a, t, stations=range(5, 1615, 11))
+
+
+def test_cubic_without_total_x_or_with_a_wrong_one_falls_back_to_arc_length(tmp_path):
+    t = cubic_alignment()
+    xml = make_landxml(t)
+    no_x = re.sub(r' totalX="[^"]*"', "", xml)
+    same(load_landxml_alignment(write(tmp_path, no_x, "n.xml")), t, stations=range(5, 1615, 11))
+    wrong = re.sub(r'totalX="([\d.]+)"', lambda m: f'totalX="{float(m.group(1)) * 1.05:.6f}"', xml)     # 5% 어긋난 값은 무시
+    same(load_landxml_alignment(write(tmp_path, wrong, "w.xml")), t, stations=range(5, 1615, 11))
+
+
+def test_treating_cubic_as_clothoid_would_drift():
+    """왜 3차 포물선을 정확히 다뤄야 하는지: 같은 R·L 의 클로소이드와는 끝 접선각이 0.06° 다르고, 이 차이가 직선 위에서 누적된다"""
+    cubic = HorizontalAlignment(0, 0, 0, 0.0, [CubicSpiral(162.3, radius=600.0), HElement(2000.0, 1 / 600, 1 / 600)])
+    clothoid = HorizontalAlignment(0, 0, 0, 0.0, [HElement(162.3, 0.0, 1 / 600), HElement(2000.0, 1 / 600, 1 / 600)])
+    d = math.hypot(*(a - b for a, b in zip(cubic.point_at(1500.0), clothoid.point_at(1500.0))))
+    assert d > 1.0                                                                       # 1.5km 지점에서 1m 이상 어긋남
+
+
+# ---- 실제 Civil 3D 파일 ----
+def file_geometry(path):
+    """로더와 무관하게 XML 을 직접 읽어 (종류, 호 길이, 끝점 (x=동, y=북), theta(°) 또는 None, rot) 목록을 만든다"""
+    root = ET.parse(path).getroot()
+    ns = {"l": "http://www.landxml.org/schema/LandXML-1.2"}
+    out = []
+    for el in root.find(".//l:CoordGeom", ns):
+        n, e = (float(v) for v in el.find("l:End", ns).text.split())             # LandXML: 북 동
+        out.append((el.tag.split("}")[1], float(el.get("length")), (e, n), el.get("theta"), el.get("rot"), el.get("spiType")))
+    return out, float(root.find(".//l:Alignment", ns).get("staStart").rstrip("."))
+
+
+def test_real_civil3d_file_matches_every_element_end_point():
+    a = load_landxml_alignment(REAL)
+    assert a.warnings == [] and (a.alignment_name, a.start_station) == ("초안1구간", 0.0)
+    elements, sta0 = file_geometry(REAL)
+    assert len(elements) == 47 and sum(k == "Spiral" for k, *_ in elements) == 20
+    assert {e[5] for e in elements if e[0] == "Spiral"} == {"japaneseCubic"}
+    sta, worst = sta0, 0.0
+    for kind, length, end, theta, rot, _ in elements:
+        start_sta, sta = sta, sta + length
+        worst = max(worst, math.hypot(*(u - v for u, v in zip(a.point_at(sta), end))))      # 21km 에 걸친 모든 요소 끝점
+        if kind == "Spiral":                                                                 # 완화곡선의 방향 변화 = 파일의 theta
+            turn = a.azimuth_at(sta) - a.azimuth_at(start_sta)
+            assert math.degrees(turn) == pytest.approx(float(theta) * (1 if rot == "ccw" else -1), abs=1e-6)
+    assert worst < 1e-4                                                                      # 0.1mm 이내
+    assert a.end_station == pytest.approx(21120.0716, abs=1e-3)
+
+
+def test_real_civil3d_profile_matches_the_file():
+    a = load_landxml_alignment(REAL)
+    assert (a.elevation_at(0.0), a.elevation_at(a.end_station)) == pytest.approx((88.441635207087, 81.533668142783), abs=1e-6)
+    vp = a.vertical
+    assert len(vp.sta) == 19 and sum(v > 0 for v in vp.vc) == 17
+    i = vp.sta.index(400.0)                                                                  # 종곡선(길이 35) 중앙 오프셋 = Δg·L/8
+    assert a.elevation_at(400.0) == pytest.approx(89.641635207087 + (vp.g[i] - vp.g[i - 1]) * 35.0 / 8.0, abs=1e-6)
+    for sta in (400 - 17.5, 400 + 17.5, 1040 - 32.5, 5560 + 33.6):                           # 종곡선 시작/끝에서 표고·구배 연속
+        assert a.elevation_at(sta - 1e-6) == pytest.approx(a.elevation_at(sta + 1e-6), abs=1e-5)
+        assert a.grade_at(sta - 1e-6) == pytest.approx(a.grade_at(sta + 1e-6), abs=1e-7)
+
+
+@pytest.mark.parametrize("start", [1500.0, 1780.0, 990.0])
+def test_real_civil3d_alignment_builds_models(tmp_path, start):
+    """직선→완화곡선→원곡선, 원곡선→진출 완화곡선, 직선+종곡선 구간에 정거장을 놓아 모델 생성"""
+    cfg = curved_cfg(); cfg.align = load_landxml_alignment(REAL); cfg.station.start_station = start
+    eng = StationCADEngine(cfg)
+    for m in members(eng):
+        assert PM_mesh(eng.cfg, m) == pytest.approx(m.shape.volume, rel=1e-3), m.name
+    from test_curved import interference_pairs
+    assert interference_pairs(eng) == []
+    paths = BIMEngine.build(cfg, tmp_path)
+    assert len(paths) == 5 and all(os.path.exists(p) for p in paths)
+
+
+def PM_mesh(cfg, m):
+    from helper import prism_member as PM
+    return PM.mesh_volume(PM.sweep_quads(PM.rings(cfg, m)))
+
+
+def test_real_civil3d_file_scan_and_description():
+    infos = scan_landxml(REAL)
+    assert len(infos) == 1 and infos[0].name == "초안1구간" and infos[0].length == pytest.approx(21120.0716, abs=1e-3)
+    assert infos[0].profiles == ["초안1구간 / 1구간 (1) (1)"]
+    assert "LandXML 선형 '초안1구간'" in describe(load_alignment(REAL))

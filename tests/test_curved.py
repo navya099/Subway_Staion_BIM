@@ -459,3 +459,89 @@ GOLDEN_STRAIGHT = "cab82da2c62de9c2e8ab17fb814e998c4c04bd5c07cc0f8b0ffe719522c62
 def test_straight_alignment_output_is_unchanged(tmp_path):
     """직선 선형(사용자 예시 배치)의 3D 면 4,140개 · IFC 배치 · 층 표고 · 도면 라벨이 한 점도 달라지지 않음"""
     assert _snapshot(make_cfg(user_example()), tmp_path) == GOLDEN_STRAIGHT
+
+
+# ===================================================== 3차 포물선 완화곡선 (한국·일본 철도)
+from config.curved_alignment import CubicSpiral
+
+
+def _integrate(el, th0, s_end, n=20000):
+    """곡률(방향 변화율)만으로 위치를 적분 (측점 간격 h 는 곡선 호 길이 c·h)"""
+    c, h, th, x, y = el._c, s_end / n, th0, 0.0, 0.0
+    for i in range(n):
+        thn = th + h * el.curvature_at((i + 0.5) * h)
+        x += c * h * math.cos(0.5 * (th + thn)); y += c * h * math.sin(0.5 * (th + thn)); th = thn
+    return x, y, th
+
+
+def test_cubic_spiral_end_pose_matches_the_closed_form():
+    L, R = 162.3, 600.0
+    e = CubicSpiral(L, radius=R)
+    X = e.x_length
+    x, y = e.offset_at(0.0, L)
+    assert (x, y) == pytest.approx((X, X * X / (6 * R)), abs=1e-9)                      # y = x³/(6·R·X) 의 끝점
+    assert e.heading_at(L) == pytest.approx(math.atan(X / (2 * R)), abs=1e-12)          # 끝 접선각 atan(X/2R)
+    assert 0.0 < math.degrees(L / (2 * R) - e.heading_at(L)) < 0.07                    # 클로소이드의 L/2R 보다 약 0.06° 작음
+    arc = sum(math.sqrt(1 + (((i + 0.5) * X / 100000) ** 2 / (2 * R * X)) ** 2) * X / 100000 for i in range(100000))
+    assert arc == pytest.approx(L, abs=1e-6)                                           # 호 길이가 length 와 일치
+    assert e.k0 == 0.0 and e.k1 == pytest.approx(1 / R / (1 + (X / (2 * R)) ** 2) ** 1.5)   # 끝 곡률은 1/R 의 약 97.3%
+    assert CubicSpiral(L, radius=R, exit=True).k1 == 0.0 and CubicSpiral(L, radius=R, sign=-1).k1 < 0
+
+
+@pytest.mark.parametrize("kw", [{}, {"total_x": 162.004677200317}], ids=["호 길이로 정의", "totalX 로 정의"])
+def test_cubic_spiral_position_and_heading_follow_its_curvature(kw):
+    for sign in (1, -1):
+        for exit_ in (False, True):
+            el = CubicSpiral(162.3, radius=600.0, sign=sign, exit=exit_, **kw)
+            for th0 in (0.0, 0.7, -2.4):
+                for s in (30.0, 100.0, 162.3):
+                    x, y, th = _integrate(el, th0, s)
+                    assert el.offset_at(th0, s) == pytest.approx((x, y), abs=1e-6)
+                    assert th0 + el.heading_at(s) == pytest.approx(th, abs=1e-8)
+
+
+def test_cubic_spiral_total_x_pins_the_end_point():
+    e = CubicSpiral(162.3, radius=600.0, total_x=162.004677200317)
+    x, y = e.offset_at(0.0, 162.3)
+    assert (x, y) == pytest.approx((162.004677200317, 7.290420954105), abs=1e-6)       # Civil 3D totalX / totalY
+    assert math.degrees(e.heading_at(162.3)) == pytest.approx(7.688667092498, abs=1e-7)  # Civil 3D theta
+    assert e.x_length == pytest.approx(162.004677200317)
+
+
+def test_symmetric_cubic_curve_closes_and_is_continuous():
+    L, R, Lc = 162.3, 600.0, 232.3771007
+    e = CubicSpiral(L, radius=R)
+    ha = HorizontalAlignment(0, 0, 0, 0.3, [HElement(500), CubicSpiral(L, radius=R), HElement(Lc, 1 / R, 1 / R),
+                                            CubicSpiral(L, radius=R, exit=True), HElement(500)])
+    assert ha.azimuth_at(ha.end_station) - 0.3 == pytest.approx(2 * math.atan(e.x_length / (2 * R)) + Lc / R, abs=1e-9)
+    for sta in (500, 500 + L, 500 + L + Lc, 500 + 2 * L + Lc):
+        assert ha.point_at(sta - 1e-7) == pytest.approx(ha.point_at(sta + 1e-7), abs=1e-6)
+        assert ha.azimuth_at(sta - 1e-7) == pytest.approx(ha.azimuth_at(sta + 1e-7), abs=1e-8)
+    assert ha.curvature_at(500 + L - 1e-7) * R == pytest.approx(0.9733, abs=1e-4)       # 완화곡선 끝: 1/R 의 97.3%
+    assert ha.curvature_at(500 + L + 1e-7) * R == pytest.approx(1.0)                    # 원곡선: 1/R (3차 포물선 특유의 작은 곡률 점프)
+    mid = 500 + L + Lc / 2                                                              # 원곡선 중점에 대해 좌우 대칭
+    px, py, th = *ha.point_at(mid), ha.azimuth_at(mid)
+    lateral = lambda p: -(p[0] - px) * math.sin(th) + (p[1] - py) * math.cos(th)
+    assert lateral(ha.point_at(mid - 200)) == pytest.approx(lateral(ha.point_at(mid + 200)), abs=1e-6)
+
+
+def test_cubic_spiral_extrapolates_and_validates():
+    ha = HorizontalAlignment(0, 0, 0, 0.0, [CubicSpiral(100.0, radius=400.0), CubicSpiral(100.0, radius=400.0, exit=True)])
+    for sta in (-5.0, 205.0):                                                           # 범위 밖(차분 계산용)도 계산됨
+        assert all(math.isfinite(v) for v in (*ha.point_at(sta), ha.azimuth_at(sta), ha.curvature_at(sta)))
+    for kw in ({"radius": 0.0}, {"radius": -5.0}):
+        with pytest.raises(ValueError, match="곡선반경과 길이는 0보다"):
+            CubicSpiral(100.0, **kw)
+    with pytest.raises(ValueError, match="곡선반경과 길이는 0보다"):
+        CubicSpiral(0.0001 - 1, radius=100.0)
+
+
+def test_cubic_alignment_builds_a_clean_model():
+    ha = HorizontalAlignment(0, 0, 0, 0.0, [HElement(120), CubicSpiral(160.0, radius=700.0), HElement(200.0, 1 / 700, 1 / 700),
+                                            CubicSpiral(160.0, radius=700.0, exit=True), HElement(400)])
+    cfg = make_cfg(NO_COLS())
+    cfg.align, cfg.station.start_station = CurvedAlignment(ha, VerticalProfile([(0, 100, 0), (1040, 108, 0)])), 100.0
+    eng = StationCADEngine(cfg)
+    for m in members(eng):
+        assert PM.mesh_volume(PM.sweep_quads(PM.rings(cfg, m))) == pytest.approx(m.shape.volume, rel=1e-3), m.name
+    assert interference_pairs(eng) == []

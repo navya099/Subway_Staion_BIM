@@ -2,6 +2,7 @@
 
 - 평면은 '곡률이 거리에 대해 선형으로 변하는 요소'의 연속으로 표현한다.
   직선 (k0 = k1 = 0), 원곡선 (k0 = k1 = ±1/R), 완화곡선/클로소이드 (k0 → k1). 곡률 부호: 좌회전 +.
+  한국·일본 철도의 3차 포물선 완화곡선은 곡률이 거리에 정확히 선형이 아니므로 별도 요소(CubicSpiral)로 정확히 계산한다.
 - 대부분의 입력 방식인 IP(교점) + 곡선반경 + 완화곡선장 으로부터 요소를 만드는 horizontal_from_pi 를 제공한다.
 - 종단은 변곡점(PVI: 측점, 표고, 종곡선장) 목록으로 정의하고 종곡선은 포물선이다.
 """
@@ -55,6 +56,100 @@ class HElement:
                 dx += w * half * math.cos(th)
                 dy += w * half * math.sin(th)
         return dx, dy
+
+
+@dataclass(frozen=True)
+class CubicSpiral(HElement):
+    """3차 포물선 완화곡선: 접선 방향 거리 x 에 대해 y = x³ / (6·R·X). 한국·일본 철도 설계기준의 완화곡선.
+
+    Attributes:
+        length: 곡선을 따른 호 길이 (LandXML 의 length)
+        radius: 원곡선 쪽 끝의 반경 R
+        sign: +1 좌회전 / -1 우회전
+        exit: False = 진입(직선 → 원곡선, 곡률 증가), True = 진출(원곡선 → 직선, 곡률 감소)
+        total_x: 접선 방향 길이 X (LandXML 의 totalX). 주어지면 이 값으로 곡선을 정의하고, 호 길이 length 는 측점 간격으로만 쓴다.
+                 설계 프로그램이 length 를 근사식(X·(1 + tan²θ/10))으로 계산해 정확한 호 길이와 mm 단위로 다를 때 방향 오차가 쌓이는 것을 막는다.
+                 0 이면 호 길이 length 에서 X 를 계산한다
+    끝 접선각은 atan(X / 2R) 로 클로소이드의 length / 2R 과 조금 다르다.
+    곡률은 호 길이에 대해 정확히 선형이 아니고, 원곡선과 이어지는 끝의 곡률은 1/R 보다 약간 작다 (이 차이가 3차 포물선의 특징).
+    """
+    radius: float = 0.0
+    sign: float = 1.0
+    exit: bool = False
+    total_x: float = 0.0
+
+    def __post_init__(self):
+        if self.radius <= 0 or self.length <= 0:
+            raise ValueError("3차 포물선 완화곡선의 곡선반경과 길이는 0보다 커야 합니다")
+        R, L = self.radius, self.length
+
+        def arc_of(X):                                          # 접선 방향 길이 X 인 곡선의 전체 호 길이
+            return X * sum(w / 2.0 * math.sqrt(1.0 + (X * ((u + 1.0) / 2.0) ** 2 / (2.0 * R)) ** 2) for u, w in _GL)
+        X = self.total_x
+        if X <= 0:
+            X = L
+            for _ in range(60):                                 # 호 길이 L 에 해당하는 접선 방향 길이 X (고정점 반복)
+                X_new = X * L / arc_of(X)
+                if abs(X_new - X) < 1e-13:
+                    X = X_new
+                    break
+                X = X_new
+        object.__setattr__(self, "_c", arc_of(X) / L)          # 측점 간격 s → 곡선 호 길이 s·c (total_x 를 줬을 때 ≈ 1)
+        k_end = self.sign * (1.0 / R) / (1.0 + (X / (2.0 * R)) ** 2) ** 1.5
+        object.__setattr__(self, "_X", X)
+        object.__setattr__(self, "k0", k_end if self.exit else 0.0)
+        object.__setattr__(self, "k1", 0.0 if self.exit else k_end)
+
+    @property
+    def x_length(self) -> float:
+        """접선 방향 길이 X (LandXML 의 totalX)"""
+        return self._X
+
+    def _a(self) -> float:
+        return 1.0 / (2.0 * self.radius * self._X)
+
+    def _arc(self, x: float) -> float:
+        """x 까지의 호 길이"""
+        a = self._a()
+        half = x / 2.0
+        return sum(w * half * math.sqrt(1.0 + (a * (half * (u + 1.0)) ** 2) ** 2) for u, w in _GL)
+
+    def _x_of(self, s: float) -> float:
+        """측점 간격 s 에 해당하는 접선 방향 거리 x (뉴턴 반복)"""
+        a, x, target = self._a(), s, s * self._c
+        for _ in range(30):
+            f = self._arc(x) - target
+            x -= f / math.sqrt(1.0 + (a * x * x) ** 2)
+            if abs(f) < 1e-13:
+                break
+        return x
+
+    def _entry(self, s: float, sign: float) -> tuple[float, float, float]:
+        """진입 완화곡선의 자기 좌표계(원점 = 직선과의 접점, x축 = 접선) 위치와 방향 (호 길이 s)"""
+        a, x = self._a(), self._x_of(s)
+        return x, sign * a * x ** 3 / 3.0, sign * math.atan(a * x * x)
+
+    def heading_at(self, s: float) -> float:
+        if not self.exit:
+            return self._entry(s, self.sign)[2]
+        return self.sign * (math.atan(self._a() * self._X ** 2) - math.atan(self._a() * self._x_of(self.length - s) ** 2))
+
+    def curvature_at(self, s: float) -> float:
+        x = self._x_of(self.length - s if self.exit else s)
+        # 측점 간격 s 는 곡선 호 길이의 1/_c 이므로 측점 기준 곡률(방향 변화율)은 기하 곡률 × _c (total_x 를 주지 않으면 _c = 1)
+        return self._c * self.sign * (x / (self.radius * self._X)) / (1.0 + (self._a() * x * x) ** 2) ** 1.5
+
+    def offset_at(self, th0: float, s: float) -> tuple[float, float]:
+        if not self.exit:
+            x, y, _ = self._entry(s, self.sign)
+            frame = th0
+        else:
+            # 진출 완화곡선 = 반대 방향 회전의 진입 완화곡선을 거꾸로 달린 것
+            ex, ey, eth = self._entry(self.length, -self.sign)
+            x, y, _ = self._entry(self.length - s, -self.sign)
+            x, y = x - ex, y - ey
+            frame = th0 - math.pi - eth
+        return x * math.cos(frame) - y * math.sin(frame), x * math.sin(frame) + y * math.cos(frame)
 
 
 class HorizontalAlignment:

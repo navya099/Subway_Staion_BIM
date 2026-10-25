@@ -510,3 +510,29 @@ def test_landxml_dialog_default_cancel_and_profileless_alignment(app, tmp_path):
     assert dlg.result is None and "종단(Profile)이 없습니다" in dlg.error_var.get() and "⚠" in dlg.info_var.get()
     dlg.cancel()
     assert not dlg.top.winfo_exists()
+
+
+# ---------------- 실제 Civil 3D 파일 (3차 포물선 완화곡선) ----------------
+REAL_XML = os.path.join(ROOT, "samples", "civil3d_korea_cubic_spiral.xml")
+
+
+def test_real_civil3d_file_loads_through_the_button_without_warnings(app, monkeypatch):
+    d = patch_dialogs(monkeypatch, open_path=REAL_XML)
+    monkeypatch.setattr(app.station_tab, "_ask_landxml_options", lambda *a: pytest.fail("선형/종단이 하나뿐이면 묻지 않음"))
+    app.station_tab.load_alignment_file()
+    a = app.entries["alignment_source"].alignment
+    assert d.calls == [] and a.alignment_name == "초안1구간" and a.warnings == []
+    assert "⚠" not in app.station_tab.align_status.get() and "21120.07" in app.station_tab.align_status.get()
+
+
+def test_generate_on_the_real_civil3d_alignment(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, open_path=REAL_XML, directory=str(tmp_path))
+    app.station_tab.load_alignment_file()
+    set_entry(app, "start_station", "1560")                        # 3차 포물선 완화곡선(1483.9~1646.2) → 원곡선 구간
+    set_floors(app, 3); set_entry(app, "height", "18")
+    app.on_generate()
+    assert d.calls[-1][0] == "info", d.calls[-1]
+    assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
+    set_entry(app, "start_station", "21000")                       # 정거장 끝(21200)이 선형 끝(21120)을 넘음
+    app.on_generate()
+    assert d.calls[-1][0] == "error" and "선형 범위" in d.calls[-1][2] and "21120.07" in d.calls[-1][2]

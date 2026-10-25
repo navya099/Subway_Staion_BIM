@@ -6,17 +6,23 @@ CurvedAlignment 로 만든다. 좌표를 샘플링한 파일과 달리 잡음이
 - 좌표는 LandXML 규약대로 "북(N) 동(E)" 순서. 요소 끝점을 파일의 좌표와 대조해서 틀리면 "동 북" 순서도 시도한다 (axis="auto")
 - 단위는 <Units> 의 linearUnit 으로 m 로 환산 (meter, millimeter, centimeter, kilometer, foot, USSurveyFoot, inch)
 - 지원하지 않는 것(오류로 알림): 측점 방정식(StaEquation), 비대칭 종곡선(UnsymParaCurve), 불규칙선(IrregularLine), Chain
-- 근사하는 것(경고): 클로소이드가 아닌 완화곡선(3차 포물선 등), 원형 종곡선(CircCurve → 같은 길이의 포물선)
+- 완화곡선: clothoid 는 곡률이 거리에 선형인 정확한 클로소이드, japaneseCubic / cubic / cubicParabola 는 정확한 3차 포물선
+  (y = x³/(6·R·X), 한국·일본 철도). 그 밖의 종류(bloss, sinusoid 등)는 파일의 theta(끝 접선각)에 맞춘 클로소이드로 근사하고 경고한다
+- 근사하는 것(경고): 위 이외의 완화곡선, 원형 종곡선(CircCurve → 같은 길이의 포물선)
 """
 import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
-from config.curved_alignment import CurvedAlignment, HElement, HorizontalAlignment, VerticalProfile
+from config.curved_alignment import CubicSpiral, CurvedAlignment, HElement, HorizontalAlignment, VerticalProfile
 
 MAX_BYTES = 300 * 1024 * 1024
 CLOSURE_WARN = 0.02       # 요소 끝점이 파일 좌표와 이만큼(m) 넘게 다르면 경고
 CLOSURE_REJECT = 1.0      # 이만큼(m) 넘게 다르면 해석이 틀린 것 (좌표 순서/단위 오류)
+
+ANGULAR_UNITS = {"decimal degrees": math.pi / 180.0, "degrees": math.pi / 180.0, "radians": 1.0, "grads": math.pi / 200.0,
+                 "gradians": math.pi / 200.0}
+CUBIC_TYPES = {"japanesecubic", "cubic", "cubicparabola"}
 
 LINEAR_UNITS = {"meter": 1.0, "metre": 1.0, "millimeter": 0.001, "millimetre": 0.001, "centimeter": 0.01,
                 "centimetre": 0.01, "kilometer": 1000.0, "kilometre": 1000.0, "foot": 0.3048,
@@ -105,6 +111,15 @@ def _unit_factor(root, warns) -> float:
     return LINEAR_UNITS[unit]
 
 
+def _angle_factor(root):
+    """<Units> 의 angularUnit → rad 환산 계수 (모르면 None)"""
+    units = _kid(root, "Units")
+    sys_el = next((c for c in units if _local(c.tag) in ("Metric", "Imperial")), None) if units is not None else None
+    if sys_el is None:
+        return None
+    return ANGULAR_UNITS.get(str(_attr(sys_el, "angularUnit", "")).strip().lower())
+
+
 def _profiles_of(alignment_el):
     """[(표시 이름, ProfAlign 요소)] — Profile 이름과 ProfAlign 이름을 합쳐 구별"""
     out = []
@@ -156,7 +171,7 @@ def _pt(el, name, axis):
 
 def _horizontal_elements(cg, f, warns):
     """CoordGeom → [(HElement, 시작점, 끝점, 종류)] (좌표는 파일 원본 값, 길이/반경은 m)"""
-    items, bad_spiral = [], set()
+    items = []
     for i, el in enumerate(cg, start=1):
         kind = _local(el.tag)
         where = f"평면 {i}번째 요소 <{kind}>"
@@ -168,16 +183,11 @@ def _horizontal_elements(cg, f, warns):
                     raise ValueError("radius 가 없습니다")
                 items.append((el, "Curve", float(el.get("length", "nan")) * f))
             elif kind == "Spiral":
-                st = str(_attr(el, "spiType", "clothoid")).lower()
-                if st != "clothoid":
-                    bad_spiral.add(st)
                 items.append((el, "Spiral", float(el.get("length", "nan")) * f))
             else:
                 raise ValueError("지원하지 않는 요소입니다 (Line, Curve, Spiral 만 가능)")
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
-    if bad_spiral:
-        warns.append(f"완화곡선 종류 {', '.join(sorted(bad_spiral))} 는 클로소이드(곡률이 거리에 선형)로 근사했습니다")
     return items
 
 
@@ -193,8 +203,8 @@ def _curvatures(el, kind, f):
     return (0.0 if r0 == math.inf else sign / r0), (0.0 if r1 == math.inf else sign / r1)
 
 
-def _initial_heading(items, axis, f):
-    """첫 요소의 시작 접선 방향각 (rad, +X=동 기준 반시계)"""
+def _initial_heading(items, axis, f, first_element):
+    """첫 요소의 시작 접선 방향각 (rad, +X=동 기준 반시계). first_element: 이미 만든 HElement (방향 변화 계산용)"""
     el, kind, length = items[0]
     s, e = _pt(el, "Start", axis), _pt(el, "End", axis)
     if s is None:
@@ -217,16 +227,41 @@ def _initial_heading(items, axis, f):
     if k0 == 0.0:
         return math.atan2(pi_[1] - s[1], pi_[0] - s[0])
     if k1 == 0.0 and e is not None:
-        return math.atan2(e[1] - pi_[1], e[0] - pi_[0]) - (k0 + k1) / 2.0 * length
+        return math.atan2(e[1] - pi_[1], e[0] - pi_[0]) - first_element.heading_at(first_element.length)
     raise ValueError("첫 요소가 양 끝 곡률이 모두 있는 완화곡선이라 시작 방향을 알 수 없습니다. 앞에 직선을 포함해 내보내세요")
 
 
-def _build_horizontal(cg, sta_start, f, axis, warns):
+def _spiral_element(el, length, k0, k1, f, ang, warns, seen):
+    """완화곡선 요소: 3차 포물선은 정확히, 그 밖의 종류는 theta 에 맞춘 클로소이드로 근사"""
+    st = str(_attr(el, "spiType", "clothoid")).strip().lower()
+    entry, exit_ = k0 == 0.0 and k1 != 0.0, k1 == 0.0 and k0 != 0.0
+    if st == "clothoid" or not (entry or exit_):
+        return HElement(length, k0, k1)
+    k = k1 if entry else k0
+    if st in CUBIC_TYPES:
+        total_x = float(el.get("totalX", 0.0)) * f
+        trial = CubicSpiral(length, radius=1.0 / abs(k), sign=1.0 if k > 0 else -1.0, exit=exit_)
+        if total_x > 0 and abs(total_x - trial.x_length) <= 0.005 * trial.x_length:      # 파일 값이 호 길이와 0.5% 이내로 맞을 때만 사용
+            return CubicSpiral(length, radius=1.0 / abs(k), sign=1.0 if k > 0 else -1.0, exit=exit_, total_x=total_x)
+        return trial
+    theta = el.get("theta")
+    if st not in seen:
+        seen.add(st)
+        warns.append(f"완화곡선 종류 {_attr(el, 'spiType')} 는 지원하지 않아 " +
+                     ("끝 접선각(theta)에 맞춘 클로소이드로 근사했습니다 (완화곡선 끝점이 수 cm 어긋날 수 있습니다)"
+                      if theta is not None and ang else "클로소이드로 근사했습니다 (방향 오차가 누적될 수 있으니 좌표 대조 경고를 확인하세요)"))
+    if theta is not None and ang:
+        k_eff = 2.0 * float(theta) * ang / length          # 방향 변화 (k0 + k1) / 2 · L = theta
+        return HElement(length, 0.0, math.copysign(k_eff, k)) if entry else HElement(length, math.copysign(k_eff, k), 0.0)
+    return HElement(length, k0, k1)
+
+
+def _build_horizontal(cg, sta_start, f, axis, warns, ang=None):
     items = _horizontal_elements(cg, f, warns)
     if not items:
         raise ValueError("평면 기하(CoordGeom)에 요소가 없습니다")
     # 길이가 0 이거나 없는 요소: 시작~끝 좌표의 거리로 대체
-    elements, starts_end = [], []
+    elements, starts_end, seen = [], [], set()
     for el, kind, length in items:
         if not math.isfinite(length):
             s, e = _pt(el, "Start", axis), _pt(el, "End", axis)
@@ -236,9 +271,9 @@ def _build_horizontal(cg, sta_start, f, axis, warns):
         if length <= 1e-9:
             continue
         k0, k1 = _curvatures(el, kind, f)
-        elements.append(HElement(length, k0, k1))
+        elements.append(_spiral_element(el, length, k0, k1, f, ang, warns, seen) if kind == "Spiral" else HElement(length, k0, k1))
         starts_end.append((el, kind))
-    theta0 = _initial_heading([(starts_end[0][0], starts_end[0][1], elements[0].length)], axis, f)
+    theta0 = _initial_heading([(starts_end[0][0], starts_end[0][1], elements[0].length)], axis, f, elements[0])
     s0 = _pt(starts_end[0][0], "Start", axis)
     ha = HorizontalAlignment(sta_start, s0[0] * f, s0[1] * f, theta0, elements)
     # 요소 끝점을 파일의 좌표와 대조: 좌표 순서/단위가 틀리면 여기서 크게 어긋난다
@@ -339,7 +374,7 @@ def _load(path, opt):
     for axis in axes:
         w = []
         try:
-            ha, worst, where = _build_horizontal(cg, sta_start, f, axis, w)
+            ha, worst, where = _build_horizontal(cg, sta_start, f, axis, w, _angle_factor(root))
         except ValueError as e:
             if len(axes) == 1:
                 raise

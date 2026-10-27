@@ -106,12 +106,11 @@ class IFCExporter:
 
         # 3. Storeys (층별 공간)
         p = self.config.station
-        story_h = p.height / p.floors
         floor_top_z = self.config.lv(0.0) - p.offset
 
         for floor_idx in range(1, p.floors + 1):
             level_name = f"B{p.floors - floor_idx + 1}F" if p.floors > 1 else f"{floor_idx}F"
-            elevation = floor_top_z + (floor_idx - 1) * story_h
+            elevation = floor_top_z + p.floor_level(floor_idx)
 
             storey = self.file.create_entity(
                 "IfcBuildingStorey",

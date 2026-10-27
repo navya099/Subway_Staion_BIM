@@ -63,6 +63,8 @@ class StationBIMApp:
 
     def _on_floors_changed(self, event=None):
         """🌟 층수가 변경될 때 메인 앱을 통해 ColumnTab의 UI 갱신을 트리거"""
+        if hasattr(self, 'station_tab'):
+            self.station_tab.update_floor_heights()
         if hasattr(self, 'column_tab'):
             self.column_tab.update_column_floor_ui()
 

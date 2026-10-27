@@ -10,7 +10,7 @@ from walls.wall_shape_type import WallRole, WallShapeType
 class WallEngine:
     """외벽(좌/우)과 시·종점 마감벽 BIM 객체를 층별로 만들고, 3D DXF / IFC의 단일 데이터 원천이 된다.
 
-    - 벽체는 층별로 분할: 층 경계는 중간 슬래브 중심면 (최하층 바닥 = 바닥 슬래브 상면, 최상층 상단 = 천장 슬래브 하면)
+    - 벽체는 층별로 분할: 층 경계는 중간층 바닥 슬래브 중심면 (최하층 바닥 = 본체 바닥 슬래브 상면, 최상층 상단 = 천장 슬래브 하면)
     - 모서리 체적이 겹치지 않도록 측벽은 마감벽 사이 구간(wall_t ~ L-wall_t)만 차지
     """
 
@@ -29,9 +29,8 @@ class WallEngine:
     def z_offsets(self, floor_n: int) -> tuple[float, float]:
         """층 floor_n 벽체의 하단/상단 (바닥 슬래브 상면 기준 상대 높이)"""
         p = self.sp
-        story_h = p.height / p.floors
-        bottom = (floor_n - 1) * story_h
-        top = floor_n * story_h if floor_n < p.floors else p.height - p.slab_t
+        bottom = 0.0 if floor_n == 1 else p.floor_level(floor_n) - p.mid_t / 2.0
+        top = p.floor_level(floor_n + 1) - p.mid_t / 2.0 if floor_n < p.floors else p.height - p.roof_t
         return bottom, top
 
     def wall_corners(self, wall: WallData) -> tuple[float, float, float, float, float, float]:

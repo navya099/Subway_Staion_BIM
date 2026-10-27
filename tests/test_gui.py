@@ -31,6 +31,12 @@ def set_entry(app, key, text):
     e.delete(0, "end"); e.insert(0, text)
 
 
+def set_heights(app, *values):
+    """층별 높이 입력칸(최하층부터)에 값을 넣음. 층수를 바꾼 뒤에 호출해야 입력칸이 맞게 만들어져 있음"""
+    for n, v in enumerate(values, start=1):
+        set_entry(app, f"floor_height_{n}", str(v))
+
+
 def set_floors(app, n):
     set_entry(app, "floors", str(n))
     app._on_floors_changed()
@@ -109,8 +115,8 @@ def test_buttons_are_really_clickable(app):
 
 def test_user_example_end_to_end_from_ui_to_ifc(app, tmp_path):
     ct = app.column_tab
-    set_entry(app, "height", "18"); set_entry(app, "slab_t", "0.4"); set_entry(app, "floor_t", "1.2")
     set_floors(app, 3)
+    set_heights(app, 6, 6, 6); set_entry(app, "mid_t", "0.4"); set_entry(app, "roof_t", "0.4"); set_entry(app, "floor_t", "1.2")
     d = ct.drafts.floors
     ct._vars[(1, 0, 0, "width")].set("0.4"); ct._vars[(1, 0, 0, "depth")].set("1.0")      # B3F 사각 0.4x1.0, 1열
     ct.add_row(2)
@@ -144,8 +150,8 @@ def test_gui_initial_values_come_from_dataclass_defaults(app):
     from config.alignment_config import AlignmentConfig
     from config.station_config import StationParameters
     from platforms.platform_params import PlatformParameters
-    for obj, keys in ((StationParameters(), ("length", "width", "start_station", "offset", "height", "floors", "wall_t",
-                                              "floor_t", "slab_t")),
+    for obj, keys in ((StationParameters(), ("length", "width", "start_station", "offset", "floors", "wall_t",
+                                              "floor_t", "mid_t", "roof_t")),
                       (AlignmentConfig(), ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station")),
                       (PlatformParameters(), ("track_spacing", "plat_offset", "plat_thick", "plat_height", "support_t"))):
         for k in keys:
@@ -288,7 +294,7 @@ def test_generate_with_curve_file_writes_curved_outputs(app, monkeypatch, tmp_pa
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "330")                          # 직선 → 완화곡선 → 원곡선을 지나는 구간
     set_floors(app, 3)
-    set_entry(app, "height", "18")
+    set_heights(app, 6, 6, 6)
     app.on_generate()
     kind, _, msg = d.calls[-1]
     assert kind == "info", msg
@@ -367,7 +373,7 @@ def test_generate_from_txt_alignment(app, monkeypatch, tmp_path):
     monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: XYZOptions(start_station=300.0))
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "330")
-    set_floors(app, 3); set_entry(app, "height", "18")
+    set_floors(app, 3); set_heights(app, 6, 6, 6)
     app.on_generate()
     assert d.calls[-1][0] == "info", d.calls[-1]
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
@@ -476,7 +482,7 @@ def test_generate_from_landxml(app, monkeypatch, tmp_path):
     d = patch_dialogs(monkeypatch, open_path=SAMPLE_XML, directory=str(tmp_path))
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "330")
-    set_floors(app, 3); set_entry(app, "height", "18")
+    set_floors(app, 3); set_heights(app, 6, 6, 6)
     app.on_generate()
     assert d.calls[-1][0] == "info", d.calls[-1]
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
@@ -529,10 +535,113 @@ def test_generate_on_the_real_civil3d_alignment(app, monkeypatch, tmp_path):
     d = patch_dialogs(monkeypatch, open_path=REAL_XML, directory=str(tmp_path))
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "1560")                        # 3차 포물선 완화곡선(1483.9~1646.2) → 원곡선 구간
-    set_floors(app, 3); set_entry(app, "height", "18")
+    set_floors(app, 3); set_heights(app, 6, 6, 6)
     app.on_generate()
     assert d.calls[-1][0] == "info", d.calls[-1]
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
     set_entry(app, "start_station", "21000")                       # 정거장 끝(21200)이 선형 끝(21120)을 넘음
     app.on_generate()
     assert d.calls[-1][0] == "error" and "선형 범위" in d.calls[-1][2] and "21120.07" in d.calls[-1][2]
+
+
+# ---------------- 층별 높이 + 슬래브 3종 입력 ----------------
+from config.station_config import StationParameters as _SP
+
+
+def texts(app):
+    tab = app.station_tab
+    return [tab._clear_labels[i][0].get() for i in sorted(tab._clear_labels)], tab.total_var.get()
+
+
+def test_station_tab_has_per_floor_heights_and_three_slab_fields(app):
+    d = _SP()
+    assert "height" not in app.entries and "slab_t" not in app.entries            # 총 높이/통합 슬래브 입력은 없어짐
+    assert [app.entries[f"floor_height_{i}"].get() for i in (1, 2)] == [str(h) for h in d.floor_heights]
+    assert "floor_height_3" not in app.entries
+    assert (app.entries["floor_t"].get(), app.entries["mid_t"].get(), app.entries["roof_t"].get()) == (str(d.floor_t), str(d.mid_t), str(d.roof_t))
+    clear, total = texts(app)
+    assert total == "총 높이 H = 12.00 m   (2개 층 합계)" and clear == ["→ 내공 5.00 m", "→ 내공 5.00 m"]
+
+
+def test_floor_count_change_rebuilds_rows_and_keeps_values(app):
+    set_floors(app, 3)
+    assert app.entries["floor_height_3"].get() == "6.0"                          # 새 층은 바로 아래 층과 같은 높이로 시작
+    set_entry(app, "floor_height_1", "7.5"); set_entry(app, "floor_height_3", "4.0")
+    set_floors(app, 4)
+    assert app.entries["floor_height_4"].get() == "4.0" and app.entries["floor_height_1"].get() == "7.5"
+    set_floors(app, 1)
+    assert [k for k in app.entries if k.startswith("floor_height_")] == ["floor_height_1"]
+    assert str(app.entries["mid_t"].cget("state")) == "disabled"                  # 1개 층이면 중간층 바닥 슬래브 없음
+    set_floors(app, 3)
+    assert [app.entries[f"floor_height_{i}"].get() for i in (1, 2, 3)] == ["7.5", "6.0", "4.0"]    # 줄였다 늘려도 입력 보존
+    assert str(app.entries["mid_t"].cget("state")) == "normal"
+    for partial in ("", "0", "99", "x"):                                          # 입력 도중의 값은 무시
+        set_entry(app, "floors", partial); app._on_floors_changed()
+        assert app.station_tab.floor_count == 3
+
+
+def test_total_and_clear_heights_update_live(app):
+    set_floors(app, 3)
+    set_heights(app, 7.0, 5.2, 4.6)
+    set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")             # (회귀) 슬래브 두께를 바꿔도 내공 표시가 갱신돼야 함
+    clear, total = texts(app)
+    assert total == "총 높이 H = 16.80 m   (3개 층 합계)"
+    assert clear == ["→ 내공 6.10 m", "→ 내공 4.30 m", "→ 내공 3.50 m"]            # 아래 두 층은 중간층 슬래브, 최상층은 천장 슬래브
+    set_entry(app, "roof_t", "1.6")
+    assert texts(app)[0][2] == "→ 내공 3.00 m" and texts(app)[0][:2] == ["→ 내공 6.10 m", "→ 내공 4.30 m"]
+
+
+def test_bad_or_nonpositive_clear_height_is_flagged(app):
+    set_floors(app, 2)
+    set_entry(app, "roof_t", "6.0")                                               # 최상층 6.0 - 6.0 = 0
+    var, lbl = app.station_tab._clear_labels[2]
+    assert var.get() == "→ 내공 0.00 m" and lbl.cget("fg") == "#C62828"
+    set_entry(app, "floor_height_1", "abc")
+    clear, total = texts(app)
+    assert clear[0] == "→ 입력값을 확인하세요" and total == "총 높이: 입력값을 확인하세요"
+
+
+def test_adapter_sums_floor_heights_and_reads_three_slabs(app):
+    set_floors(app, 3)
+    set_heights(app, 7.0, 5.2, 4.6)
+    set_entry(app, "floor_t", "1.5"); set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")
+    st = TkAdapter.collect_entries(app.entries).station
+    assert st.floor_heights == [7.0, 5.2, 4.6] and st.height == pytest.approx(16.8) and st.floors == 3
+    assert (st.floor_t, st.mid_t, st.roof_t) == (1.5, 0.9, 1.1)
+
+
+def test_adapter_errors_name_the_floor_and_slab(app):
+    set_floors(app, 3)
+    set_entry(app, "floor_height_2", "abc")
+    with pytest.raises(ValueError, match=r"B2F 층 높이: 숫자가 아닙니다 \('abc'\)"):
+        TkAdapter.collect_entries(app.entries)
+    set_entry(app, "floor_height_2", "6")
+    set_entry(app, "mid_t", "x")
+    with pytest.raises(ValueError, match="중간층 바닥 슬래브 두께: 숫자가 아닙니다"):
+        TkAdapter.collect_entries(app.entries)
+    set_entry(app, "mid_t", "7.0")                                                # 변환은 되지만 제원 검증에서 걸림
+    with pytest.raises(ValueError, match=r"B3F 층 높이\(6m\)가 위쪽 중간층 바닥 슬래브 두께\(7m\) 이하"):
+        TkAdapter.collect_entries(app.entries).validate()
+
+
+def test_generate_with_varied_heights_and_slabs(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, directory=str(tmp_path))
+    set_floors(app, 3)
+    set_heights(app, 7.0, 5.2, 4.6)
+    set_entry(app, "floor_t", "1.5"); set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")
+    app.on_generate()
+    assert d.calls[-1][0] == "info", d.calls[-1]
+    f = ifcopenshell.open(str(next(p for p in tmp_path.iterdir() if p.suffix == ".ifc")))
+    elev = {s.Name: s.Elevation for s in f.by_type("IfcBuildingStorey")}
+    assert elev["B2F"] - elev["B3F"] == pytest.approx(7.0) and elev["B1F"] - elev["B2F"] == pytest.approx(5.2)   # 층 표고 간격 = 층 높이
+
+
+def test_floor_height_entries_fit_inside_the_window(app):
+    set_floors(app, 6)
+    app.root.update()
+    right = app.root.winfo_rootx() + app.root.winfo_width()
+    bottom = app.station_tab.parent.winfo_rooty() + app.station_tab.parent.winfo_height()
+    for k in [f"floor_height_{i}" for i in range(1, 7)] + ["floors", "mid_t", "roof_t"]:
+        e = app.entries[k]
+        assert e.winfo_rootx() + e.winfo_width() <= right, k
+    assert app.entries["roof_t"].winfo_rooty() + app.entries["roof_t"].winfo_height() <= bottom      # 6개 층이어도 아래 입력칸이 잘리지 않음

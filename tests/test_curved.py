@@ -453,11 +453,12 @@ def _snapshot(cfg, tmp_path):
     return hashlib.sha256(json.dumps([faces, places, storeys, texts], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-GOLDEN_STRAIGHT = "cab82da2c62de9c2e8ab17fb814e998c4c04bd5c07cc0f8b0ffe719522c62fc0"
+GOLDEN_STRAIGHT = "ac9dfb3906fe64dce770456a96165ee6950def84e028554d54c0145bd8876537"
 
 
 def test_straight_alignment_output_is_unchanged(tmp_path):
-    """직선 선형(사용자 예시 배치)의 3D 면 4,140개 · IFC 배치 · 층 표고 · 도면 라벨이 한 점도 달라지지 않음"""
+    """직선 선형(사용자 예시 배치)의 3D 면 4,140개 · IFC 배치 · 층 표고 · 도면 라벨을 해시로 고정.
+    (층별 높이/슬래브 3종 도입 때 한 번 갱신: 중간층 슬래브 상면이 층 바닥 높이에 맞도록 바뀌어 중간 슬래브·벽체 분할·위층 기둥의 z 만 달라짐)"""
     assert _snapshot(make_cfg(user_example()), tmp_path) == GOLDEN_STRAIGHT
 
 

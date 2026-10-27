@@ -38,21 +38,20 @@ class SlabEngine:
         """(용도, 소속 층 번호, 하단 높이(바닥 슬래브 상면 기준), 두께, s0, s1, t0, t1)"""
         p = self.sp
         hw, wt = p.width / 2.0, p.wall_t
-        story_h = p.height / p.floors
         defs = [(SlabKind.FLOOR, 1, -p.floor_t, p.floor_t, 0.0, p.length, -hw, hw)]
-        for i in range(1, p.floors):
-            defs.append((SlabKind.MID, i + 1, i * story_h - p.slab_t / 2, p.slab_t,
+        for i in range(1, p.floors):              # 중간층 바닥 슬래브: 상면이 윗층 바닥 높이
+            defs.append((SlabKind.MID, i + 1, p.floor_level(i + 1) - p.mid_t, p.mid_t,
                          wt, p.length - wt, -hw + wt, hw - wt))
-        defs.append((SlabKind.ROOF, p.floors, p.height - p.slab_t, p.slab_t, 0.0, p.length, -hw, hw))
+        defs.append((SlabKind.ROOF, p.floors, p.height - p.roof_t, p.roof_t, 0.0, p.length, -hw, hw))
         return defs
 
     # ---------- 생성 ----------
     def _build_slab_bim_objects(self):
         p = self.sp
-        if min(p.floor_t, p.slab_t) <= 0:
+        if min(p.floor_t, p.mid_t, p.roof_t) <= 0:
             raise ValueError("슬래브 두께는 0보다 커야 합니다.")
-        if p.height / p.floors <= p.slab_t:
-            raise ValueError("층 높이가 슬래브 두께보다 작거나 같습니다.")
+        if any(p.clear_height(n) <= 0 for n in range(1, p.floors + 1)):
+            raise ValueError("층 높이가 위쪽 슬래브 두께보다 작거나 같습니다.")
 
         by_level: dict[str, SlabPackage] = {}
         for kind, floor_n, z_lo, thick, s0, s1, t0, t1 in self._slab_defs():

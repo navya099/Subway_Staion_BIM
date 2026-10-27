@@ -6,11 +6,13 @@ from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
 from config.alignment_io import describe, file_kind, load_alignment
 from config.alignment_landxml import LandXMLOptions, scan_landxml
+from gui.column_draft import level_name
 from gui.landxml_options_dialog import LandXMLOptionsDialog
 from gui.xyz_options_dialog import XYZOptionsDialog
 from config.station_config import StationParameters
 
 
+DEFAULTS = StationParameters()          # 층별 높이 등 초기값의 단일 출처
 COORD_KEYS = ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station")
 
 
@@ -27,6 +29,8 @@ class StationTab:
         self.parent = parent
         self.entries = entries_dict  # 메인 앱의 entries 공유받기
         self.on_floors_changed = on_floors_changed_callback  # 콜백 연결
+        self._field_vars: dict[str, tk.StringVar] = {}       # tk 변수는 파이썬 객체가 회수되면 trace 도 사라지므로 보관
+        self._height_vars: dict[int, tk.StringVar] = {}
 
     def build_station_tab(self):
         """탭 1: 선형 및 정거장 박스 기본 제원 입력"""
@@ -84,25 +88,118 @@ class StationTab:
             ("width", "정거장 전체 폭 (W, m):", str(SP.width)),
             ("start_station", "정거장 시작 측점 STA(m):", str(SP.start_station)),
             ("offset", "기준선 ~ 바닥 상단 오프셋 (m):", str(SP.offset)),
-            ("height", "정거장 총 높이 (H, m):", str(SP.height)),
             ("floors", "층수:", str(SP.floors)),
             ("wall_t", "외벽 두께:", str(SP.wall_t)),
-            ("floor_t", "바닥슬래브 두께:", str(SP.floor_t)),
-            ("slab_t", "천장 및 중간슬래브 두께:", str(SP.slab_t)),
+            ("floor_t", "본체 바닥 슬래브 두께:", str(SP.floor_t)),
+            ("mid_t", "중간층 바닥 슬래브 두께:", str(SP.mid_t)),
+            ("roof_t", "본체 천장 슬래브 두께:", str(SP.roof_t)),
         ]
 
         for key, lbl, val in fields:
             row_f = tk.Frame(self.parent)
             row_f.pack(fill="x", **pad_opts)
             tk.Label(row_f, text=lbl, font=("Malgun Gothic", 9), width=25, anchor="w").pack(side="left")
-            e = tk.Entry(row_f, width=15, font=("Malgun Gothic", 9))
+            var = tk.StringVar(value=val)
+            self._field_vars[key] = var               # 보관하지 않으면 회수되면서 Tcl 변수와 변경 감지(trace)가 사라짐
+            e = tk.Entry(row_f, width=15, font=("Malgun Gothic", 9), textvariable=var)
             e.pack(side="right")
-            e.insert(0, val)
             self.entries[key] = e
 
-            # 🌟 층수 입력 필드인 경우 전달받은 콜백 함수 바인딩
-            if key == "floors" and self.on_floors_changed:
-                e.bind("<KeyRelease>", self.on_floors_changed)
+            if key == "floors":                       # 층수를 바꾸면 층별 높이 입력칸 / 기둥 탭을 다시 구성
+                self._floors_var = var
+                if self.on_floors_changed:
+                    e.bind("<KeyRelease>", self.on_floors_changed)
+                self._build_floor_heights_frame()     # 층수 입력 바로 아래에 층별 높이
+            if key in ("mid_t", "roof_t"):            # 슬래브 두께가 바뀌면 내공 높이 표시를 갱신
+                var.trace_add("write", lambda *a: self.refresh_heights())
+        self.refresh_heights()
+
+    # ------------------------------------------------------------------ 층별 높이
+    def _build_floor_heights_frame(self):
+        self.heights_frame = tk.LabelFrame(self.parent, text=" 층별 높이 (최하층부터) ", font=("Malgun Gothic", 9, "bold"),
+                                           fg="#1565C0", padx=8, pady=4)
+        self.heights_frame.pack(fill="x", padx=15, pady=(2, 6))
+        self._height_text: dict[int, str] = {}          # 층 번호 → 입력한 문자열 (층수를 바꿔도 보존)
+        self._clear_labels: dict[int, tuple] = {}       # 층 번호 → (StringVar, Label)
+        self.total_var = tk.StringVar(value="")
+        self.floor_count = 0
+        self.update_floor_heights()
+
+    def _read_floor_count(self):
+        try:
+            n = int(self.entries["floors"].get().strip())
+        except (KeyError, ValueError):
+            return None
+        return n if 1 <= n <= 20 else None
+
+    def update_floor_heights(self):
+        """층수가 바뀌면 호출. 기존 층의 입력은 보존하고 새 층은 바로 아래 층과 같은 높이로 시작"""
+        if not hasattr(self, "heights_frame"):
+            return
+        n = self._read_floor_count()
+        if n is None:
+            n = self.floor_count or len(DEFAULTS.floor_heights)      # 입력 도중(빈칸/0 등)에는 현재 상태 유지
+        if n == self.floor_count:
+            return
+        self.floor_count = n
+        for w in self.heights_frame.winfo_children():
+            w.destroy()
+        for key in [k for k in self.entries if k.startswith("floor_height_")]:
+            del self.entries[key]
+        self._clear_labels.clear()
+        self._height_vars.clear()
+        last = DEFAULTS.floor_heights[0]
+        for i in range(1, n + 1):
+            default = str(DEFAULTS.floor_heights[i - 1]) if i <= len(DEFAULTS.floor_heights) else str(last)
+            text = self._height_text.setdefault(i, default)
+            last = text
+            row = tk.Frame(self.heights_frame)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=f"{level_name(n, i)} 층 높이 (m):", font=("Malgun Gothic", 9), width=17, anchor="w").pack(side="left")
+            var = tk.StringVar(value=text)
+            self._height_vars[i] = var
+            e = tk.Entry(row, width=9, font=("Malgun Gothic", 9), textvariable=var)
+            e.pack(side="left")
+            self.entries[f"floor_height_{i}"] = e
+            clear_var = tk.StringVar(value="")
+            lbl = tk.Label(row, textvariable=clear_var, font=("Malgun Gothic", 8), fg="#555555")
+            lbl.pack(side="left", padx=8)
+            self._clear_labels[i] = (clear_var, lbl)
+            var.trace_add("write", lambda *a, i=i, v=var: (self._height_text.__setitem__(i, v.get()), self.refresh_heights()))
+        tk.Label(self.heights_frame, textvariable=self.total_var, font=("Malgun Gothic", 9, "bold"), fg="#1565C0").pack(anchor="w", pady=(4, 0))
+        tk.Label(self.heights_frame, justify="left", fg="#666666", font=("Malgun Gothic", 8), wraplength=410,
+                 text="층 높이 = 그 층 바닥 슬래브 상면 ~ 바로 위 슬래브 상면 (최하층은 본체 바닥 슬래브 상면, 최상층은 천장 슬래브 상면까지). "
+                      "합계가 정거장 총 높이이고, 내공 높이 = 층 높이 − 위쪽 슬래브 두께입니다.").pack(anchor="w")
+        self.refresh_heights()
+
+    def refresh_heights(self):
+        """총 높이(합계)와 층별 내공 높이를 다시 계산해 표시"""
+        if not hasattr(self, "floor_count") or not self._clear_labels:
+            return
+
+        def num(key):
+            e = self.entries.get(key)
+            try:
+                return float(e.get()) if e is not None else None
+            except ValueError:
+                return None
+        n, mid, roof = self.floor_count, num("mid_t"), num("roof_t")
+        heights = [num(f"floor_height_{i}") for i in range(1, n + 1)]
+        for i, h in enumerate(heights, start=1):
+            above = mid if i < n else roof
+            var, lbl = self._clear_labels[i]
+            if h is None or above is None:
+                var.set("→ 입력값을 확인하세요")
+                lbl.configure(fg="#C62828")
+            else:
+                clear = h - above
+                var.set(f"→ 내공 {clear:.2f} m")
+                lbl.configure(fg="#C62828" if clear <= 0 else "#555555")
+        ok = all(h is not None for h in heights)
+        self.total_var.set(f"총 높이 H = {sum(heights):.2f} m   ({n}개 층 합계)" if ok else "총 높이: 입력값을 확인하세요")
+        if "mid_t" in self.entries:                       # 1개 층이면 중간층 바닥 슬래브가 없음
+            self.entries["mid_t"].configure(state="disabled" if n == 1 else "normal")
+
     # ------------------------------------------------------------------ 곡선 선형 파일
     def _build_alignment_loader(self):
         self.source = AlignmentSource()

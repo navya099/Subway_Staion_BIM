@@ -22,8 +22,8 @@ CIRC = lambda r: ColumnSpec(T.CIRCLE, radius=r)
 
 def make_cfg(columns=None, floors=3):
     return StationProjectConfig(
-        station=StationParameters(start_station=0.0, length=200.0, width=20.0, height=18.0, floors=floors,
-                                  wall_t=1.0, floor_t=1.2, slab_t=0.4),
+        station=StationParameters(start_station=0.0, length=200.0, width=20.0, floor_heights=[18.0 / floors] * floors,
+                                  wall_t=1.0, floor_t=1.2, mid_t=0.4, roof_t=0.4),
         platform=PlatformParameters(4.4, 1.7, 0.2, 1.1, support_t=0.3),
         column=columns or ColumnParameters(),
         align=AlignmentConfig(0, 286.4826, -85.3896, 123.45, 575.9987, 437.4075, 134.45))
@@ -105,16 +105,19 @@ class W:  # tkinter 없이 쓰는 가짜 위젯
 def entries(floors=2):
     e = {k: W(v) for k, v in dict(
         bp_x="286.4826", bp_y="-85.3896", bp_z="123.45", ep_x="575.9987", ep_y="437.4075", ep_z="134.45",
-        bp_station="0.0", start_station="0.0", length="200", width="20", offset="0", height="12",
-        floors=str(floors), wall_t="1.0", floor_t="1.2", slab_t="1.0", track_spacing="4.4", plat_offset="1.7",
+        bp_station="0.0", start_station="0.0", length="200", width="20", offset="0",
+        floors=str(floors), wall_t="1.0", floor_t="1.2", mid_t="1.0", roof_t="1.0", track_spacing="4.4", plat_offset="1.7",
         plat_thick="0.2", plat_height="1.1", support_t="0.3", platform_type="0", col_interval="10", col_width="0.8",
         col_depth="0.8", sync_all=True).items()}
+    for n in range(1, floors + 1):                       # 층별 높이 입력칸 (최하층부터)
+        e[f"floor_height_{n}"] = W("6")
     return e
 
 
 def test_adapter_maps_slabs_and_defaults():
     cfg = TkAdapter.collect_entries(entries())
-    assert (cfg.station.floor_t, cfg.station.slab_t) == (1.2, 1.0)
+    assert (cfg.station.floor_t, cfg.station.mid_t, cfg.station.roof_t) == (1.2, 1.0, 1.0)
+    assert cfg.station.floor_heights == [6.0, 6.0] and cfg.station.height == 12.0       # 층별 높이를 합산한 총 높이
     assert cfg.column.target_floors == [1, 2]
 
 
@@ -151,7 +154,7 @@ def test_walls_per_level_and_volume():
     assert all(p.total_count == 4 for p in we.wall_packages)
     assert [w.name for w in we.wall_packages[0].walls] == ["WALL_B3F_START", "WALL_B3F_L", "WALL_B3F_R", "WALL_B3F_END"]
     # 층별 높이 합 = H - 천장슬래브, 총 체적 = 측벽 2 + 마감벽 2 (겹침 없음)
-    h = st.height - st.slab_t
+    h = st.height - st.roof_t
     expected = 2 * (st.length - 2 * st.wall_t) * st.wall_t * h + 2 * st.wall_t * st.width * h
     assert sum(p.total_volume for p in we.wall_packages) == pytest.approx(expected)
 
@@ -219,8 +222,8 @@ def test_slab_plus_wall_volume_matches_envelope():
              + sum(p.total_volume for p in WallEngine(cfg).wall_packages))
     W, L, wt = st.width, st.length, st.wall_t
     ext = W * L * (st.floor_t + st.height)
-    void = (W - 2 * wt) * (L - 2 * wt) * (st.height - st.slab_t)
-    mids = (st.floors - 1) * (W - 2 * wt) * (L - 2 * wt) * st.slab_t
+    void = (W - 2 * wt) * (L - 2 * wt) * (st.height - st.roof_t)
+    mids = (st.floors - 1) * (W - 2 * wt) * (L - 2 * wt) * st.mid_t
     assert solid == pytest.approx(ext - void + mids)
 
 
@@ -472,7 +475,7 @@ def test_section_cut_members_and_wall_merge(tmp_path):
     assert len(_q(path, "SEC_PLATFORM")) == 6        # 승강장 슬래브 2 + 지지벽체 4
     assert _q(path, "SEC_BEYOND") == []              # 같은 열의 앞쪽 기둥은 절단 기둥과 동일 형상이라 생략
     walls = [pl for pl in conc if abs((_bbox(pl)[1] - _bbox(pl)[0]) - st.wall_t) < 1e-6 and (_bbox(pl)[3] - _bbox(pl)[2]) > st.height - 1]
-    assert len(walls) == 2 and all(abs((_bbox(w)[3] - _bbox(w)[2]) - (st.height - st.slab_t)) < 1e-6 for w in walls)
+    assert len(walls) == 2 and all(abs((_bbox(w)[3] - _bbox(w)[2]) - (st.height - st.roof_t)) < 1e-6 for w in walls)
 
 
 def test_section_inside_end_wall(tmp_path):
@@ -667,9 +670,15 @@ from platforms.platform_type import PlatformType
 @pytest.mark.parametrize("edit,msg", [
     (lambda c: setattr(c.station, "length", -5), "정거장 길이은(는) 0보다 커야"),
     (lambda c: setattr(c.station, "width", float("nan")), "정거장 폭은(는) 0보다 커야"),
-    (lambda c: setattr(c.station, "floors", 2.5), "층수는 1 이상의 정수"),
+    (lambda c: setattr(c.station, "floor_heights", []), "층별 높이가 비어 있습니다"),
+    (lambda c: c.station.floor_heights.__setitem__(0, -1.0), "B3F 층 높이은(는) 0보다 커야"),
+    (lambda c: c.station.floor_heights.__setitem__(1, float("nan")), "B2F 층 높이은(는) 0보다 커야"),
     (lambda c: setattr(c.station, "wall_t", 10.0), "외벽 두께(10.0m)의 2배"),
-    (lambda c: setattr(c.station, "slab_t", 6.0), "층 높이"),
+    (lambda c: setattr(c.station, "roof_t", 6.0), "B1F 층 높이(6m)가 위쪽 천장 슬래브 두께(6m) 이하"),
+    (lambda c: setattr(c.station, "mid_t", 7.0), "B3F 층 높이(6m)가 위쪽 중간층 바닥 슬래브 두께(7m) 이하"),
+    (lambda c: setattr(c.station, "floor_t", 0.0), "본체 바닥 슬래브 두께은(는) 0보다 커야"),
+    (lambda c: setattr(c.station, "mid_t", -0.2), "중간층 바닥 슬래브 두께은(는) 0보다 커야"),
+    (lambda c: setattr(c.station, "roof_t", 0.0), "본체 천장 슬래브 두께은(는) 0보다 커야"),
     (lambda c: setattr(c.station, "sta_tick", 0), "측점 표기 간격"),
     (lambda c: setattr(c.platform, "plat_thick", -0.1), "승강장 슬래브 두께은(는) 0 이상"),
     (lambda c: setattr(c.platform, "plat_type", "0"), "승강장 타입이 올바르지 않습니다"),
@@ -720,7 +729,7 @@ def test_defaults_have_single_source():
     assert (float(PD().width), float(PD().depth), float(PD().diameter) / 2) == (spec.width, spec.depth, spec.radius)
     assert (float(RD().t_offset), float(RD().interval), float(RD().start_offset)) == (row.t_offset, row.interval, row.start_offset)
     cfg = StationProjectConfig()
-    assert cfg.station.floors == 2 and cfg.station.slab_t == 1.0 and cfg.platform.plat_thick == 0.2
+    assert cfg.station.floors == 2 and (cfg.station.mid_t, cfg.station.roof_t) == (1.0, 1.0) and cfg.platform.plat_thick == 0.2
     StationCADEngine(cfg)
 
 
@@ -730,11 +739,10 @@ def test_ifc_spatial_structure_is_placed(tmp_path):
     site, building = f.by_type("IfcSite")[0], f.by_type("IfcBuilding")[0]
     assert site.ObjectPlacement is not None and building.ObjectPlacement.PlacementRelTo == site.ObjectPlacement
     st = cfg.station
-    story_h = st.height / st.floors
     base = cfg.lv(0.0) - st.offset
     for storey in f.by_type("IfcBuildingStorey"):
         n = {"B3F": 1, "B2F": 2, "B1F": 3}[storey.Name]
-        expected = base + (n - 1) * story_h
+        expected = base + st.floor_level(n)
         assert storey.Elevation == pytest.approx(expected)                         # 부재와 같은 절대 표고 체계
         z = storey.ObjectPlacement.RelativePlacement.Location.Coordinates[2]
         assert z == pytest.approx(expected) and storey.ObjectPlacement.PlacementRelTo == building.ObjectPlacement
@@ -900,3 +908,105 @@ def test_heading_alignment_validation():
         HeadingAlignment(length=0).validate()
     with pytest.raises(ValueError):
         HeadingAlignment(heading_deg=float("nan")).validate()
+
+
+# ---------------- 층별 높이 + 슬래브 3종 (본체 바닥 / 중간층 바닥 / 본체 천장) ----------------
+from walls.wall_engine import WallEngine as _WE
+
+HEIGHTS = [7.0, 5.2, 4.6]                      # B3F, B2F, B1F (최하층부터)
+FLOOR_T, MID_T, ROOF_T = 1.5, 0.9, 1.1         # 모두 다르게 → 각 값이 맞는 부재에만 쓰이는지 확인
+
+
+def varied_cfg(columns=None):
+    cfg = make_cfg(columns)
+    cfg.station.floor_heights = list(HEIGHTS)
+    cfg.station.floor_t, cfg.station.mid_t, cfg.station.roof_t = FLOOR_T, MID_T, ROOF_T
+    return cfg
+
+
+def rel(cfg, m):
+    """부재 하단 높이 (본체 바닥 슬래브 상면 = 0 기준)"""
+    from helper import prism_member as PM
+    return PM.z_off(cfg, m)
+
+
+def test_station_level_api():
+    p = varied_cfg().station
+    assert (p.floors, p.height) == (3, pytest.approx(16.8))                    # 총 높이 = 층 높이의 합
+    assert [p.floor_level(n) for n in (1, 2, 3, 4)] == pytest.approx([0.0, 7.0, 12.2, 16.8])
+    assert [p.level_name(n) for n in (1, 2, 3)] == ["B3F", "B2F", "B1F"]
+    assert [p.slab_above_t(n) for n in (1, 2, 3)] == [MID_T, MID_T, ROOF_T]
+    assert [p.clear_height(n) for n in (1, 2, 3)] == pytest.approx([6.1, 4.3, 3.5])   # 내공 = 층 높이 - 위쪽 슬래브
+    single = StationParameters(floor_heights=[9.0], roof_t=1.4)
+    assert (single.floors, single.height, single.clear_height(1), single.level_name(1)) == (1, 9.0, pytest.approx(7.6), "1F")
+
+
+def test_slabs_use_their_own_thickness_and_levels():
+    cfg = varied_cfg(); eng = StationCADEngine(cfg)
+    got = {s.name: (rel(cfg, s), s.shape.thickness) for pk in eng.slabs.slab_packages for s in pk.slabs}
+    assert got.keys() == {"SLAB_B3F_FLOOR", "SLAB_B2F_MID", "SLAB_B1F_MID", "SLAB_B1F_ROOF"}
+    assert got["SLAB_B3F_FLOOR"] == pytest.approx((-FLOOR_T, FLOOR_T))         # 본체 바닥: 바닥 상면 0 아래로 1.5
+    assert got["SLAB_B2F_MID"] == pytest.approx((7.0 - MID_T, MID_T))          # 중간층 바닥: 상면이 B2F 바닥(7.0)
+    assert got["SLAB_B1F_MID"] == pytest.approx((12.2 - MID_T, MID_T))         # 상면이 B1F 바닥(12.2)
+    assert got["SLAB_B1F_ROOF"] == pytest.approx((16.8 - ROOF_T, ROOF_T))      # 본체 천장: 상면이 총 높이 16.8
+
+
+def test_walls_split_at_mid_slab_centers_with_varied_heights():
+    cfg = varied_cfg(); eng = StationCADEngine(cfg)
+    spans = {pk.level: [(rel(cfg, w), w.shape.vertical) for w in pk.walls if w.name.endswith("_L")][0] for pk in eng.walls.wall_packages}
+    assert spans["B3F"] == pytest.approx((0.0, 7.0 - MID_T / 2))
+    assert spans["B2F"] == pytest.approx((7.0 - MID_T / 2, 12.2 - 7.0))
+    assert spans["B1F"] == pytest.approx((12.2 - MID_T / 2, 16.8 - ROOF_T - (12.2 - MID_T / 2)))
+    total = sum(h for _, h in spans.values())
+    assert total == pytest.approx(cfg.station.height - ROOF_T)                  # 이어 붙이면 바닥 상면 ~ 천장 슬래브 하면
+
+
+def test_columns_run_between_the_right_slab_faces():
+    cp = ColumnParameters.uniform(3, interval=20.0)
+    cfg = varied_cfg(cp); eng = StationCADEngine(cfg)
+    got = {}
+    for pk in eng.columns.column_packages:
+        c = pk.columns[0]
+        base = cfg.lv(c.pos_x) - cfg.station.offset
+        got[pk.level] = (c.pos_z - base, c.pos_z - base + c.shape.height)
+    assert got["B3F"] == pytest.approx((0.0, 7.0 - MID_T))                      # 바닥 상면 ~ 위 중간 슬래브 하면
+    assert got["B2F"] == pytest.approx((7.0, 12.2 - MID_T))                     # 아래 중간 슬래브 상면 ~ 위 중간 슬래브 하면
+    assert got["B1F"] == pytest.approx((12.2, 16.8 - ROOF_T))                   # 아래 중간 슬래브 상면 ~ 천장 슬래브 하면
+
+
+def test_varied_model_has_no_interference_and_closes_up():
+    from test_curved import interference_pairs
+    eng = StationCADEngine(varied_cfg(user_example()))
+    assert interference_pairs(eng) == []
+    st = eng.cfg.station
+    solid = (sum(p.total_volume for p in eng.slabs.slab_packages) + sum(p.total_volume for p in eng.walls.wall_packages))
+    W, L, wt = st.width, st.length, st.wall_t
+    ext = W * L * (FLOOR_T + st.height)
+    void = (W - 2 * wt) * (L - 2 * wt) * (st.height - ROOF_T)
+    assert solid == pytest.approx(ext - void + 2 * MID_T * (W - 2 * wt) * (L - 2 * wt))     # 겹침도 빈틈도 없음
+
+
+def test_ifc_storeys_follow_floor_levels(tmp_path):
+    cfg = varied_cfg()
+    f = ifcopenshell.open(StationCADEngine(cfg).generate_ifc(tmp_path / "v.ifc"))
+    base = cfg.lv(0.0) - cfg.station.offset
+    assert {s.Name: round(s.Elevation, 6) for s in f.by_type("IfcBuildingStorey")} == pytest.approx(
+        {"B3F": base, "B2F": base + 7.0, "B1F": base + 12.2})
+
+
+def test_single_floor_station_uses_floor_and_roof_slabs_only():
+    cfg = make_cfg(ColumnParameters.uniform(1), floors=1)
+    cfg.station.floor_heights = [9.0]; cfg.station.roof_t = 1.4
+    eng = StationCADEngine(cfg)
+    slabs = {s.name: (rel(cfg, s), s.shape.thickness) for pk in eng.slabs.slab_packages for s in pk.slabs}
+    assert slabs == {"SLAB_1F_FLOOR": pytest.approx((-1.2, 1.2)), "SLAB_1F_ROOF": pytest.approx((9.0 - 1.4, 1.4))}
+    walls = [w for pk in eng.walls.wall_packages for w in pk.walls if w.name.endswith("_L")]
+    assert rel(cfg, walls[0]) == 0.0 and walls[0].shape.vertical == pytest.approx(9.0 - 1.4)
+
+
+def test_section_and_profile_use_total_height(tmp_path):
+    cfg = varied_cfg(); eng = StationCADEngine(cfg)
+    sec = eng.generate_section_dxf([100.0], tmp_path / "s.dxf")
+    zs = [p[1] for pl in _q(sec, "SEC_CONCRETE") for p in pl.get_points()]
+    base = cfg.lv(100.0) - cfg.station.offset
+    assert max(zs) == pytest.approx(base + 16.8) and min(zs) == pytest.approx(base - FLOOR_T)       # 천장 상면 / 바닥 슬래브 하면

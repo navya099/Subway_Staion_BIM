@@ -46,19 +46,18 @@ class ColumnEngine:
     def z_range(self, floor_n: int, s: float, t_lo: float = 0.0, t_hi: float = 0.0) -> tuple[float, float]:
         """층 floor_n 기둥의 하단/상단 표고 (정거장 로컬 거리 s, 직교방향 구간 t_lo~t_hi 위치)"""
         p, pf, cp = self.sp, self.pf, self.cp
-        story_h = p.height / p.floors
         floor_top_z = self.cfg.lv(s) - p.offset
-        # 하단: 최하층 = 바닥 슬래브 상면(승강장 동기화 시 승강장 상면), 그 외 = 중간 슬래브 상면
+        # 하단: 최하층 = 본체 바닥 슬래브 상면(승강장 동기화 시 승강장 상면), 그 외 = 아래 중간층 바닥 슬래브 상면 (= 이 층의 바닥)
         if floor_n == 1:
             on_platform = cp.sync_with_platform and self.platform_overlap(t_lo, t_hi) == "over"
             z_bot = floor_top_z + (pf.plat_height + pf.plat_thick if on_platform else 0.0)
         else:
-            z_bot = floor_top_z + (floor_n - 1) * story_h + p.slab_t / 2
-        # 상단: 최상층 = 천장 슬래브 하면, 그 외 = 중간 슬래브 하면
+            z_bot = floor_top_z + p.floor_level(floor_n)
+        # 상단: 최상층 = 천장 슬래브 하면, 그 외 = 위 중간층 바닥 슬래브 하면
         if floor_n < p.floors:
-            z_top = floor_top_z + floor_n * story_h - p.slab_t / 2
+            z_top = floor_top_z + p.floor_level(floor_n + 1) - p.mid_t
         else:
-            z_top = floor_top_z + p.height - p.slab_t
+            z_top = floor_top_z + p.height - p.roof_t
         return z_bot, z_top
 
     @staticmethod

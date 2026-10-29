@@ -11,7 +11,7 @@ class SlabEngine:
     """바닥·중간·천장 슬래브 BIM 객체를 만들고, 3D DXF / IFC의 단일 데이터 원천이 된다.
 
     - 바닥/천장 슬래브: 정거장 전체 평면(L x W)
-    - 중간 슬래브: 외벽·마감벽 안쪽 면 사이만 차지 (벽체와 체적이 겹치지 않음)
+    - 중간 슬래브: 아래층 외벽·마감벽 안쪽 면 사이만 차지 (벽체와 체적이 겹치지 않음)
     - 소속 층: 바닥 = 최하층, 중간 i = 그 위층(i+1), 천장 = 최상층
     """
 
@@ -37,9 +37,10 @@ class SlabEngine:
     def _slab_defs(self):
         """(용도, 소속 층 번호, 하단 높이(바닥 슬래브 상면 기준), 두께, s0, s1, t0, t1)"""
         p = self.sp
-        hw, wt = p.width / 2.0, p.wall_t
+        hw = p.width / 2.0
         defs = [(SlabKind.FLOOR, 1, -p.floor_t, p.floor_t, 0.0, p.length, -hw, hw)]
-        for i in range(1, p.floors):              # 중간층 바닥 슬래브: 상면이 윗층 바닥 높이
+        for i in range(1, p.floors):              # 중간층 바닥 슬래브: 상면이 윗층 바닥 높이, 아래층 외벽 안쪽 면 사이
+            wt = p.wall_t_at(i)
             defs.append((SlabKind.MID, i + 1, p.floor_level(i + 1) - p.mid_t, p.mid_t,
                          wt, p.length - wt, -hw + wt, hw - wt))
         defs.append((SlabKind.ROOF, p.floors, p.height - p.roof_t, p.roof_t, 0.0, p.length, -hw, hw))

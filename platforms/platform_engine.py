@@ -10,7 +10,7 @@ from platforms.rectangular_platform import RectangularPlatform
 class PlatformEngine:
     """상대식 승강장(좌/우) BIM 객체를 만들고, 3D DXF / IFC의 단일 데이터 원천이 된다.
 
-    - 승강장은 최하층에 놓이며, 마감벽 안쪽 면 사이(wall_t ~ L-wall_t)만 차지해 벽체와 겹치지 않음
+    - 승강장은 최하층에 놓이며, 최하층 마감벽 안쪽 면 사이(wt ~ L-wt)만 차지해 벽체와 겹치지 않음
     - 승강장 슬래브: 바닥 슬래브 상면 + plat_height 에서 plat_thick 두께 (기존 모델 정의 유지)
     - 2D 도면(횡단/종단/평면)은 현재 파라미터에서 직접 계산 (추후 객체 기반으로 전환 예정)
     """
@@ -40,7 +40,7 @@ class PlatformEngine:
         if p.plat_thick <= 0:
             return  # 승강장 미설정 → 객체 없음
 
-        hw, wt = sp.width / 2.0, sp.wall_t
+        hw, wt = sp.width / 2.0, sp.wall_t_at(1)      # 승강장은 최하층 외벽 안쪽 면 사이
         s0, s1 = wt, sp.length - wt
         edge = p.track_spacing / 2.0 + p.plat_offset     # 선로 중심 ~ 승강장 끝단 (t 절대값)
         inner = hw - wt                                  # 벽체 안쪽 면 (t 절대값)

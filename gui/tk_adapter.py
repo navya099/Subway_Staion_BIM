@@ -11,7 +11,7 @@ LABELS = {
     "bp_x": "BP X", "bp_y": "BP Y", "bp_z": "BP Z", "ep_x": "EP X", "ep_y": "EP Y", "ep_z": "EP Z",
     "bp_station": "선형 시작 측점", "start_station": "정거장 시작 측점", "length": "정거장 전체 길이",
     "width": "정거장 전체 폭", "offset": "기준선~바닥 상단 오프셋", "floors": "층수",
-    "wall_t": "외벽 두께", "floor_t": "본체 바닥 슬래브 두께", "mid_t": "중간층 바닥 슬래브 두께", "roof_t": "본체 천장 슬래브 두께",
+    "floor_t": "본체 바닥 슬래브 두께", "mid_t": "중간층 바닥 슬래브 두께", "roof_t": "본체 천장 슬래브 두께",
     "track_spacing": "선로 간격", "plat_offset": "선로중심~승강장 끝단 거리", "plat_thick": "승강장 슬래브 두께",
     "plat_height": "승강장 높이", "support_t": "승강장 지지벽체 두께",
 }
@@ -51,13 +51,14 @@ class TkAdapter:
             raise ValueError(f"층수: 1 이상이어야 합니다 ({floors})")
         # 층별 높이를 입력받아 합산 (총 높이 = 층 높이의 합). 슬래브는 본체 바닥 / 중간층 바닥 / 본체 천장 세 가지를 따로 받음
         floor_heights = [_float(entries, f"floor_height_{n}", f"{level_name(floors, n)} 층 높이") for n in range(1, floors + 1)]
+        wall_ts = [_float(entries, f"wall_t_{n}", f"{level_name(floors, n)} 외벽 두께") for n in range(1, floors + 1)]
         station_p = StationParameters(
             start_station=_float(entries, "start_station"),
             length=_float(entries, "length"),
             width=_float(entries, "width"),
             offset=_float(entries, "offset"),
             floor_heights=floor_heights,
-            wall_t=_float(entries, "wall_t"),
+            wall_ts=wall_ts,
             floor_t=_float(entries, "floor_t"),
             mid_t=_float(entries, "mid_t"),
             roof_t=_float(entries, "roof_t")

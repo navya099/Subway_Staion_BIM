@@ -24,7 +24,7 @@ class ColumnTab:
         self.entries['column_drafts'] = self.drafts
         self.floor_count = 0
         self._vars = {}          # 테스트/갱신용: (층, 열, 필드) 또는 (층, 열, 패턴, 필드) → StringVar
-        self._count_vars = []    # (StringVar, RowDraft) 열별 예상 기둥 개수 표시
+        self._count_vars = []    # (StringVar, RowDraft, 층 번호) 열별 예상 기둥 개수 표시
 
     # ------------------------------------------------------------------ 구성
     def build(self):
@@ -151,7 +151,7 @@ class ColumnTab:
             tk.Label(head, text=label, font=FONT).grid(row=0, column=col * 2, sticky="w", padx=(0, 2))
             self._entry(head, row, attr, (n, r, attr), width=ENTRY_W).grid(row=0, column=col * 2 + 1, padx=(0, 6))
         count = tk.StringVar(value="")
-        self._count_vars.append((count, row))
+        self._count_vars.append((count, row, n))
         tk.Label(head, textvariable=count, font=FONT, fg="#1565C0").grid(row=1, column=0, columnspan=4, sticky="w")
         tk.Button(head, text="열 삭제", font=FONT, command=lambda: self.remove_row(n, r)).grid(
             row=1, column=4, columnspan=2, sticky="e", pady=(2, 0))
@@ -190,12 +190,15 @@ class ColumnTab:
         return tk.Entry(parent, textvariable=var, width=width, font=FONT)
 
     def refresh_counts(self):
-        """열별 예상 기둥 개수 표시 (정거장 길이·외벽 두께는 1번 탭 현재값 사용)"""
+        """열별 예상 기둥 개수 표시 (정거장 길이와 그 층의 외벽 두께는 1번 탭 현재값 사용)"""
         try:
             length = float(self.entries['length'].get())
-            wall_t = float(self.entries['wall_t'].get())
         except (KeyError, ValueError):
-            length = wall_t = None
-        for var, row in self._count_vars:
-            n = estimate_count(row, length, wall_t) if length is not None else None
+            length = None
+        for var, row, floor_n in self._count_vars:
+            try:
+                wall_t = float(self.entries[f'wall_t_{floor_n}'].get())
+            except (KeyError, ValueError):
+                wall_t = None
+            n = estimate_count(row, length, wall_t) if length is not None and wall_t is not None else None
             var.set("→ 약 %d개" % n if n is not None else "→ 입력값을 확인하세요")

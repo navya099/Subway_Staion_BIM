@@ -70,7 +70,7 @@ def test_editing_entries_updates_draft_and_count_label(app):
     ct._vars[(1, 0, "interval")].set("20")
     row = ct.drafts.floors[1].rows[0]
     assert (row.t_offset, row.interval) == ("2.5", "20")
-    expected = estimate_count(row, float(app.entries["length"].get()), float(app.entries["wall_t_1"].get()))
+    expected = estimate_count(row, float(app.entries["length"].get()))     # 내공 시점에서 재므로 외벽 두께와 무관
     assert ct._count_vars[0][0].get() == f"→ 약 {expected}개"
     ct._vars[(1, 0, "interval")].set("abc")
     assert "확인" in ct._count_vars[0][0].get()
@@ -174,7 +174,7 @@ def test_generate_button_shows_error_for_bad_input(app, monkeypatch):
     monkeypatch.setattr("gui.gui_app.filedialog", rec)
     set_entry(app, "length", "abc")
     app.on_generate()
-    assert rec.calls and rec.calls[0][0] == "error" and "정거장 전체 길이" in rec.calls[0][1]
+    assert rec.calls and rec.calls[0][0] == "error" and "정거장 내공 길이" in rec.calls[0][1]
 
 
 def test_generate_button_reports_engine_errors_with_location(app, monkeypatch, tmp_path):
@@ -560,7 +560,7 @@ def test_station_tab_has_per_floor_heights_and_three_slab_fields(app):
     assert "floor_height_3" not in app.entries
     assert (app.entries["floor_t"].get(), app.entries["mid_t"].get(), app.entries["roof_t"].get()) == (str(d.floor_t), str(d.mid_t), str(d.roof_t))
     clear, total = texts(app)
-    assert total == "총 높이 H = 12.00 m   (2개 층 합계)" and clear == ["→ 높이 5.00 m, 폭 18.00 m"] * 2
+    assert total == "총 높이 H = 12.00 m   (2개 층 합계)" and clear == ["→ 내공 높이 5.00 m · 외곽 폭 20.00 m"] * 2
     assert "wall_t" not in app.entries and [app.entries[f"wall_t_{i}"].get() for i in (1, 2)] == [str(w) for w in d.wall_ts]   # 외벽 두께는 층별
 
 
@@ -587,26 +587,26 @@ def test_total_and_clear_heights_update_live(app):
     set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")             # (회귀) 슬래브 두께를 바꿔도 내공 표시가 갱신돼야 함
     clear, total = texts(app)
     assert total == "총 높이 H = 16.80 m   (3개 층 합계)"
-    assert clear == ["→ 높이 6.10 m, 폭 18.00 m", "→ 높이 4.30 m, 폭 18.00 m", "→ 높이 3.50 m, 폭 18.00 m"]   # 아래 두 층은 중간층 슬래브, 최상층은 천장 슬래브
+    assert clear == ["→ 내공 높이 6.10 m · 외곽 폭 20.00 m", "→ 내공 높이 4.30 m · 외곽 폭 20.00 m", "→ 내공 높이 3.50 m · 외곽 폭 20.00 m"]
     set_entry(app, "roof_t", "1.6")
-    assert texts(app)[0][2] == "→ 높이 3.00 m, 폭 18.00 m" and texts(app)[0][:2] == ["→ 높이 6.10 m, 폭 18.00 m", "→ 높이 4.30 m, 폭 18.00 m"]
-    set_entry(app, "wall_t_2", "1.5")                                            # 그 층의 내공 폭만 줄어듦
-    assert [c.split(", ")[1] for c in texts(app)[0]] == ["폭 18.00 m", "폭 17.00 m", "폭 18.00 m"]
-    set_entry(app, "width", "24")                                                # 정거장 폭을 바꾸면 모든 층의 내공 폭이 따라 바뀜
-    assert [c.split(", ")[1] for c in texts(app)[0]] == ["폭 22.00 m", "폭 21.00 m", "폭 22.00 m"]
+    assert texts(app)[0][2] == "→ 내공 높이 3.00 m · 외곽 폭 20.00 m" and texts(app)[0][:2] == clear[:2]
+    set_entry(app, "wall_t_2", "1.5")                                            # 그 층의 외곽 폭만 커짐 (안쪽 면은 고정)
+    assert [c.split(" · ")[1] for c in texts(app)[0]] == ["외곽 폭 20.00 m", "외곽 폭 21.00 m", "외곽 폭 20.00 m"]
+    set_entry(app, "width", "24")                                                # 내공 폭을 바꾸면 모든 층의 외곽 폭이 따라 바뀜
+    assert [c.split(" · ")[1] for c in texts(app)[0]] == ["외곽 폭 26.00 m", "외곽 폭 27.00 m", "외곽 폭 26.00 m"]
 
 
 def test_bad_or_nonpositive_clear_height_is_flagged(app):
     set_floors(app, 2)
     set_entry(app, "roof_t", "6.0")                                               # 최상층 6.0 - 6.0 = 0
     var, lbl = app.station_tab._clear_labels[2]
-    assert var.get() == "→ 높이 0.00 m, 폭 18.00 m" and lbl.cget("fg") == "#C62828"
+    assert var.get() == "→ 내공 높이 0.00 m · 외곽 폭 20.00 m" and lbl.cget("fg") == "#C62828"
     set_entry(app, "floor_height_1", "abc")
     clear, total = texts(app)
     assert clear[0] == "→ 입력값을 확인하세요" and total == "총 높이: 입력값을 확인하세요"
-    set_entry(app, "floor_height_1", "6"); set_entry(app, "roof_t", "1"); set_entry(app, "wall_t_1", "10")   # 외벽 두 개가 폭을 다 차지
+    set_entry(app, "floor_height_1", "6"); set_entry(app, "roof_t", "1"); set_entry(app, "wall_t_1", "-1")   # 두께는 0보다 커야 함
     var, lbl = app.station_tab._clear_labels[1]
-    assert var.get() == "→ 높이 5.00 m, 폭 0.00 m" and lbl.cget("fg") == "#C62828"
+    assert lbl.cget("fg") == "#C62828"
     set_entry(app, "wall_t_1", "x")
     assert app.station_tab._clear_labels[1][0].get() == "→ 입력값을 확인하세요"
 
@@ -629,21 +629,22 @@ def test_adapter_reads_wall_thickness_per_floor(app):
     set_floors(app, 3)
     set_entry(app, "wall_t_1", "1.5"); set_entry(app, "wall_t_2", "1.2"); set_entry(app, "wall_t_3", "0.9")
     st = TkAdapter.collect_entries(app.entries).station
-    assert st.wall_ts == [1.5, 1.2, 0.9] and st.wall_t_at(2) == 1.2
+    assert st.wall_ts == [1.5, 1.2, 0.9] and st.wall_t_at(2) == 1.2 and st.outer_width(1) == pytest.approx(st.width + 3.0)
     set_entry(app, "wall_t_2", "abc")
     with pytest.raises(ValueError, match=r"B2F 외벽 두께: 숫자가 아닙니다 \('abc'\)"):
         TkAdapter.collect_entries(app.entries)
-    set_entry(app, "wall_t_2", "11")
-    with pytest.raises(ValueError, match=r"B2F 외벽 두께\(11m\)의 2배"):
+    set_entry(app, "wall_t_2", "-1")
+    with pytest.raises(ValueError, match=r"B2F 외벽 두께은\(는\) 0보다 커야"):
         TkAdapter.collect_entries(app.entries).validate()
 
 
-def test_column_count_estimate_uses_each_floors_wall_thickness(app):
+def test_column_count_estimate_does_not_depend_on_wall_thickness(app):
     set_floors(app, 2)
-    set_entry(app, "wall_t_2", "6")                                                # 2층(B1F) 외벽만 두꺼움 → 기둥 배치 구간이 짧아짐
+    set_entry(app, "wall_t_2", "6")                                                # 안쪽 면 기준이라 외벽이 두꺼워도 기둥 배치 구간은 같음
     ct = app.column_tab; ct.refresh_counts()
-    by_floor = {n: var.get() for var, row, n in ct._count_vars}
-    assert by_floor == {1: "→ 약 20개", 2: "→ 약 19개"}
+    assert {n: var.get() for var, row, n in ct._count_vars} == {1: "→ 약 20개", 2: "→ 약 20개"}
+    set_entry(app, "length", "100"); ct.refresh_counts()                           # 내공 길이가 바뀌면 따라 바뀜
+    assert {n: var.get() for var, row, n in ct._count_vars} == {1: "→ 약 10개", 2: "→ 약 10개"}
 
 
 def test_adapter_sums_floor_heights_and_reads_three_slabs(app):

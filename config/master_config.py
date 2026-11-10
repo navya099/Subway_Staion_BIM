@@ -34,11 +34,11 @@ class StationProjectConfig:
                 f"선형 범위 STA {a.start_station:.2f} ~ {a.end_station:.2f} 를 벗어납니다")
         if not a.is_straight:
             # 곡선 안쪽 가장자리가 곡률 중심을 넘지 않도록: |곡률| * 반폭 < 0.5 (곡선반경 > 정거장 폭)
-            half_w = st.width / 2.0
+            half_w = st.width / 2.0 + st.max_wall_t                    # 가장 바깥 외곽 기준
             k_max = max(abs(self.curvature_at(s)) for s in self.sample_s(0.0, st.length, 2.0))
             if k_max * half_w >= 0.5:
-                raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 폭({st.width}m)에 비해 너무 작아 "
-                                 "곡선 안쪽 벽체가 겹칩니다 (반경 > 정거장 폭 필요)")
+                raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 외곽 폭({2 * half_w:g}m)에 비해 너무 작아 "
+                                 "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
 
     # ---------- 선형 접점: 엔진/내보내기는 이 메서드로만 선형에 접근한다 ----------
     def _sta(self, s: float) -> float:

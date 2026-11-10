@@ -35,7 +35,7 @@ class ColumnEngine:
         if pf.plat_thick <= 0:
             return "none"
         edge = pf.track_spacing / 2.0 + pf.plat_offset
-        inner = p.width / 2.0 - p.wall_t_at(1)           # 승강장은 최하층에만 있음
+        inner = p.width / 2.0                             # 승강장은 내공 영역 안 (벽 안쪽 면이 고정이라 층과 무관)
         eps = 1e-9
         result = "none"
         for lo, hi in ((-inner, -edge), (edge, inner)):
@@ -105,8 +105,7 @@ class ColumnEngine:
                 if not row.pattern:
                     raise ValueError(f"{level} {row_idx}열: 기둥 규격(pattern)이 비어 있습니다.")
 
-                wt = p.wall_t_at(floor_n)                       # 기둥은 자기 층 외벽 안쪽 면 사이에 놓임
-                inner = p.width / 2.0 - wt
+                inner = p.width / 2.0                           # 내공 영역: 안쪽 면은 모든 층에서 같음 (외벽 두께와 무관)
                 ht_max = max(sp.half_t for sp in row.pattern)
                 hs_max = max(sp.half_s for sp in row.pattern)
                 if abs(row.t_offset) + ht_max > inner + 1e-9:
@@ -114,8 +113,8 @@ class ColumnEngine:
                                      f"(t 위치 {row.t_offset:.2f}m, 기둥 반폭 {ht_max:.2f}m, 안쪽 반폭 {inner:.2f}m)")
                 if row.start_offset < hs_max - 1e-9:
                     raise ValueError(f"{level} {row_idx}열: 시작 여유({row.start_offset:.2f}m)가 기둥 반폭({hs_max:.2f}m)보다 작아 마감벽과 겹칩니다")
-                s_first = wt + row.start_offset
-                s_last = p.length - wt - row.start_offset
+                s_first = row.start_offset                      # 시점 마감벽 안쪽 면(s = 0)에서 첫 기둥 중심까지
+                s_last = p.length - row.start_offset
                 n = int((s_last - s_first) / row.interval + 1e-9) + 1 if s_last >= s_first else 0
 
                 for i in range(n):

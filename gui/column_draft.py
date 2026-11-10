@@ -54,15 +54,15 @@ def _num(text: str, where: str, label: str, positive=False, nonneg=False) -> flo
     return v
 
 
-def estimate_count(row: RowDraft, length: float, wall_t: float):
-    """현재 정거장 길이 기준 열의 기둥 개수 (입력이 올바르지 않으면 None)"""
+def estimate_count(row: RowDraft, length: float):
+    """정거장 내공 길이 기준 열의 기둥 개수 (입력이 올바르지 않으면 None). 시작 여유는 마감벽 안쪽 면에서 재므로 외벽 두께와 무관"""
     try:
         interval, start = float(row.interval), float(row.start_offset)
     except ValueError:
         return None
     if interval <= 0 or start < 0:
         return None
-    span = length - 2 * wall_t - 2 * start
+    span = length - 2 * start
     return int(span / interval + 1e-9) + 1 if span >= 0 else 0
 
 

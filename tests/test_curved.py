@@ -350,17 +350,18 @@ def test_plan_is_wcs_for_curved_and_developed_for_straight(tmp_path):
     assert any("[WCS]" in t.dxf.text for t in doc.modelspace().query("TEXT"))
     outer = max(_q(world, "PLAN_OUTLINE"), key=lambda pl: _bbox(pl)[1] - _bbox(pl)[0])
     pts = [(p[0], p[1]) for p in outer.get_points()]
-    assert len(pts) > 30 and pts[0] == pytest.approx(cfg.to_world(0.0, -cfg.station.width / 2), abs=1e-6)
-    # 측점선은 선형에 직교: 양 끝이 to_world(s, ±(W/2+2))
+    st = cfg.station; wt = st.wall_t_at(1); half = st.width / 2 + st.max_wall_t           # 외곽 = 내공 + 벽 두께 (시점 마감벽은 s < 0 쪽)
+    assert len(pts) > 30 and pts[0] == pytest.approx(cfg.to_world(-wt, -(st.width / 2 + wt)), abs=1e-6)
+    # 측점선은 선형에 직교: 양 끝이 to_world(s, ±(가장 바깥 외곽 반폭 + 2))
     ticks = [(tuple(l.dxf.start)[:2], tuple(l.dxf.end)[:2]) for l in doc.modelspace().query('LINE[layer=="PLAN_SECTION_LINE"]')]
     s_list = [i * cfg.station.sta_tick for i in range(len(ticks))]
     for (a, b), s in zip(ticks, s_list):
-        assert a == pytest.approx(cfg.to_world(s, -cfg.station.width / 2 - 2), abs=1e-6)
-        assert b == pytest.approx(cfg.to_world(s, cfg.station.width / 2 + 2), abs=1e-6)
+        assert a == pytest.approx(cfg.to_world(s, -half - 2), abs=1e-6)
+        assert b == pytest.approx(cfg.to_world(s, half + 2), abs=1e-6)
     developed = ezdxf.readfile(eng.generate_plan_dxf(tmp_path / "d.dxf", mode="developed"))
     assert any("[DEVELOPED]" in t.dxf.text for t in developed.modelspace().query("TEXT"))
     dev_outer = max(_q(str(tmp_path / "d.dxf"), "PLAN_OUTLINE"), key=lambda pl: _bbox(pl)[1] - _bbox(pl)[0])
-    assert _bbox(dev_outer)[:2] == pytest.approx((0.0, cfg.station.length)) and len(dev_outer.get_points()) == 4
+    assert _bbox(dev_outer)[:2] == pytest.approx((-wt, cfg.station.length + wt)) and len(dev_outer.get_points()) == 4
     straight = StationCADEngine(make_cfg(NO_COLS())).generate_plan_dxf(tmp_path / "s.dxf")   # 직선 auto → 기존 전개 평면도
     assert not any("[" in t.dxf.text and "]" in t.dxf.text and "STATION PLAN" in t.dxf.text
                    for t in ezdxf.readfile(straight).modelspace().query("TEXT"))
@@ -453,13 +454,13 @@ def _snapshot(cfg, tmp_path):
     return hashlib.sha256(json.dumps([faces, places, storeys, texts], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-GOLDEN_STRAIGHT = "f1edd7d798e7c69f0edc30248878e0d0ffee6c5a171028f3579bb5ce3bc97aba"
+GOLDEN_STRAIGHT = "709eccaf7555a0ef437312a43709ec926c823ad30b47401fc8776209e18b67a5"
 
 
 def test_straight_alignment_output_is_unchanged(tmp_path):
     """직선 선형(사용자 예시 배치)의 3D 면 4,140개 · IFC 배치 · 층 표고 · 도면 라벨을 해시로 고정.
-    (층별 높이/슬래브 3종 도입 때 한 번, 층별 외벽 두께 도입 때 한 번 갱신: 중간층 슬래브 상면이 층 바닥 높이에 맞도록 바뀌고, 위층 외벽이
-    슬래브 중심이 아니라 그 층의 층 높이 구간을 차지하도록 바뀌어 중간 슬래브·벽체 분할·위층 기둥의 z 만 달라짐)"""
+    (층별 높이/슬래브 3종 도입 때 한 번, 층별 외벽 두께 도입 때 한 번, 안쪽 면 고정으로 바꿀 때 한 번 갱신: 길이·폭이 내공 치수가 되어 시점(s=0) 기준이 안쪽 면으로 옮겨감.
+    벽 두께가 모든 층 같으면 내공 198×18(시점 +1m)은 이전 외곽 200×20과 세계 좌표에서 동일 — 별도로 확인함)"""
     assert _snapshot(make_cfg(user_example()), tmp_path) == GOLDEN_STRAIGHT
 
 

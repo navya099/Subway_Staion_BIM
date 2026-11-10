@@ -85,8 +85,8 @@ class StationTab:
             anchor="w", padx=15, pady=(15, 5))
 
         fields = [
-            ("length", "정거장 전체 길이 (L, m):", str(SP.length)),
-            ("width", "정거장 전체 폭 (W, m):", str(SP.width)),
+            ("length", "정거장 내공 길이 (L, m):", str(SP.length)),
+            ("width", "정거장 내공 폭 (W, m):", str(SP.width)),
             ("start_station", "정거장 시작 측점 STA(m):", str(SP.start_station)),
             ("offset", "기준선 ~ 바닥 상단 오프셋 (m):", str(SP.offset)),
             ("floors", "층수:", str(SP.floors)),
@@ -153,7 +153,7 @@ class StationTab:
         font, small = ("Malgun Gothic", 9), ("Malgun Gothic", 8)
         grid = tk.Frame(self.heights_frame)
         grid.pack(fill="x")
-        for col, title in enumerate(("층", "층 높이 (m)", "외벽 두께 (m)", "내공")):
+        for col, title in enumerate(("층", "층 높이 (m)", "외벽 두께 (m)", "내공 높이 / 외곽 폭")):
             tk.Label(grid, text=title, font=small, fg="#555555", anchor="w").grid(row=0, column=col, sticky="w", padx=(0, 8))
         last_h, last_w = str(DEFAULTS.floor_heights[0]), str(DEFAULTS.wall_ts[0])
         for i in range(1, n + 1):
@@ -178,8 +178,9 @@ class StationTab:
         tk.Label(self.heights_frame, textvariable=self.total_var, font=("Malgun Gothic", 9, "bold"), fg="#1565C0").pack(anchor="w", pady=(4, 0))
         tk.Label(self.heights_frame, justify="left", fg="#666666", font=small, wraplength=410,
                  text="층 높이 = 그 층 바닥 슬래브 상면 ~ 바로 위 슬래브 상면 (최하층은 본체 바닥 슬래브 상면, 최상층은 천장 슬래브 상면까지). "
-                      "합계가 정거장 총 높이입니다. 외벽 두께는 층마다 달라도 되고, 바깥면은 고정이며 안쪽 면이 층마다 바뀝니다. "
-                      "내공 = (층 높이 − 위쪽 슬래브 두께) × (정거장 폭 − 2 × 외벽 두께)").pack(anchor="w")
+                      "합계가 정거장 총 높이입니다. 길이·폭은 벽체 안쪽 면 사이(내공)이고 모든 층에서 고정입니다. "
+                      "외벽 두께는 층마다 달라도 되고, 벽은 내공 바깥쪽에 붙어서 바깥면이 층마다 계단식으로 달라집니다 "
+                      "(외곽 폭 = 내공 폭 + 2 × 외벽 두께, 내공 높이 = 층 높이 − 위쪽 슬래브 두께).").pack(anchor="w")
         self.refresh_heights()
 
     def refresh_heights(self):
@@ -202,9 +203,9 @@ class StationTab:
                 var.set("→ 입력값을 확인하세요")
                 lbl.configure(fg="#C62828")
             else:
-                clear_h, clear_w = h - above, width - 2 * wt
-                var.set(f"→ 높이 {clear_h:.2f} m, 폭 {clear_w:.2f} m")
-                lbl.configure(fg="#C62828" if clear_h <= 0 or clear_w <= 0 or wt <= 0 else "#555555")
+                clear_h, outer_w = h - above, width + 2 * wt            # 안쪽 면(내공)은 고정이므로 외곽 폭이 층마다 달라짐
+                var.set(f"→ 내공 높이 {clear_h:.2f} m · 외곽 폭 {outer_w:.2f} m")
+                lbl.configure(fg="#C62828" if clear_h <= 0 or wt <= 0 else "#555555")
         ok = all(h is not None for h in heights)
         self.total_var.set(f"총 높이 H = {sum(heights):.2f} m   ({n}개 층 합계)" if ok else "총 높이: 입력값을 확인하세요")
         if "mid_t" in self.entries:                       # 1개 층이면 중간층 바닥 슬래브가 없음

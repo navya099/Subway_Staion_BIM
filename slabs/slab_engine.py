@@ -10,8 +10,8 @@ from slabs.slab_shape_type import SlabKind, SlabShapeType
 class SlabEngine:
     """바닥·중간·천장 슬래브 BIM 객체를 만들고, 3D DXF / IFC의 단일 데이터 원천이 된다.
 
-    - 바닥/천장 슬래브: 정거장 전체 평면(L x W)
-    - 중간 슬래브: 아래층 외벽·마감벽 안쪽 면 사이만 차지 (벽체와 체적이 겹치지 않음)
+    - 본체 바닥 슬래브는 최하층 외곽, 본체 천장 슬래브는 최상층 외곽과 같은 범위 (내공 + 양쪽 벽 두께)
+    - 중간 슬래브: 내공 영역(L x W) 전체. 안쪽 면이 모든 층에서 같으므로 벽체와 체적이 겹치지 않음
     - 소속 층: 바닥 = 최하층, 중간 i = 그 위층(i+1), 천장 = 최상층
     """
 
@@ -37,13 +37,12 @@ class SlabEngine:
     def _slab_defs(self):
         """(용도, 소속 층 번호, 하단 높이(바닥 슬래브 상면 기준), 두께, s0, s1, t0, t1)"""
         p = self.sp
-        hw = p.width / 2.0
-        defs = [(SlabKind.FLOOR, 1, -p.floor_t, p.floor_t, 0.0, p.length, -hw, hw)]
-        for i in range(1, p.floors):              # 중간층 바닥 슬래브: 상면이 윗층 바닥 높이, 아래층 외벽 안쪽 면 사이
-            wt = p.wall_t_at(i)
-            defs.append((SlabKind.MID, i + 1, p.floor_level(i + 1) - p.mid_t, p.mid_t,
-                         wt, p.length - wt, -hw + wt, hw - wt))
-        defs.append((SlabKind.ROOF, p.floors, p.height - p.roof_t, p.roof_t, 0.0, p.length, -hw, hw))
+        hw, L = p.width / 2.0, p.length
+        w1, wn = p.wall_t_at(1), p.wall_t_at(p.floors)
+        defs = [(SlabKind.FLOOR, 1, -p.floor_t, p.floor_t, -w1, L + w1, -hw - w1, hw + w1)]          # 최하층 외곽
+        for i in range(1, p.floors):              # 중간층 바닥 슬래브: 상면이 윗층 바닥 높이, 내공 영역 전체
+            defs.append((SlabKind.MID, i + 1, p.floor_level(i + 1) - p.mid_t, p.mid_t, 0.0, L, -hw, hw))
+        defs.append((SlabKind.ROOF, p.floors, p.height - p.roof_t, p.roof_t, -wn, L + wn, -hw - wn, hw + wn))   # 최상층 외곽
         return defs
 
     # ---------- 생성 ----------
@@ -92,7 +91,7 @@ class SlabEngine:
     def section_items(self, sta):
         """횡단면도: 측점 sta 의 절단면에 걸리는 슬래브 (중간 슬래브는 층 이름 라벨 포함)"""
         items = []
-        half_w = self.sp.width / 2.0
+        half_w = self.sp.width / 2.0 + self.sp.max_wall_t        # 라벨은 가장 바깥 벽 밖에
         for package in self.slab_packages:
             for sl in package.slabs:
                 cut = PM.section_rect(self.cfg, sl, sta)

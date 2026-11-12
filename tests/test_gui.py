@@ -31,6 +31,12 @@ def set_entry(app, key, text):
     e.delete(0, "end"); e.insert(0, text)
 
 
+def set_heights(app, *values):
+    """층별 높이 입력칸(최하층부터)에 값을 넣음. 층수를 바꾼 뒤에 호출해야 입력칸이 맞게 만들어져 있음"""
+    for n, v in enumerate(values, start=1):
+        set_entry(app, f"floor_height_{n}", str(v))
+
+
 def set_floors(app, n):
     set_entry(app, "floors", str(n))
     app._on_floors_changed()
@@ -64,7 +70,7 @@ def test_editing_entries_updates_draft_and_count_label(app):
     ct._vars[(1, 0, "interval")].set("20")
     row = ct.drafts.floors[1].rows[0]
     assert (row.t_offset, row.interval) == ("2.5", "20")
-    expected = estimate_count(row, float(app.entries["length"].get()), float(app.entries["wall_t"].get()))
+    expected = estimate_count(row, float(app.entries["length"].get()))     # 내공 시점에서 재므로 외벽 두께와 무관
     assert ct._count_vars[0][0].get() == f"→ 약 {expected}개"
     ct._vars[(1, 0, "interval")].set("abc")
     assert "확인" in ct._count_vars[0][0].get()
@@ -109,8 +115,8 @@ def test_buttons_are_really_clickable(app):
 
 def test_user_example_end_to_end_from_ui_to_ifc(app, tmp_path):
     ct = app.column_tab
-    set_entry(app, "height", "18"); set_entry(app, "slab_t", "0.4"); set_entry(app, "floor_t", "1.2")
     set_floors(app, 3)
+    set_heights(app, 6, 6, 6); set_entry(app, "mid_t", "0.4"); set_entry(app, "roof_t", "0.4"); set_entry(app, "floor_t", "1.2")
     d = ct.drafts.floors
     ct._vars[(1, 0, 0, "width")].set("0.4"); ct._vars[(1, 0, 0, "depth")].set("1.0")      # B3F 사각 0.4x1.0, 1열
     ct.add_row(2)
@@ -144,8 +150,8 @@ def test_gui_initial_values_come_from_dataclass_defaults(app):
     from config.alignment_config import AlignmentConfig
     from config.station_config import StationParameters
     from platforms.platform_params import PlatformParameters
-    for obj, keys in ((StationParameters(), ("length", "width", "start_station", "offset", "height", "floors", "wall_t",
-                                              "floor_t", "slab_t")),
+    for obj, keys in ((StationParameters(), ("length", "width", "start_station", "offset", "floors",
+                                              "floor_t", "mid_t", "roof_t")),
                       (AlignmentConfig(), ("bp_x", "bp_y", "bp_z", "ep_x", "ep_y", "ep_z", "bp_station")),
                       (PlatformParameters(), ("track_spacing", "plat_offset", "plat_thick", "plat_height", "support_t"))):
         for k in keys:
@@ -168,7 +174,7 @@ def test_generate_button_shows_error_for_bad_input(app, monkeypatch):
     monkeypatch.setattr("gui.gui_app.filedialog", rec)
     set_entry(app, "length", "abc")
     app.on_generate()
-    assert rec.calls and rec.calls[0][0] == "error" and "정거장 전체 길이" in rec.calls[0][1]
+    assert rec.calls and rec.calls[0][0] == "error" and "정거장 내공 길이" in rec.calls[0][1]
 
 
 def test_generate_button_reports_engine_errors_with_location(app, monkeypatch, tmp_path):
@@ -288,7 +294,7 @@ def test_generate_with_curve_file_writes_curved_outputs(app, monkeypatch, tmp_pa
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "330")                          # 직선 → 완화곡선 → 원곡선을 지나는 구간
     set_floors(app, 3)
-    set_entry(app, "height", "18")
+    set_heights(app, 6, 6, 6)
     app.on_generate()
     kind, _, msg = d.calls[-1]
     assert kind == "info", msg
@@ -367,7 +373,7 @@ def test_generate_from_txt_alignment(app, monkeypatch, tmp_path):
     monkeypatch.setattr(app.station_tab, "_ask_xyz_options", lambda p: XYZOptions(start_station=300.0))
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "330")
-    set_floors(app, 3); set_entry(app, "height", "18")
+    set_floors(app, 3); set_heights(app, 6, 6, 6)
     app.on_generate()
     assert d.calls[-1][0] == "info", d.calls[-1]
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
@@ -476,7 +482,7 @@ def test_generate_from_landxml(app, monkeypatch, tmp_path):
     d = patch_dialogs(monkeypatch, open_path=SAMPLE_XML, directory=str(tmp_path))
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "330")
-    set_floors(app, 3); set_entry(app, "height", "18")
+    set_floors(app, 3); set_heights(app, 6, 6, 6)
     app.on_generate()
     assert d.calls[-1][0] == "info", d.calls[-1]
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
@@ -529,10 +535,275 @@ def test_generate_on_the_real_civil3d_alignment(app, monkeypatch, tmp_path):
     d = patch_dialogs(monkeypatch, open_path=REAL_XML, directory=str(tmp_path))
     app.station_tab.load_alignment_file()
     set_entry(app, "start_station", "1560")                        # 3차 포물선 완화곡선(1483.9~1646.2) → 원곡선 구간
-    set_floors(app, 3); set_entry(app, "height", "18")
+    set_floors(app, 3); set_heights(app, 6, 6, 6)
     app.on_generate()
     assert d.calls[-1][0] == "info", d.calls[-1]
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".dxf"] * 4 + [".ifc"]
     set_entry(app, "start_station", "21000")                       # 정거장 끝(21200)이 선형 끝(21120)을 넘음
     app.on_generate()
     assert d.calls[-1][0] == "error" and "선형 범위" in d.calls[-1][2] and "21120.07" in d.calls[-1][2]
+
+
+# ---------------- 층별 높이 + 슬래브 3종 입력 ----------------
+from config.station_config import StationParameters as _SP
+
+
+def texts(app):
+    tab = app.station_tab
+    return [tab._clear_labels[i][0].get() for i in sorted(tab._clear_labels)], tab.total_var.get()
+
+
+def test_station_tab_has_per_floor_heights_and_three_slab_fields(app):
+    d = _SP()
+    assert "height" not in app.entries and "slab_t" not in app.entries            # 총 높이/통합 슬래브 입력은 없어짐
+    assert [app.entries[f"floor_height_{i}"].get() for i in (1, 2)] == [str(h) for h in d.floor_heights]
+    assert "floor_height_3" not in app.entries
+    assert (app.entries["floor_t"].get(), app.entries["mid_t"].get(), app.entries["roof_t"].get()) == (str(d.floor_t), str(d.mid_t), str(d.roof_t))
+    clear, total = texts(app)
+    assert total == "총 높이 H = 12.00 m   (2개 층 합계)" and clear == ["→ 내공 높이 5.00 m · 외곽 폭 20.00 m"] * 2
+    assert "wall_t" not in app.entries and [app.entries[f"wall_t_{i}"].get() for i in (1, 2)] == [str(w) for w in d.wall_ts]   # 외벽 두께는 층별
+
+
+def test_floor_count_change_rebuilds_rows_and_keeps_values(app):
+    set_floors(app, 3)
+    assert app.entries["floor_height_3"].get() == "6.0"                          # 새 층은 바로 아래 층과 같은 높이로 시작
+    set_entry(app, "floor_height_1", "7.5"); set_entry(app, "floor_height_3", "4.0")
+    set_floors(app, 4)
+    assert app.entries["floor_height_4"].get() == "4.0" and app.entries["floor_height_1"].get() == "7.5"
+    set_floors(app, 1)
+    assert [k for k in app.entries if k.startswith("floor_height_")] == ["floor_height_1"]
+    assert str(app.entries["mid_t"].cget("state")) == "disabled"                  # 1개 층이면 중간층 바닥 슬래브 없음
+    set_floors(app, 3)
+    assert [app.entries[f"floor_height_{i}"].get() for i in (1, 2, 3)] == ["7.5", "6.0", "4.0"]    # 줄였다 늘려도 입력 보존
+    assert str(app.entries["mid_t"].cget("state")) == "normal"
+    for partial in ("", "0", "99", "x"):                                          # 입력 도중의 값은 무시
+        set_entry(app, "floors", partial); app._on_floors_changed()
+        assert app.station_tab.floor_count == 3
+
+
+def test_total_and_clear_heights_update_live(app):
+    set_floors(app, 3)
+    set_heights(app, 7.0, 5.2, 4.6)
+    set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")             # (회귀) 슬래브 두께를 바꿔도 내공 표시가 갱신돼야 함
+    clear, total = texts(app)
+    assert total == "총 높이 H = 16.80 m   (3개 층 합계)"
+    assert clear == ["→ 내공 높이 6.10 m · 외곽 폭 20.00 m", "→ 내공 높이 4.30 m · 외곽 폭 20.00 m", "→ 내공 높이 3.50 m · 외곽 폭 20.00 m"]
+    set_entry(app, "roof_t", "1.6")
+    assert texts(app)[0][2] == "→ 내공 높이 3.00 m · 외곽 폭 20.00 m" and texts(app)[0][:2] == clear[:2]
+    set_entry(app, "wall_t_2", "1.5")                                            # 그 층의 외곽 폭만 커짐 (안쪽 면은 고정)
+    assert [c.split(" · ")[1] for c in texts(app)[0]] == ["외곽 폭 20.00 m", "외곽 폭 21.00 m", "외곽 폭 20.00 m"]
+    set_entry(app, "width", "24")                                                # 내공 폭을 바꾸면 모든 층의 외곽 폭이 따라 바뀜
+    assert [c.split(" · ")[1] for c in texts(app)[0]] == ["외곽 폭 26.00 m", "외곽 폭 27.00 m", "외곽 폭 26.00 m"]
+
+
+def test_bad_or_nonpositive_clear_height_is_flagged(app):
+    set_floors(app, 2)
+    set_entry(app, "roof_t", "6.0")                                               # 최상층 6.0 - 6.0 = 0
+    var, lbl = app.station_tab._clear_labels[2]
+    assert var.get() == "→ 내공 높이 0.00 m · 외곽 폭 20.00 m" and lbl.cget("fg") == "#C62828"
+    set_entry(app, "floor_height_1", "abc")
+    clear, total = texts(app)
+    assert clear[0] == "→ 입력값을 확인하세요" and total == "총 높이: 입력값을 확인하세요"
+    set_entry(app, "floor_height_1", "6"); set_entry(app, "roof_t", "1"); set_entry(app, "wall_t_1", "-1")   # 두께는 0보다 커야 함
+    var, lbl = app.station_tab._clear_labels[1]
+    assert lbl.cget("fg") == "#C62828"
+    set_entry(app, "wall_t_1", "x")
+    assert app.station_tab._clear_labels[1][0].get() == "→ 입력값을 확인하세요"
+
+
+def test_wall_thickness_rows_are_per_floor_and_preserved(app):
+    set_floors(app, 3)
+    assert [app.entries[f"wall_t_{i}"].get() for i in (1, 2, 3)] == ["1.0", "1.0", "1.0"]
+    set_entry(app, "wall_t_1", "1.5"); set_entry(app, "wall_t_2", "1.2")
+    set_floors(app, 4)
+    assert app.entries["wall_t_4"].get() == "1.0" and app.entries["wall_t_1"].get() == "1.5"      # 새 층은 바로 아래 층 값으로 시작
+    set_entry(app, "wall_t_4", "0.8"); set_floors(app, 5)
+    assert app.entries["wall_t_5"].get() == "0.8"
+    set_floors(app, 2)
+    assert [k for k in app.entries if k.startswith("wall_t_")] == ["wall_t_1", "wall_t_2"]
+    set_floors(app, 4)
+    assert [app.entries[f"wall_t_{i}"].get() for i in (1, 2, 3, 4)] == ["1.5", "1.2", "1.0", "0.8"]   # 줄였다 늘려도 보존
+
+
+def test_adapter_reads_wall_thickness_per_floor(app):
+    set_floors(app, 3)
+    set_entry(app, "wall_t_1", "1.5"); set_entry(app, "wall_t_2", "1.2"); set_entry(app, "wall_t_3", "0.9")
+    st = TkAdapter.collect_entries(app.entries).station
+    assert st.wall_ts == [1.5, 1.2, 0.9] and st.wall_t_at(2) == 1.2 and st.outer_width(1) == pytest.approx(st.width + 3.0)
+    set_entry(app, "wall_t_2", "abc")
+    with pytest.raises(ValueError, match=r"B2F 외벽 두께: 숫자가 아닙니다 \('abc'\)"):
+        TkAdapter.collect_entries(app.entries)
+    set_entry(app, "wall_t_2", "-1")
+    with pytest.raises(ValueError, match=r"B2F 외벽 두께은\(는\) 0보다 커야"):
+        TkAdapter.collect_entries(app.entries).validate()
+
+
+def test_column_count_estimate_does_not_depend_on_wall_thickness(app):
+    set_floors(app, 2)
+    set_entry(app, "wall_t_2", "6")                                                # 안쪽 면 기준이라 외벽이 두꺼워도 기둥 배치 구간은 같음
+    ct = app.column_tab; ct.refresh_counts()
+    assert {n: var.get() for var, row, n in ct._count_vars} == {1: "→ 약 20개", 2: "→ 약 20개"}
+    set_entry(app, "length", "100"); ct.refresh_counts()                           # 내공 길이가 바뀌면 따라 바뀜
+    assert {n: var.get() for var, row, n in ct._count_vars} == {1: "→ 약 10개", 2: "→ 약 10개"}
+
+
+def test_adapter_sums_floor_heights_and_reads_three_slabs(app):
+    set_floors(app, 3)
+    set_heights(app, 7.0, 5.2, 4.6)
+    set_entry(app, "floor_t", "1.5"); set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")
+    st = TkAdapter.collect_entries(app.entries).station
+    assert st.floor_heights == [7.0, 5.2, 4.6] and st.height == pytest.approx(16.8) and st.floors == 3
+    assert (st.floor_t, st.mid_t, st.roof_t) == (1.5, 0.9, 1.1)
+
+
+def test_adapter_errors_name_the_floor_and_slab(app):
+    set_floors(app, 3)
+    set_entry(app, "floor_height_2", "abc")
+    with pytest.raises(ValueError, match=r"B2F 층 높이: 숫자가 아닙니다 \('abc'\)"):
+        TkAdapter.collect_entries(app.entries)
+    set_entry(app, "floor_height_2", "6")
+    set_entry(app, "mid_t", "x")
+    with pytest.raises(ValueError, match="중간층 바닥 슬래브 두께: 숫자가 아닙니다"):
+        TkAdapter.collect_entries(app.entries)
+    set_entry(app, "mid_t", "7.0")                                                # 변환은 되지만 제원 검증에서 걸림
+    with pytest.raises(ValueError, match=r"B3F 층 높이\(6m\)가 위쪽 중간층 바닥 슬래브 두께\(7m\) 이하"):
+        TkAdapter.collect_entries(app.entries).validate()
+
+
+def test_generate_with_varied_heights_and_slabs(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, directory=str(tmp_path))
+    set_floors(app, 3)
+    set_heights(app, 7.0, 5.2, 4.6)
+    set_entry(app, "floor_t", "1.5"); set_entry(app, "mid_t", "0.9"); set_entry(app, "roof_t", "1.1")
+    app.on_generate()
+    assert d.calls[-1][0] == "info", d.calls[-1]
+    f = ifcopenshell.open(str(next(p for p in tmp_path.iterdir() if p.suffix == ".ifc")))
+    elev = {s.Name: s.Elevation for s in f.by_type("IfcBuildingStorey")}
+    assert elev["B2F"] - elev["B3F"] == pytest.approx(7.0) and elev["B1F"] - elev["B2F"] == pytest.approx(5.2)   # 층 표고 간격 = 층 높이
+
+
+def test_floor_height_entries_fit_inside_the_window(app):
+    set_floors(app, 6)
+    app.root.update()
+    right = app.root.winfo_rootx() + app.root.winfo_width()
+    bottom = app.station_tab.parent.winfo_rooty() + app.station_tab.parent.winfo_height()
+    for k in [f"floor_height_{i}" for i in range(1, 7)] + ["floors", "mid_t", "roof_t"]:
+        e = app.entries[k]
+        assert e.winfo_rootx() + e.winfo_width() <= right, k
+    assert app.entries["roof_t"].winfo_rooty() + app.entries["roof_t"].winfo_height() <= bottom      # 6개 층이어도 아래 입력칸이 잘리지 않음
+
+
+# ---------------- 슬래브 오프닝 탭 ----------------
+from openings.opening_kind import OpeningKind
+
+
+def add_opening(app, **fields):
+    """오프닝 탭에서 '+ 오프닝 추가'를 누른 뒤 입력칸에 값을 넣음. 마지막 오프닝의 인덱스를 반환"""
+    tab = app.opening_tab
+    tab.add_opening()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    for key, text in fields.items():
+        if key == "kind":
+            tab.set_kind(i, text)
+        elif key == "slabs":
+            for n in range(tab.floor_count + 1):
+                tab._vars[(i, "slab", n)].set(n in text)
+        else:
+            tab._vars[(i, key)].set(text)
+    app.root.update()
+    return i
+
+
+def test_opening_tab_exists_and_starts_empty(app):
+    assert app.opening_tab.drafts.items == []
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.openings == []
+
+
+def test_opening_input_becomes_spec_with_sta_converted_to_local_s(app):
+    set_entry(app, "start_station", "134.45")
+    add_opening(app, kind="에스컬레이터", sta_start="154.45", length="12", t_center="6", width="3", slabs={1, 2})
+    cfg = TkAdapter.collect_entries(app.entries)
+    (sp,) = cfg.openings
+    assert sp.kind is OpeningKind.ESCALATOR
+    assert sp.s_start == pytest.approx(20.0) and sp.s_end == pytest.approx(32.0)      # STA 를 내공 시점 기준 s 로 변환
+    assert (sp.t_lo, sp.t_hi) == (4.5, 7.5) and sp.slabs == [1, 2]
+
+
+def test_default_new_opening_starts_at_station_start(app):
+    set_entry(app, "start_station", "250")
+    tab = app.opening_tab
+    tab.add_opening(); app.root.update()
+    assert tab.drafts.items[0].sta_start == "250" and tab.drafts.items[0].slabs == {1}
+
+
+def test_opening_slab_checkbuttons_follow_floor_count(app):
+    set_floors(app, 3)
+    add_opening(app, slabs={1, 3})
+    tab = app.opening_tab
+    assert [k[2] for k in tab._vars if k[1:2] == ("slab",)] == [0, 1, 2, 3]            # 3개 층 → 슬래브 0~3
+    set_floors(app, 2)
+    assert [k[2] for k in tab._vars if k[1:2] == ("slab",)] == [0, 1, 2]
+    assert tab.drafts.items[0].slabs == {1}                                             # 사라진 3번 슬래브 선택은 빠짐
+    set_floors(app, 4)
+    assert [k[2] for k in tab._vars if k[1:2] == ("slab",)] == [0, 1, 2, 3, 4]
+    assert tab.drafts.items[0].slabs == {1}
+
+
+def test_opening_slab_labels_use_level_names(app):
+    from gui.opening_draft import slab_choice_label
+    assert [slab_choice_label(3, n) for n in range(4)] == ["본체 바닥", "B3F/B2F 중간", "B2F/B1F 중간", "본체 천장"]
+
+
+def test_opening_range_label_updates_while_typing(app):
+    i = add_opening(app, sta_start="100", length="10", t_center="4", width="2")
+    (var, _), = app.opening_tab._range_vars
+    assert var.get() == "→ STA 100 ~ 110,  t 3 ~ 5"
+    app.opening_tab._vars[(i, "length")].set("abc")
+    assert "확인" in var.get()
+
+
+def test_remove_opening_and_editing_keeps_other_inputs(app):
+    add_opening(app, name="A", sta_start="10")
+    add_opening(app, name="B", sta_start="50")
+    tab = app.opening_tab
+    tab.remove_opening(0); app.root.update()
+    assert [it.name for it in tab.drafts.items] == ["B"] and tab._vars[(0, "sta_start")].get() == "50"
+
+
+def test_bad_opening_input_names_the_opening(app):
+    add_opening(app, name="EV1", length="abc")
+    with pytest.raises(ValueError, match=r"오프닝 1\(EV1\).*길이"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_no_slab_checked_and_out_of_range_openings_are_rejected(app):
+    set_entry(app, "start_station", "123.45")
+    add_opening(app, sta_start="150", slabs=set())
+    with pytest.raises(ValueError, match="하나 이상"):
+        TkAdapter.collect_entries(app.entries)
+    app.opening_tab.drafts.items[0].slabs = {1}
+    app.opening_tab.drafts.items[0].sta_start = "100"                                   # 정거장 시작(123.45)보다 앞
+    with pytest.raises(ValueError, match="내공 길이"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_generate_with_openings_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_opening(app, kind="계단", sta_start="164.45", length="8", t_center="-6", width="3", slabs={0, 1, 2, 3})
+    add_opening(app, kind="엘리베이터", sta_start="224.45", length="3", t_center="6", width="3", slabs={1, 2})
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert len(f.by_type("IfcOpeningElement")) == 6 and len(f.by_type("IfcRelVoidsElement")) == 6
+    assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
+
+
+def test_five_tabs_fit_in_window_width(app):
+    """탭 5개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+    app.root.update()
+    nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
+    seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 5

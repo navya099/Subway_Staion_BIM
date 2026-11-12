@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from engine.bim_engine import BIMEngine
 from gui.column_tab import ColumnTab
+from gui.opening_tab import OpeningTab
 from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
 from gui.station_tab import StationTab
@@ -28,27 +29,33 @@ class StationBIMApp:
 
         # 탭 1: 선형 및 본체 제원
         tab_station = ttk.Frame(notebook)
-        notebook.add(tab_station, text="  1. 선형 및 본체  ")
+        notebook.add(tab_station, text=" 1. 선형·본체 ")
         self.station_tab = StationTab(tab_station, self.entries, self._on_floors_changed)
         self.station_tab.build_station_tab()
 
         # 탭 2: 승강장 제원
         tab_platform = ttk.Frame(notebook)
-        notebook.add(tab_platform, text="  2. 상대식 승강장  ")
+        notebook.add(tab_platform, text=" 2. 승강장 ")
         self.platform_tab = PlatformTab(tab_platform, self.entries)
         self.platform_tab.build()
 
         # 탭 3: 중앙 기둥 제원
         tab_column = ttk.Frame(notebook)
-        notebook.add(tab_column, text="  3. 중앙 기둥  ")
+        notebook.add(tab_column, text=" 3. 기둥 ")
         self.column_tab = ColumnTab(tab_column, self.entries)
         self.column_tab.build()
         # 1번 탭에서 길이/외벽 두께를 바꾼 뒤 기둥 탭으로 오면 예상 기둥 개수를 다시 계산
-        notebook.bind("<<NotebookTabChanged>>", lambda e: self.column_tab.refresh_counts())
+        notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
-        # 탭 4: 출력 설정
+        # 탭 4: 슬래브 오프닝
+        tab_opening = ttk.Frame(notebook)
+        notebook.add(tab_opening, text=" 4. 슬래브 오프닝 ")
+        self.opening_tab = OpeningTab(tab_opening, self.entries)
+        self.opening_tab.build()
+
+        # 탭 5: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text="  4. 출력 설정  ")
+        notebook.add(tab_print, text=" 5. 출력 설정 ")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -61,10 +68,22 @@ class StationBIMApp:
         tk.Button(btn_frame, text="종료", font=("Malgun Gothic", 9, "bold"), bg="#00897B", fg="white", width=22,
                   command=self.root.destroy).pack(side="right", padx=8, pady=8)
 
+    def _on_tab_changed(self, event=None):
+        """1번 탭에서 바꾼 값(내공 길이, 층수, 시작 측점)을 기둥·오프닝 탭에 반영"""
+        if hasattr(self, 'column_tab'):
+            self.column_tab.refresh_counts()
+        if hasattr(self, 'opening_tab'):
+            self.opening_tab.update_floor_ui()
+            self.opening_tab.refresh_ranges()
+
     def _on_floors_changed(self, event=None):
         """🌟 층수가 변경될 때 메인 앱을 통해 ColumnTab의 UI 갱신을 트리거"""
+        if hasattr(self, 'station_tab'):
+            self.station_tab.update_floor_heights()
         if hasattr(self, 'column_tab'):
             self.column_tab.update_column_floor_ui()
+        if hasattr(self, 'opening_tab'):
+            self.opening_tab.update_floor_ui()
 
     def on_generate(self):
         try:

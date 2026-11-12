@@ -10,8 +10,10 @@ from walls.wall_shape_type import WallRole, WallShapeType
 class WallEngine:
     """외벽(좌/우)과 시·종점 마감벽 BIM 객체를 층별로 만들고, 3D DXF / IFC의 단일 데이터 원천이 된다.
 
-    - 벽체는 층별로 분할: 층 경계는 중간 슬래브 중심면 (최하층 바닥 = 바닥 슬래브 상면, 최상층 상단 = 천장 슬래브 하면)
-    - 모서리 체적이 겹치지 않도록 측벽은 마감벽 사이 구간(wall_t ~ L-wall_t)만 차지
+    - 벽체는 층별로 분할: 각 층 외벽은 그 층의 층 높이 구간 (바닥 슬래브 상면 ~ 위 슬래브 상면, 최상층은 천장 슬래브 하면까지).
+      중간층 바닥 슬래브는 아래층 외벽의 안쪽 면 사이에 놓이므로 층마다 두께가 달라도 겹치거나 비지 않는다
+    - 외벽 두께는 층별: 안쪽 면은 내공(±W/2, 0~L)에 고정이고 벽은 그 바깥쪽에 붙으므로 바깥면이 층마다 계단식으로 달라진다
+    - 모서리 체적이 겹치지 않도록 측벽은 내공 길이 구간(0 ~ L)만 차지하고, 마감벽이 모서리를 포함한 전폭을 차지
     """
 
     def __init__(self, config_params: StationProjectConfig):
@@ -29,31 +31,29 @@ class WallEngine:
     def z_offsets(self, floor_n: int) -> tuple[float, float]:
         """층 floor_n 벽체의 하단/상단 (바닥 슬래브 상면 기준 상대 높이)"""
         p = self.sp
-        story_h = p.height / p.floors
-        bottom = (floor_n - 1) * story_h
-        top = floor_n * story_h if floor_n < p.floors else p.height - p.slab_t
-        return bottom, top
+        top = p.floor_level(floor_n + 1) if floor_n < p.floors else p.height - p.roof_t
+        return p.floor_level(floor_n), top
 
     def wall_corners(self, wall: WallData) -> tuple[float, float, float, float, float, float]:
         """(s0, s1, t0, t1, z_bot(s0), z_bot(s1))"""
         return PM.corners(self.cfg, wall)
 
-    def _wall_defs(self):
-        """(코드, 역할, 계열명, s0, s1, t0, t1)"""
+    def _wall_defs(self, floor_n: int):
+        """층 floor_n 의 (코드, 역할, 계열명, s0, s1, t0, t1) — 안쪽 면(내공)은 고정, 외벽 두께는 그 층의 값만큼 바깥쪽으로"""
         p = self.sp
-        hw, wt = p.width / 2.0, p.wall_t
+        hw, wt, L = p.width / 2.0, p.wall_t_at(floor_n), p.length
         return [
-            ("START", WallRole.START, "콘크리트-마감벽", 0.0, wt, -hw, hw),
-            ("L", WallRole.LEFT, "콘크리트-외벽", wt, p.length - wt, -hw, -hw + wt),
-            ("R", WallRole.RIGHT, "콘크리트-외벽", wt, p.length - wt, hw - wt, hw),
-            ("END", WallRole.END, "콘크리트-마감벽", p.length - wt, p.length, -hw, hw),
+            ("START", WallRole.START, "콘크리트-마감벽", -wt, 0.0, -hw - wt, hw + wt),
+            ("L", WallRole.LEFT, "콘크리트-외벽", 0.0, L, -hw - wt, -hw),
+            ("R", WallRole.RIGHT, "콘크리트-외벽", 0.0, L, hw, hw + wt),
+            ("END", WallRole.END, "콘크리트-마감벽", L, L + wt, -hw - wt, hw + wt),
         ]
 
     # ---------- 생성 ----------
     def _build_wall_bim_objects(self):
         p = self.sp
-        if p.wall_t <= 0 or 2 * p.wall_t >= min(p.length, p.width):
-            raise ValueError("외벽 두께가 0 이하이거나 정거장 길이/폭에 비해 너무 큽니다.")
+        if any(wt <= 0 for wt in p.wall_ts):
+            raise ValueError("외벽 두께는 0보다 커야 합니다.")
 
         for floor_n in range(1, p.floors + 1):
             level = self.level_name(floor_n)
@@ -62,7 +62,7 @@ class WallEngine:
             if z_hi - z_lo <= 0:
                 raise ValueError(f"{level} 벽체 높이가 0 이하입니다. 층 높이/슬래브 두께를 확인하세요.")
 
-            for code, role, family, s0, s1, t0, t1 in self._wall_defs():
+            for code, role, family, s0, s1, t0, t1 in self._wall_defs(floor_n):
                 lv0, lv1 = self.cfg.lv(s0) - p.offset, self.cfg.lv(s1) - p.offset
                 shape = RectangularWall(
                     wall_type=WallShapeType.RECTANGLE,
@@ -71,7 +71,7 @@ class WallEngine:
                 package.add_wall(WallData(
                     name=f"WALL_{level}_{code}",
                     family_name=family,
-                    type_name=f"{int(round(p.wall_t * 1000))}mm",
+                    type_name=f"{int(round(p.wall_t_at(floor_n) * 1000))}mm",
                     level=level,
                     role=role,
                     pos_x=(s0 + s1) / 2.0,
@@ -98,6 +98,8 @@ class WallEngine:
         items = []
         for package in self.wall_packages:
             for w in package.walls:
+                if w.role == WallRole.END and sta <= PM.s_range(w)[0] + 1e-9:   # 내공 끝(s = L)의 단면은 일반 단면 (마감벽은 그 바깥)
+                    continue
                 cut = PM.section_rect(self.cfg, w, sta)
                 if cut:
                     t0, t1, zb = cut

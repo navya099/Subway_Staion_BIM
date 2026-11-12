@@ -22,6 +22,7 @@ class StationCADEngine:
         self.slabs = SlabEngine(config)
         self.walls = WallEngine(config)
         self.columns = ColumnEngine(config)
+        self.slabs.check_columns(self.columns)
         self.sub_engines = [self.platform, self.slabs, self.walls, self.columns]
     @staticmethod
     def _save(doc, filename):
@@ -81,8 +82,8 @@ class StationCADEngine:
     def generate_section_dxf(self, sta_list: list[float], filename="output/정거장단면도.dxf") -> str:
         doc, msp = self._init_doc()
         p = self.cfg.station
-        half_w = p.width / 2.0
-        drawing_spacing = p.width * 2.5
+        half_w = p.width / 2.0 + p.max_wall_t                    # 가장 바깥 외곽 기준 (내공 + 가장 두꺼운 벽)
+        drawing_spacing = (p.width + 2 * p.max_wall_t) * 2.5
         for idx, sta in enumerate(sta_list):
             x_offset = idx * drawing_spacing
             align_lv = self.cfg.lv(sta)
@@ -115,7 +116,7 @@ class StationCADEngine:
         world_mode = mode == "world" or (mode == "auto" and curved)
         doc, msp = self._init_doc()
         p = self.cfg.station
-        half_w = p.width / 2.0
+        half_w = p.width / 2.0 + p.max_wall_t                    # 가장 바깥 외곽 기준
         xy = self.cfg.to_world if world_mode else (lambda s, t: (s, t))
 
         # 중심선
@@ -141,11 +142,11 @@ class StationCADEngine:
         draw_view_items(msp, self._plan_items_world(items) if world_mode else items)
         suffix = (" [WCS]" if world_mode else " [DEVELOPED]") if curved else ""
         if world_mode:     # 제목은 도면 윤곽(측점선 끝 포함) 바깥 위쪽에 둠
-            edge = [self.cfg.to_world(s, t) for s in self.cfg.sample_s(0.0, p.length) for t in (-half_w - 2.0, half_w + 2.5)]
+            edge = [self.cfg.to_world(s, t) for s in self.cfg.sample_s(-p.max_wall_t, p.length + p.max_wall_t) for t in (-half_w - 2.0, half_w + 2.5)]
             title_at = (min(x for x, _ in edge), max(y for _, y in edge) + 6.0)
         else:
             title_at = (0, half_w + 6.0)
-        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, L={p.length}m, W={p.width}m){suffix}",
+        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, CLEAR L={p.length}m, W={p.width}m, STA {self._fmt_sta(0.0)} ~ {self._fmt_sta(p.length)}){suffix}",
                      dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement(title_at)
 
         self._save(doc, filename)

@@ -35,7 +35,7 @@ class ColumnEngine:
         if pf.plat_thick <= 0:
             return "none"
         edge = pf.track_spacing / 2.0 + pf.plat_offset
-        inner = p.width / 2.0 - p.wall_t
+        inner = p.width / 2.0                             # 승강장은 내공 영역 안 (벽 안쪽 면이 고정이라 층과 무관)
         eps = 1e-9
         result = "none"
         for lo, hi in ((-inner, -edge), (edge, inner)):
@@ -46,19 +46,18 @@ class ColumnEngine:
     def z_range(self, floor_n: int, s: float, t_lo: float = 0.0, t_hi: float = 0.0) -> tuple[float, float]:
         """층 floor_n 기둥의 하단/상단 표고 (정거장 로컬 거리 s, 직교방향 구간 t_lo~t_hi 위치)"""
         p, pf, cp = self.sp, self.pf, self.cp
-        story_h = p.height / p.floors
         floor_top_z = self.cfg.lv(s) - p.offset
-        # 하단: 최하층 = 바닥 슬래브 상면(승강장 동기화 시 승강장 상면), 그 외 = 중간 슬래브 상면
+        # 하단: 최하층 = 본체 바닥 슬래브 상면(승강장 동기화 시 승강장 상면), 그 외 = 아래 중간층 바닥 슬래브 상면 (= 이 층의 바닥)
         if floor_n == 1:
             on_platform = cp.sync_with_platform and self.platform_overlap(t_lo, t_hi) == "over"
             z_bot = floor_top_z + (pf.plat_height + pf.plat_thick if on_platform else 0.0)
         else:
-            z_bot = floor_top_z + (floor_n - 1) * story_h + p.slab_t / 2
-        # 상단: 최상층 = 천장 슬래브 하면, 그 외 = 중간 슬래브 하면
+            z_bot = floor_top_z + p.floor_level(floor_n)
+        # 상단: 최상층 = 천장 슬래브 하면, 그 외 = 위 중간층 바닥 슬래브 하면
         if floor_n < p.floors:
-            z_top = floor_top_z + floor_n * story_h - p.slab_t / 2
+            z_top = floor_top_z + p.floor_level(floor_n + 1) - p.mid_t
         else:
-            z_top = floor_top_z + p.height - p.slab_t
+            z_top = floor_top_z + p.height - p.roof_t
         return z_bot, z_top
 
     @staticmethod
@@ -106,7 +105,7 @@ class ColumnEngine:
                 if not row.pattern:
                     raise ValueError(f"{level} {row_idx}열: 기둥 규격(pattern)이 비어 있습니다.")
 
-                inner = p.width / 2.0 - p.wall_t
+                inner = p.width / 2.0                           # 내공 영역: 안쪽 면은 모든 층에서 같음 (외벽 두께와 무관)
                 ht_max = max(sp.half_t for sp in row.pattern)
                 hs_max = max(sp.half_s for sp in row.pattern)
                 if abs(row.t_offset) + ht_max > inner + 1e-9:
@@ -114,8 +113,8 @@ class ColumnEngine:
                                      f"(t 위치 {row.t_offset:.2f}m, 기둥 반폭 {ht_max:.2f}m, 안쪽 반폭 {inner:.2f}m)")
                 if row.start_offset < hs_max - 1e-9:
                     raise ValueError(f"{level} {row_idx}열: 시작 여유({row.start_offset:.2f}m)가 기둥 반폭({hs_max:.2f}m)보다 작아 마감벽과 겹칩니다")
-                s_first = p.wall_t + row.start_offset
-                s_last = p.length - p.wall_t - row.start_offset
+                s_first = row.start_offset                      # 시점 마감벽 안쪽 면(s = 0)에서 첫 기둥 중심까지
+                s_last = p.length - row.start_offset
                 n = int((s_last - s_first) / row.interval + 1e-9) + 1 if s_last >= s_first else 0
 
                 for i in range(n):

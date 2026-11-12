@@ -249,7 +249,7 @@ class IFCExporter:
             for slab in package.slabs:
                 if not slab.shape:
                     continue
-                placement, representation = self._member_geometry(slab, "SlabProfile")
+                placement, representation = self._slab_geometry(slab)
                 ifc_slab = self.file.create_entity(
                     "IfcSlab",
                     GlobalId=ifcopenshell.guid.compress(uuid.UUID(slab.guid).hex),
@@ -262,6 +262,7 @@ class IFCExporter:
                 if slab.material:
                     self._assign_material(ifc_slab, slab.material)
                 elements.append(ifc_slab)
+                self._export_slab_openings(slab, ifc_slab)
 
             if elements:
                 self.file.create_entity(
@@ -270,6 +271,36 @@ class IFCExporter:
                     RelatingStructure=storey,
                     RelatedElements=elements
                 )
+
+    def _slab_geometry(self, slab):
+        """슬래브의 (배치, 형상). 오프닝이 없으면 일반 부재와 같고, 있으면 오프닝을 뺀 직사각형 조각들을 한 형상의 여러 덩어리로 담는다"""
+        if not slab.pieces:
+            return self._member_geometry(slab, "SlabProfile")
+        cfg = self.config
+        if cfg.align.is_straight:
+            s0, _, t0, _, z0, _ = PM.corners(cfg, slab)             # 슬래브 최소 모서리 = 배치 원점
+            items = []
+            for m in slab.pieces:
+                ps0, _, pt0, _, pz0, _ = PM.corners(cfg, m)
+                sh = m.shape
+                items.append(self._sloped_prism_solid(sh.length, sh.width, sh.vertical, sh.rise, "SlabProfile",
+                                                      origin=(ps0 - s0, pt0 - t0, pz0 - z0)))
+            return self._create_local_placement(s0, t0, z0), self._product_shape(items, "SweptSolid")
+        items = [self._face_set(PM.sweep_quads(PM.rings(cfg, m))) for m in slab.pieces]
+        return self._placement(), self._product_shape(items, "Tessellation")
+
+    def _export_slab_openings(self, slab, ifc_slab):
+        """슬래브를 뚫는 오프닝을 IfcOpeningElement 로 만들어 IfcRelVoidsElement 로 슬래브에 연결"""
+        for op in slab.openings:
+            placement, representation = self._member_geometry(op, "OpeningProfile")
+            ifc_op = self.file.create_entity(
+                "IfcOpeningElement",
+                GlobalId=ifcopenshell.guid.compress(uuid.UUID(op.guid).hex),
+                Name=op.name, Description=op.type_name, ObjectType=op.kind.code,
+                ObjectPlacement=placement, Representation=representation, PredefinedType="OPENING")
+            self.file.create_entity(
+                "IfcRelVoidsElement", GlobalId=ifcopenshell.guid.new(),
+                RelatingBuildingElement=ifc_slab, RelatedOpeningElement=ifc_op)
 
     def _member_geometry(self, m, profile_name):
         """벽체/슬래브/승강장 부재의 (배치, 형상).
@@ -285,6 +316,9 @@ class IFCExporter:
 
     def _create_tessellated_geometry(self, quads):
         """바깥 방향 사각 면 목록 → IfcPolygonalFaceSet (Tessellation) 형상"""
+        return self._product_shape([self._face_set(quads)], "Tessellation")
+
+    def _face_set(self, quads):
         f = self.file
         index, coords = {}, []
 
@@ -295,18 +329,26 @@ class IFCExporter:
                 index[key] = len(coords)                      # IFC 인덱스는 1부터
             return index[key]
         faces = [f.create_entity("IfcIndexedPolygonalFace", CoordIndex=[idx(p) for p in q]) for q in quads]
-        face_set = f.create_entity("IfcPolygonalFaceSet", Coordinates=f.create_entity("IfcCartesianPointList3D", CoordList=coords),
-                                   Closed=True, Faces=faces)
+        return f.create_entity("IfcPolygonalFaceSet", Coordinates=f.create_entity("IfcCartesianPointList3D", CoordList=coords),
+                               Closed=True, Faces=faces)
+
+    def _product_shape(self, items, rep_type):
+        f = self.file
         shape_rep = f.create_entity(
             "IfcShapeRepresentation",
             ContextOfItems=f.by_type("IfcGeometricRepresentationContext")[0],
-            RepresentationIdentifier="Body", RepresentationType="Tessellation", Items=[face_set])
+            RepresentationIdentifier="Body", RepresentationType=rep_type, Items=items)
         return f.create_entity("IfcProductDefinitionShape", Representations=[shape_rep])
 
     def _create_sloped_prism_geometry(self, length, width, height, rise, profile_name):
         """s–z 평행사변형 단면(구배 반영)을 t 방향 width만큼 압출한 Solid (벽체·슬래브 공통).
         배치 원점 = 부재 최소 모서리, 로컬 X = s, Y = t, Z = 상향."""
+        return self._product_shape([self._sloped_prism_solid(length, width, height, rise, profile_name)], "SweptSolid")
+
+    def _sloped_prism_solid(self, length, width, height, rise, profile_name, origin=(0.0, 0.0, 0.0)):
+        """위 압출 Solid 1개. origin = 배치 원점 기준 (ds, dt, dz) 이동 (한 부재가 여러 덩어리일 때)"""
         f = self.file
+        ds, dt, dz = origin
         pts = [(0.0, 0.0), (length, rise), (length, rise + height), (0.0, height)]
         poly = f.create_entity(
             "IfcPolyline",
@@ -316,19 +358,14 @@ class IFCExporter:
         # 압출 축을 -Y(로컬)로 두고 Y=width에서 시작 → t0 ~ t0+width 범위를 채움, 프로파일 Y축은 상향(+Z)
         position = f.create_entity(
             "IfcAxis2Placement3D",
-            Location=f.create_entity("IfcCartesianPoint", Coordinates=(0.0, float(width), 0.0)),
+            Location=f.create_entity("IfcCartesianPoint", Coordinates=(float(ds), float(dt + width), float(dz))),
             Axis=f.create_entity("IfcDirection", DirectionRatios=(0.0, -1.0, 0.0)),
             RefDirection=f.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)))
-        solid = f.create_entity(
+        return f.create_entity(
             "IfcExtrudedAreaSolid",
             SweptArea=profile, Position=position,
             ExtrudedDirection=f.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
             Depth=float(width))
-        shape_rep = f.create_entity(
-            "IfcShapeRepresentation",
-            ContextOfItems=f.by_type("IfcGeometricRepresentationContext")[0],
-            RepresentationIdentifier="Body", RepresentationType="SweptSolid", Items=[solid])
-        return f.create_entity("IfcProductDefinitionShape", Representations=[shape_rep])
 
     def _create_local_placement(self, s: float, t: float, z: float):
         """정거장 로컬 (s, t, z) → WCS 위치 + 선형 방위각 회전의 IfcLocalPlacement"""

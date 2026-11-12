@@ -1143,3 +1143,36 @@ def test_section_inner_faces_line_up_and_outer_faces_step(tmp_path):
         if x1 - x0 < 2.0 and y1 - y0 > 3.0 and x1 <= 0:                    # 왼쪽 외벽
             left[round(y1 - y0, 3)] = (round(x0, 3), round(x1, 3))
     assert left == {7.0: (-hw - 1.5, -hw), 5.2: (-hw - 1.2, -hw), 3.5: (-hw - 0.9, -hw)}    # 안쪽 면(x1)은 모두 -9.0, 바깥면(x0)만 계단식
+
+
+def test_practical_drawing_dimension_wall_plus_clear_length_plus_wall():
+    """실무 도면의 길이 치수선: 마감벽 800 + 본체 내공 213.2m + 마감벽 800 (정거장 길이 = 내공 기준)"""
+    from helper import prism_member as PM
+    cfg = make_cfg(user_example()); st = cfg.station
+    st.length, st.wall_ts = 213.2, [0.8, 0.8, 0.8]
+    eng = StationCADEngine(cfg)
+    by = {w.name: w for w in eng.walls.wall_packages[0].walls}
+    assert PM.s_range(by["WALL_B3F_START"]) == pytest.approx((-0.8, 0.0))              # 시점 마감벽 0.8
+    assert PM.s_range(by["WALL_B3F_L"]) == pytest.approx((0.0, 213.2))                 # 본체 내공 213.2
+    assert PM.s_range(by["WALL_B3F_END"]) == pytest.approx((213.2, 214.0))             # 종점 마감벽 0.8
+    assert st.outer_length(1) == pytest.approx(0.8 + 213.2 + 0.8)
+    floor = next(s for pk in eng.slabs.slab_packages for s in pk.slabs if s.name.endswith("FLOOR"))
+    assert PM.s_range(floor) == pytest.approx((-0.8, 214.0))                           # 본체 바닥 슬래브는 마감벽 바깥까지
+    assert sum(1 for pk in eng.columns.column_packages for c in pk.columns if c.level == "B3F") > 0
+
+
+def test_station_stationing_starts_and_ends_at_the_inner_faces_of_the_end_walls(tmp_path):
+    """실무 도면 기준: 시작 STA = 시점 마감벽 안쪽 면, 끝 STA = 종점 마감벽 안쪽 면 (마감벽은 그 바깥)"""
+    from helper import prism_member as PM
+    cfg = make_cfg(NO_COLUMNS()); st = cfg.station; a = cfg.align
+    st.start_station, L = 100.0, st.length
+    eng = StationCADEngine(cfg)
+    by = {w.name: w for w in eng.walls.wall_packages[0].walls}
+    start_inner = cfg.to_world(PM.s_range(by["WALL_B3F_START"])[1], 0.0)             # 시점 마감벽 안쪽 면
+    end_inner = cfg.to_world(PM.s_range(by["WALL_B3F_END"])[0], 0.0)                 # 종점 마감벽 안쪽 면
+    assert start_inner == pytest.approx(a.point_at(100.0)) and end_inner == pytest.approx(a.point_at(100.0 + L))
+    assert cfg.lv(0.0) == pytest.approx(a.elevation_at(100.0)) and cfg.lv(L) == pytest.approx(a.elevation_at(100.0 + L))
+    texts = lambda p: [t.dxf.text for t in ezdxf.readfile(p).modelspace().query("TEXT")]
+    plan = texts(eng.generate_plan_dxf(tmp_path / "p.dxf"))
+    assert any("STA 0+100.00 ~ 0+298.00" in t for t in plan) and "STA.0+100.00" in plan        # 제목에 내공 시종점 STA, 첫 측점선 = 시작 STA
+    assert any("SECTION STA. 0+150.00" in t for t in texts(eng.generate_section_dxf([50.0], tmp_path / "s.dxf")))

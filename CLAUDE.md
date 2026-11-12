@@ -1,0 +1,103 @@
+# CLAUDE.md — subway_station_BIM
+
+지하철 개착식(open-cut) 정거장 BIM 자동 생성기. 파라미터(GUI/코드)를 입력하면 **3D DXF, 횡단면도, 평면도, 종단면도(DXF)와 IFC4** 를 만든다.
+Python + tkinter. 작성자: Dger (한국어 사용, 응답·주석·커밋 메시지는 한국어 기본).
+
+## 1. 빠른 시작
+
+```bash
+pip install ezdxf ifcopenshell numpy matplotlib pillow pytest pyflakes
+# 리눅스: tkinter 는 시스템 파이썬과 같은 버전의 python3-tk 가 필요 (apt install python3-tk)
+python main.py                      # GUI 실행
+xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레이 없으면 GUI 테스트는 skip)
+python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
+```
+
+- 현재 기준 **테스트 381개 통과** (GUI 61개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
+- 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
+
+## 2. 좌표계와 핵심 규약 (가장 중요 — 바꾸기 전에 반드시 읽을 것)
+
+정거장 로컬 좌표 `(s, t, z)`:
+- **s**: 선형 진행방향 거리. **s=0 = 시점 마감벽 안쪽 면(내공 시작)**, **s=L = 종점 마감벽 안쪽 면**. 단부 벽체는 s<0, s>L 에 붙는다.
+- **t**: 선형 직교방향, **진행방향 왼쪽이 +** (`to_world` 가 이 방향으로 변환), 선형 중심 = 0.
+- **z**: 본체 바닥 슬래브 상면 = FL = 0 기준 상대 표고. 실제 표고는 선형 종단 `lv(s) - offset + z`.
+- 선형과의 접점은 `StationProjectConfig` 하나뿐: `lv(s)`, `theta_at(s)`, `grade_permil(s)`, `curvature_at(s)`, `to_world(s,t)`, `origin()`, `sample_s(s0,s1)`. 엔진·내보내기는 선형에 직접 접근하지 말고 이 메서드만 쓴다.
+
+**내공(clear) 기준**: `StationParameters.length/width` 는 외곽이 아니라 **내공 치수**. 실무 도면 확인 결과 "벽 800 + 내공 213.2m + 벽 800" 구조이고, **start/end STA = 단부 마감벽 안쪽 면**.
+
+**벽체 규약**: **내벽(내공면)은 모든 층에서 고정**, **외벽면만 층별 두께(`wall_ts[i]`)에 따라 계단식**으로 변한다. 슬래브는 이에 맞춰 — 중간 슬래브 = 내공 영역(0..L × ±W/2), 바닥/천장 슬래브 = 최하층/최상층 외곽.
+
+**층 번호**: 내부는 `floor_n = 1` 이 최하층. 표시 이름은 `B3F … B1F`(층수>1), 1층 건물은 `1F`.
+
+**슬래브 번호(오프닝용)**: `0` = 본체 바닥, `i`(1..floors-1) = i층/i+1층 사이 중간 슬래브, `floors` = 본체 천장. 슬래브 객체 이름은 `SLAB_{level}_{FLOOR|MID|ROOF}`.
+
+**부재 = 각기둥(prism)**: 벽체·슬래브·승강장·지지벽체는 `(s 구간)×(t 구간)×(연직 두께)` + 종단구배(`rise`). 직선 선형이면 경사 각기둥 1개(DXF 6면, IFC `SweptSolid`), 곡선이면 표본 측점마다 단면을 이은 스윕(`helper/prism_member.py`, IFC `Tessellation`/IfcPolygonalFaceSet). 곡선 체적은 `curve_factor`(= (1/L)∫(1−κ·t)ds)로 보정.
+
+## 3. 구조 (BIM 객체 패턴)
+
+각 부재 종류는 **Data / Shape / Package / Engine** 패턴을 따른다. 엔진이 BIM 객체를 만들고, 그 객체가 3D DXF·2D 도면·IFC 의 **단일 데이터 원천**이다. 도면/IFC 코드가 따로 기하를 다시 계산하면 안 된다.
+
+```
+main.py                     GUI 진입점
+config/                     모델·선형
+  station_config.py         StationParameters (층별 높이/벽두께, floor_t/mid_t/roof_t, sta_tick, offset ...)
+  master_config.py          StationProjectConfig (station/platform/column/align/openings + validate + 선형 접점)
+  alignment*.py             Alignment 인터페이스, BP/EP 직선, HeadingAlignment
+  curved_alignment.py       평면곡선(직선/원/완화곡선) + 종곡선, CubicSpiral(japaneseCubic)
+  sampled_alignment.py      점열(xyz) 선형 (국소 2차 회귀 평활 + Hermite)
+  alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
+walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
+openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
+helper/                     prism_member.py(각기둥/스윕 기하), view_item.py(2D 윤곽), geometry_helper.py
+engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
+exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
+gui/                        station_tab / platform_tab / column_tab / opening_tab / print_tab,
+                            column_draft·opening_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_gui
+samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
+```
+
+2D 도면: 각 엔진이 `section_items(sta)`, `profile_items()`, `plan_items(cut_h)` 로 `ViewItem` 을 돌려주고 `cad_engine` 이 모아서 그린다.
+
+## 4. 구현된 핵심 기능
+
+- 선형: BP/EP 직선, 곡선(원·완화곡선·종곡선), JSON, xyz txt/csv(1m 간격 등), LandXML(축 NE/EN 자동 판정, 단위 변환, 다중 선형 선택). 정거장 구간이 선형 범위 안에 있는지, 곡선 반경이 외곽 폭에 비해 너무 작지 않은지 `validate()` 가 검사.
+- 본체: 층별 층고 합산, 층별 외벽 두께, 3종 슬래브 두께(`floor_t`/`mid_t`/`roof_t`).
+- 벽체(층별), 슬래브, 상대식 승강장(ㅠ형 슬래브 + 지지벽체), 중앙 기둥(층별·열별, 원/사각 혼합 패턴, 원은 지름 입력).
+- **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
+- 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
+
+## 5. 테스트 작성 규약
+
+- 회귀: 직선 기본 출력은 **golden hash**(`tests/test_curved.py::GOLDEN_STRAIGHT`)로 고정. 기하 규약을 의도적으로 바꿀 때만 갱신하고, 왜 바뀌었는지 커밋 메시지에 남긴다.
+- 체적은 공식 ↔ 3D 메쉬(발산 정리) ↔ IFC 형상(ifcopenshell) 세 가지를 서로 교차 검증하는 방식. 곡선 메쉬 허용오차는 `rel=1e-4`.
+- GUI 테스트는 `tkinter` + 디스플레이 필요 (`xvfb-run -a`). tk 변수(`StringVar` 등)는 **반드시 속성/딕셔너리에 보관** — 지역 변수로 두면 GC 되어 `trace` 가 사라진다 (실제로 겪은 버그).
+- 테스트에서 직접 `set_kind()` 같은 초안 메서드를 호출하면 화면 위젯(콤보박스)은 갱신되지 않는다 (실제 입력에서는 위젯이 초안을 바꿈).
+
+## 6. 앞으로 할 일 / 미결 사항
+
+**사용자 확인이 필요한 것 (미답변)**
+1. 평면도에 오프닝을 표시해야 하는가? 현재 평면도는 최하층 FL+2m 에서만 자르므로 위층 슬래브 오프닝이 안 보임. 층별 평면도(층마다 해당 슬래브의 오프닝 외곽을 점선 등으로 표시)가 필요한지.
+2. 실무 도면의 오프닝 표기 기준 — 지금은 `시작 STA + 길이`, `t 중심 + 폭`. 도면이 STA 범위 + 선로 중심 이격으로 되어 있으면 입력 항목을 맞춘다.
+
+**제안 (사용자 확정 전, 우선순위 참고용)**
+- 층별 평면도 생성(오프닝·기둥·벽·승강장). 위 1번 답에 따라.
+- 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
+- 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
+- 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
+- 오프닝 입력 저장/불러오기(JSON), GUI 입력 전체 프로젝트 파일화.
+
+**알려진 정리 항목**
+- 문서 문자열 불일치: `columns/column_params.py` 의 `t_offset` 설명과 기둥 탭 안내문이 "오른쪽 +" 라고 쓰여 있으나, 실제 코드는 `t_offset` 을 그대로 `pos_y`(왼쪽 +)로 쓴다. 코드 동작이 기준이므로 문구를 "왼쪽 +" 로 정정하거나(권장) 의도를 사용자에게 확인할 것.
+- 평면도에서 `PLAN_CUT_H` 가 최하층 기준 고정(2.0m).
+- `tests/` 의 미사용 import 등 pyflakes 경고(기존).
+- 패키지 폴더명 `boxes/`(원본은 `boxs/`) 등 원본 대비 이름 정리가 누적 패치에 포함되어 있음.
+
+## 7. 작업 방식 (사용자 선호)
+
+- 요청은 **단계별로 구현 → 테스트 → 산출물(zip + 누적 패치)** 순으로 진행했고, 사용자는 각 단계 결과를 확인한 뒤 "계속" 으로 다음 단계를 지시한다.
+- 실무 도면 근거로 규약을 정정해 주는 경우가 많다 (내벽 고정, 내공 기준, STA 기준). 규약이 불분명하면 추측하지 말고 먼저 묻는다.
+- 누적 패치는 `diff -ruN -x __pycache__ -x .pytest_cache a b` (a = 원본 폴더, b = 수정본)로 만들어 `patch -p1` 로 적용되게 한다.
+- 변경 후에는 전체 테스트 + pyflakes(소스) 통과를 확인하고, 형상 변경은 독립 계산(공식·메쉬·IFC)으로 교차 검증한다.

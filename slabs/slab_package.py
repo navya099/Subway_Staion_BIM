@@ -26,7 +26,7 @@ class SlabPackage:
 
     @property
     def total_volume(self) -> float:
-        return sum(s.shape.volume for s in self.slabs if s.shape)
+        return sum(s.net_volume for s in self.slabs if s.shape)
 
     def get_slab_by_name(self, name: str) -> Optional[SlabData]:
         return next((s for s in self.slabs if s.name == name), None)

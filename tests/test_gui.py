@@ -691,3 +691,119 @@ def test_floor_height_entries_fit_inside_the_window(app):
         e = app.entries[k]
         assert e.winfo_rootx() + e.winfo_width() <= right, k
     assert app.entries["roof_t"].winfo_rooty() + app.entries["roof_t"].winfo_height() <= bottom      # 6개 층이어도 아래 입력칸이 잘리지 않음
+
+
+# ---------------- 슬래브 오프닝 탭 ----------------
+from openings.opening_kind import OpeningKind
+
+
+def add_opening(app, **fields):
+    """오프닝 탭에서 '+ 오프닝 추가'를 누른 뒤 입력칸에 값을 넣음. 마지막 오프닝의 인덱스를 반환"""
+    tab = app.opening_tab
+    tab.add_opening()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    for key, text in fields.items():
+        if key == "kind":
+            tab.set_kind(i, text)
+        elif key == "slabs":
+            for n in range(tab.floor_count + 1):
+                tab._vars[(i, "slab", n)].set(n in text)
+        else:
+            tab._vars[(i, key)].set(text)
+    app.root.update()
+    return i
+
+
+def test_opening_tab_exists_and_starts_empty(app):
+    assert app.opening_tab.drafts.items == []
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.openings == []
+
+
+def test_opening_input_becomes_spec_with_sta_converted_to_local_s(app):
+    set_entry(app, "start_station", "134.45")
+    add_opening(app, kind="에스컬레이터", sta_start="154.45", length="12", t_center="6", width="3", slabs={1, 2})
+    cfg = TkAdapter.collect_entries(app.entries)
+    (sp,) = cfg.openings
+    assert sp.kind is OpeningKind.ESCALATOR
+    assert sp.s_start == pytest.approx(20.0) and sp.s_end == pytest.approx(32.0)      # STA 를 내공 시점 기준 s 로 변환
+    assert (sp.t_lo, sp.t_hi) == (4.5, 7.5) and sp.slabs == [1, 2]
+
+
+def test_default_new_opening_starts_at_station_start(app):
+    set_entry(app, "start_station", "250")
+    tab = app.opening_tab
+    tab.add_opening(); app.root.update()
+    assert tab.drafts.items[0].sta_start == "250" and tab.drafts.items[0].slabs == {1}
+
+
+def test_opening_slab_checkbuttons_follow_floor_count(app):
+    set_floors(app, 3)
+    add_opening(app, slabs={1, 3})
+    tab = app.opening_tab
+    assert [k[2] for k in tab._vars if k[1:2] == ("slab",)] == [0, 1, 2, 3]            # 3개 층 → 슬래브 0~3
+    set_floors(app, 2)
+    assert [k[2] for k in tab._vars if k[1:2] == ("slab",)] == [0, 1, 2]
+    assert tab.drafts.items[0].slabs == {1}                                             # 사라진 3번 슬래브 선택은 빠짐
+    set_floors(app, 4)
+    assert [k[2] for k in tab._vars if k[1:2] == ("slab",)] == [0, 1, 2, 3, 4]
+    assert tab.drafts.items[0].slabs == {1}
+
+
+def test_opening_slab_labels_use_level_names(app):
+    from gui.opening_draft import slab_choice_label
+    assert [slab_choice_label(3, n) for n in range(4)] == ["본체 바닥", "B3F/B2F 중간", "B2F/B1F 중간", "본체 천장"]
+
+
+def test_opening_range_label_updates_while_typing(app):
+    i = add_opening(app, sta_start="100", length="10", t_center="4", width="2")
+    (var, _), = app.opening_tab._range_vars
+    assert var.get() == "→ STA 100 ~ 110,  t 3 ~ 5"
+    app.opening_tab._vars[(i, "length")].set("abc")
+    assert "확인" in var.get()
+
+
+def test_remove_opening_and_editing_keeps_other_inputs(app):
+    add_opening(app, name="A", sta_start="10")
+    add_opening(app, name="B", sta_start="50")
+    tab = app.opening_tab
+    tab.remove_opening(0); app.root.update()
+    assert [it.name for it in tab.drafts.items] == ["B"] and tab._vars[(0, "sta_start")].get() == "50"
+
+
+def test_bad_opening_input_names_the_opening(app):
+    add_opening(app, name="EV1", length="abc")
+    with pytest.raises(ValueError, match=r"오프닝 1\(EV1\).*길이"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_no_slab_checked_and_out_of_range_openings_are_rejected(app):
+    set_entry(app, "start_station", "123.45")
+    add_opening(app, sta_start="150", slabs=set())
+    with pytest.raises(ValueError, match="하나 이상"):
+        TkAdapter.collect_entries(app.entries)
+    app.opening_tab.drafts.items[0].slabs = {1}
+    app.opening_tab.drafts.items[0].sta_start = "100"                                   # 정거장 시작(123.45)보다 앞
+    with pytest.raises(ValueError, match="내공 길이"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_generate_with_openings_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_opening(app, kind="계단", sta_start="164.45", length="8", t_center="-6", width="3", slabs={0, 1, 2, 3})
+    add_opening(app, kind="엘리베이터", sta_start="224.45", length="3", t_center="6", width="3", slabs={1, 2})
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert len(f.by_type("IfcOpeningElement")) == 6 and len(f.by_type("IfcRelVoidsElement")) == 6
+    assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
+
+
+def test_five_tabs_fit_in_window_width(app):
+    """탭 5개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+    app.root.update()
+    nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
+    seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 5

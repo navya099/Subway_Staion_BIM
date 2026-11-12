@@ -22,6 +22,7 @@ class StationCADEngine:
         self.slabs = SlabEngine(config)
         self.walls = WallEngine(config)
         self.columns = ColumnEngine(config)
+        self.slabs.check_columns(self.columns)
         self.sub_engines = [self.platform, self.slabs, self.walls, self.columns]
     @staticmethod
     def _save(doc, filename):
@@ -145,7 +146,7 @@ class StationCADEngine:
             title_at = (min(x for x, _ in edge), max(y for _, y in edge) + 6.0)
         else:
             title_at = (0, half_w + 6.0)
-        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, CLEAR L={p.length}m, W={p.width}m){suffix}",
+        msp.add_text(f"STATION PLAN VIEW (CUT LEVEL: FL+{self.PLAN_CUT_H:.1f}m, CLEAR L={p.length}m, W={p.width}m, STA {self._fmt_sta(0.0)} ~ {self._fmt_sta(p.length)}){suffix}",
                      dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement(title_at)
 
         self._save(doc, filename)

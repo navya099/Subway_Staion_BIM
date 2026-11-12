@@ -5,6 +5,7 @@ from columns.column_params import ColumnParameters
 from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
+from openings.opening_check import check_openings
 from platforms.platform_params import PlatformParameters
 
 
@@ -15,6 +16,7 @@ class StationProjectConfig:
     platform: PlatformParameters = dataclasses.field(default_factory=PlatformParameters)
     column: ColumnParameters = dataclasses.field(default_factory=ColumnParameters)
     align: Alignment = dataclasses.field(default_factory=AlignmentConfig)
+    openings: list = dataclasses.field(default_factory=list)      # list[OpeningSpec]: 슬래브 오프닝
 
     def __post_init__(self):
         # 층별 기둥 설정이 비어 있으면 전 층 기본 1열 배치로 채움
@@ -26,6 +28,7 @@ class StationProjectConfig:
         self.station.validate()
         self.platform.validate()
         self.align.validate()
+        check_openings(self.station, self.openings)
         st, a = self.station, self.align
         eps = 1e-6
         if st.start_station < a.start_station - eps or st.start_station + st.length > a.end_station + eps:

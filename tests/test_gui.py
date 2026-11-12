@@ -801,9 +801,86 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_five_tabs_fit_in_window_width(app):
-    """탭 5개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_six_tabs_fit_in_window_width(app):
+    """탭 6개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 5
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 6
+
+
+# ---------------- 계단 탭 ----------------
+from gui.stair_draft import UP_MINUS
+
+
+def add_stair(app, floor=None, direction=None, **fields):
+    """계단 탭에서 '+ 계단 추가'를 누른 뒤 입력칸에 값을 넣음. 마지막 계단의 인덱스를 반환"""
+    tab = app.stair_tab
+    tab.add_stair()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    if floor is not None:                        # 콤보박스를 직접 바꾸고 선택 이벤트를 보냄 (실제 입력과 같은 경로)
+        tab._combos[(i, "floor")].current(floor - 1)
+        tab._combos[(i, "floor")].event_generate("<<ComboboxSelected>>")
+    if direction is not None:
+        tab._combos[(i, "direction")].set(direction)
+        tab._combos[(i, "direction")].event_generate("<<ComboboxSelected>>")
+    for key, text in fields.items():
+        tab._vars[(i, key)].set(text)
+    app.root.update()
+    return i
+
+
+def test_stair_tab_exists_and_starts_empty(app):
+    assert app.stair_tab.drafts.items == []
+    assert TkAdapter.collect_entries(app.entries).stairs == []
+
+
+def test_stair_input_becomes_spec_with_sta_converted(app):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_stair(app, floor=2, direction=UP_MINUS, sta_start="294.45", t_center="-6.5", width="2.5", name="S1")
+    cfg = TkAdapter.collect_entries(app.entries)
+    (sp,) = cfg.stairs
+    assert (sp.name, sp.lower_floor, sp.direction) == ("S1", 2, -1)
+    assert sp.s_start == pytest.approx(160.0) and (sp.t_lo, sp.t_hi) == (-7.75, -5.25)
+
+
+def test_stair_floor_choices_follow_floor_count(app):
+    set_floors(app, 3)
+    add_stair(app, floor=2)
+    tab = app.stair_tab
+    assert tab.floor_choices() == ["B3F → B2F", "B2F → B1F"]
+    assert tab._combos[(0, "floor")].get() == "B2F → B1F"
+    set_floors(app, 2)
+    assert tab.floor_choices() == ["B2F → B1F"] and tab.drafts.items[0].lower_floor == 1     # 없어진 층은 가능한 최상층으로
+    assert tab._combos[(0, "floor")].get() == "B2F → B1F"
+
+
+def test_stair_preview_updates_while_typing(app):
+    set_floors(app, 2)
+    set_heights(app, 6.0, 6.0)
+    set_entry(app, "start_station", "0")
+    i = add_stair(app, sta_start="100")
+    (var, _), = app.stair_tab._info_vars
+    assert "34단" in var.get() and "STA 100.00 ~ 111.10" in var.get()
+    app.stair_tab._vars[(i, "riser_max")].set("abc")
+    assert "확인" in var.get()
+
+
+def test_bad_stair_input_names_the_stair(app):
+    add_stair(app, name="EX", width="0")
+    with pytest.raises(ValueError, match=r"계단 1\(EX\).*폭"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_generate_with_stairs_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_stair(app, floor=1, sta_start="164.45", t_center="6.5", width="2.5")                 # 승강장 위
+    add_stair(app, floor=2, sta_start="234.45", t_center="-6.5", width="2.5")
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert len(f.by_type("IfcStair")) == 2 and len(f.by_type("IfcStairFlight")) >= 4
+    assert sorted(o.Name.split("_")[1] for o in f.by_type("IfcOpeningElement")) == ["ST1", "ST2"]

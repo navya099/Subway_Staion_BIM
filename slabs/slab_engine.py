@@ -18,7 +18,7 @@ class SlabEngine:
     - 본체 바닥 슬래브는 최하층 외곽, 본체 천장 슬래브는 최상층 외곽과 같은 범위 (내공 + 양쪽 벽 두께)
     - 중간 슬래브: 내공 영역(L x W) 전체. 안쪽 면이 모든 층에서 같으므로 벽체와 체적이 겹치지 않음
     - 소속 층: 바닥 = 최하층, 중간 i = 그 위층(i+1), 천장 = 최상층
-    - 오프닝(cfg.openings): 슬래브 번호 0 = 바닥, i = 중간 i, 층수 = 천장. 오프닝이 있는 슬래브는 직사각형 조각(SlabPiece)으로
+    - 오프닝(cfg.all_openings(): 직접 입력 + 계단 자동): 슬래브 번호 0 = 바닥, i = 중간 i, 층수 = 천장. 오프닝이 있는 슬래브는 직사각형 조각(SlabPiece)으로
       분해되어 3D / IFC 의 형상이 되고, 슬래브 1개는 그대로 1개의 BIM 객체로 남는다 (shape = 뚫기 전 전체 형상)
     """
 
@@ -60,7 +60,8 @@ class SlabEngine:
         if any(p.clear_height(n) <= 0 for n in range(1, p.floors + 1)):
             raise ValueError("층 높이가 위쪽 슬래브 두께보다 작거나 같습니다.")
 
-        names = resolve_names(self.cfg.openings)
+        self.openings = self.cfg.all_openings()          # 직접 입력 + 계단 자동 오프닝
+        names = resolve_names(self.openings)
         by_level: dict[str, SlabPackage] = {}
         for slab_no, (kind, floor_n, z_lo, thick, s0, s1, t0, t1) in enumerate(self._slab_defs()):
             level = self.level_name(floor_n)
@@ -87,7 +88,7 @@ class SlabEngine:
 
     def _cut_openings(self, slab: SlabData, names: list, region: tuple, z_lo: float, thick: float):
         """이 슬래브를 뚫는 오프닝 BIM 객체를 만들고, 남은 부분을 직사각형 조각으로 분해"""
-        specs = [(n, sp) for n, sp in zip(names, self.cfg.openings) if slab.slab_no in sp.slabs]
+        specs = [(n, sp) for n, sp in zip(names, self.openings) if slab.slab_no in sp.slabs]
         if not specs:
             return
         holes = []

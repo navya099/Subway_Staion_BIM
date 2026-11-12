@@ -138,10 +138,10 @@ def mesh_faces(cfg, m) -> list[tuple]:
 
 
 def mesh_volume(quads) -> float:
-    """닫힌 면 집합의 체적 (발산 정리). 면이 바깥 방향이면 양수"""
+    """닫힌 면 집합의 체적 (발산 정리). 면이 바깥 방향이면 양수. 면은 사각형·삼각형 등 볼록 다각형 (첫 점 기준 부채꼴 분할)"""
     total = 0.0
     for q in quads:
-        for tri in ((q[0], q[1], q[2]), (q[0], q[2], q[3])):
+        for tri in ((q[0], q[i], q[i + 1]) for i in range(1, len(q) - 1)):
             c = _cross(tri[1], tri[2])
             total += sum(tri[0][i] * c[i] for i in range(3))
     return total / 6.0

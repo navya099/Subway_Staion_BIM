@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 381개 통과** (GUI 61개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 436개 통과** (GUI 67개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -50,12 +50,13 @@ config/                     모델·선형
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
+stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
 helper/                     prism_member.py(각기둥/스윕 기하), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
-gui/                        station_tab / platform_tab / column_tab / opening_tab / print_tab,
-                            column_draft·opening_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_gui
+gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / print_tab (탭 1~6),
+                            column_draft·opening_draft·stair_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -67,6 +68,16 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 본체: 층별 층고 합산, 층별 외벽 두께, 3종 슬래브 두께(`floor_t`/`mid_t`/`roof_t`).
 - 벽체(층별), 슬래브, 상대식 승강장(ㅠ형 슬래브 + 지지벽체), 중앙 기둥(층별·열별, 원/사각 혼합 패턴, 원은 지름 입력).
 - **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
+- **직선 계단(1단계)**: `StairSpec`(시작 층 k → k+1, 첫 단 STA + 오르는 방향 ±s, t 중심·폭, 단높이 상한·단너비·런 높이 상한·계단참 길이·슬래브 두께·머리 높이).
+  - 단수 = 올림(실제 표고차 / 단높이 상한), 실제 단높이 = 표고차 / 단수 (종단구배 반영, 모든 단 동일). 디딤판·계단참 상면은 수평(절대 표고).
+  - 한 런 높이 ≤ 런 높이 상한이 되도록 계단참 자동, 단수는 런마다 고르게. 최하층에서 계단 폭이 승강장 슬래브 안이면 승강장 상면에서 시작(걸치면 오류).
+  - 위층 슬래브(번호 k)에 **머리 높이 부족 구간 ~ 도착 지점** 오프닝 자동 생성 (`cfg.all_openings()` = 수동 + 계단). 계산은 `stairs/stair_layout.py` 한 곳(검증·슬래브·계단 엔진 공유).
+  - 형상 = s 방향 띠(`StairStrip`: 상면 수평, 하면 직선)의 연속. 곡선에서 경사 하면(비틀린 사각형)은 중심점 4분할 삼각형으로 작도해 체적 편차 제거.
+  - 구조(일체형, 실무 도면 기준): 구조 상면선(디딤판 안쪽 모서리 선 / 계단참 상면)에서 **연직 두께 일정**(= 허리 두께 / cos)한 띠가 하면. 경사부·계단참의 상·하면이 같은 s 에서 꺾임 — 계단참 시작 쪽은 마지막 챌판 + 단너비, 끝 쪽은 다음 런 첫 챌판. 계단참 길이 ≥ 단너비.
+  - 위층 도착: 마지막 챌판 위 **위층 바닥 높이 디딤판 1개까지 계단에 포함**(길이 = run + 단너비), 그 끝에서 위층 슬래브 상면과 같은 높이로 맞닿고 자동 오프닝도 그 점까지. 단높이는 그 맞닿는 점의 바닥 표고 기준.
+  - 실무 도면은 구조 슬래브 위 계단연석(마감) 구조 — 현재는 일체형, 연석 분리는 이후 단계.
+  - IFC: `IfcStair`(STRAIGHT_RUN_STAIR) ⊃ `IfcStairFlight` + `IfcSlab`(LANDING), IfcStair 만 시작 층 storey 에 포함. 평면도는 최하층 계단만 표시.
+  - 검증: 층 범위·치수·내공 범위, 같은 층 계단끼리 비겹침, 서 있는 슬래브(k−1)의 오프닝 위 금지, 시작 층 기둥 비관통(자동 오프닝은 k·k+1층 기둥 검사).
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
 
 ## 5. 테스트 작성 규약
@@ -89,7 +100,10 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
 - 오프닝 입력 저장/불러오기(JSON), GUI 입력 전체 프로젝트 파일화.
 
+- 계단 2단계 후보: U자(꺾임) 계단, 에스컬레이터/엘리베이터 객체, 계단 위 난간, 층별 평면도에 계단 표시.
+
 **알려진 정리 항목**
+- `gui/gui.py` 는 어디서도 import 하지 않는 옛 파일이며 pyflakes 경고(`ColumnParameters` 미정의) 1건이 있다.
 - 문서 문자열 불일치: `columns/column_params.py` 의 `t_offset` 설명과 기둥 탭 안내문이 "오른쪽 +" 라고 쓰여 있으나, 실제 코드는 `t_offset` 을 그대로 `pos_y`(왼쪽 +)로 쓴다. 코드 동작이 기준이므로 문구를 "왼쪽 +" 로 정정하거나(권장) 의도를 사용자에게 확인할 것.
 - 평면도에서 `PLAN_CUT_H` 가 최하층 기준 고정(2.0m).
 - `tests/` 의 미사용 import 등 pyflakes 경고(기존).

@@ -4,6 +4,7 @@ from config.master_config import StationProjectConfig
 from config.station_config import StationParameters
 from gui.column_draft import ColumnDrafts, level_name
 from gui.opening_draft import OpeningDrafts
+from gui.stair_draft import StairDrafts
 from platforms.platform_params import PlatformParameters
 from platforms.platform_type import PlatformType
 
@@ -75,7 +76,9 @@ class TkAdapter:
         column_p = TkAdapter._collect_columns(entries, station_p.floors)
         al = TkAdapter._collect_alignment(entries)
         openings = (entries.get("opening_drafts") or OpeningDrafts()).to_specs(station_p.floors, station_p.start_station)
-        cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings)
+        stairs = (entries.get("stair_drafts") or StairDrafts()).to_specs(station_p.floors, station_p.start_station)
+        cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings,
+                                   stairs=stairs)
         cfg.validate()
         return cfg
 

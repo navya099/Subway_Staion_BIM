@@ -13,6 +13,8 @@ from platforms.platform_engine import PlatformEngine
 from platforms.platform_type import PlatformPart
 from slabs.slab_engine import SlabEngine
 from slabs.slab_shape_type import SlabKind
+from stairs.stair_engine import StairEngine, part_quads
+from stairs.stair_type import StairPartKind
 from walls.wall_engine import WallEngine
 
 
@@ -302,6 +304,55 @@ class IFCExporter:
                 "IfcRelVoidsElement", GlobalId=ifcopenshell.guid.new(),
                 RelatingBuildingElement=ifc_slab, RelatedOpeningElement=ifc_op)
 
+    def export_stairs(self, stair_engine: StairEngine):
+        """계단: IfcStair(STRAIGHT_RUN_STAIR) 가 런(IfcStairFlight)과 중간 계단참(IfcSlab LANDING)을 IfcRelAggregates 로 묶고,
+        IfcStair 만 시작 층 IfcBuildingStorey 에 포함 (부분 부재는 집합체를 통해 층에 속함)"""
+        for package in stair_engine.stair_packages:
+            storey = self.storeys[package.level]
+            elements = []
+            for stair in package.stairs:
+                s0, _ = stair.s_range
+                t0, _ = stair.t_range
+                ifc_stair = self.file.create_entity(
+                    "IfcStair", GlobalId=ifcopenshell.guid.compress(uuid.UUID(stair.guid).hex),
+                    Name=stair.name, Description=f"{stair.level} → 위층, 승강장 위" if stair.on_platform else f"{stair.level} → 위층",
+                    ObjectType=stair.type_name, PredefinedType="STRAIGHT_RUN_STAIR",
+                    ObjectPlacement=self._create_local_placement(s0, t0, stair.pos_z) if self.config.align.is_straight
+                    else self._placement(stair.pos_z))
+                parts = []
+                for part in stair.parts:
+                    placement, representation = self._stair_part_geometry(part)
+                    common = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(part.guid).hex), Name=part.name,
+                                  ObjectType=part.type_name, ObjectPlacement=placement, Representation=representation)
+                    if part.kind == StairPartKind.FLIGHT:
+                        el = self.file.create_entity(
+                            "IfcStairFlight", **common, PredefinedType="STRAIGHT", NumberOfRisers=part.n_risers,
+                            NumberOfTreads=part.n_treads, RiserHeight=float(stair.riser), TreadLength=float(stair.tread))
+                    else:
+                        el = self.file.create_entity("IfcSlab", **common, PredefinedType="LANDING")
+                    if part.material:
+                        self._assign_material(el, part.material)
+                    parts.append(el)
+                self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingObject=ifc_stair, RelatedObjects=parts)
+                elements.append(ifc_stair)
+            if elements:
+                self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingStructure=storey, RelatedElements=elements)
+
+    def _stair_part_geometry(self, part):
+        """계단 런/계단참의 (배치, 형상). 직선: 계단 모양 s–z 단면 압출 1개, 곡선: 띠마다 닫힌 면 집합"""
+        cfg = self.config
+        t0, t1 = part.t_range
+        if cfg.align.is_straight:
+            pts = part.shape.profile_points()
+            s_min, z_min = min(p[0] for p in pts), min(p[1] for p in pts)
+            local = [(s - s_min, z - z_min) for s, z in pts]
+            solid = self._profile_solid(local, t1 - t0, "StairProfile")
+            return self._create_local_placement(s_min, t0, z_min), self._product_shape([solid], "SweptSolid")
+        items = [self._face_set(quads) for quads in part_quads(cfg, part)]
+        return self._placement(), self._product_shape(items, "Tessellation")
+
     def _member_geometry(self, m, profile_name):
         """벽체/슬래브/승강장 부재의 (배치, 형상).
         직선 선형: 압출 Solid + 부재 최소 모서리 배치 (정확하고 가벼움).
@@ -347,9 +398,13 @@ class IFCExporter:
 
     def _sloped_prism_solid(self, length, width, height, rise, profile_name, origin=(0.0, 0.0, 0.0)):
         """위 압출 Solid 1개. origin = 배치 원점 기준 (ds, dt, dz) 이동 (한 부재가 여러 덩어리일 때)"""
+        pts = [(0.0, 0.0), (length, rise), (length, rise + height), (0.0, height)]
+        return self._profile_solid(pts, width, profile_name, origin)
+
+    def _profile_solid(self, pts, width, profile_name, origin=(0.0, 0.0, 0.0)):
+        """s–z 다각형 단면(로컬 X = s, 프로파일 Y = 상향)을 t 방향 width 만큼 압출한 Solid (각기둥 부재·계단 공통)"""
         f = self.file
         ds, dt, dz = origin
-        pts = [(0.0, 0.0), (length, rise), (length, rise + height), (0.0, height)]
         poly = f.create_entity(
             "IfcPolyline",
             Points=[f.create_entity("IfcCartesianPoint", Coordinates=(float(x), float(z))) for x, z in pts + [pts[0]]])

@@ -40,10 +40,8 @@ class PlatformEngine:
         if p.plat_thick <= 0:
             return  # 승강장 미설정 → 객체 없음
 
-        hw = sp.width / 2.0                           # 승강장은 내공 영역 안
-        s0, s1 = 0.0, sp.length
-        edge = p.track_spacing / 2.0 + p.plat_offset     # 선로 중심 ~ 승강장 끝단 (t 절대값)
-        inner = hw                                       # 벽체 안쪽 면 (t 절대값)
+        s0, s1 = 0.0, sp.length                          # 승강장은 내공 영역 안
+        _, (edge, inner) = p.slab_t_ranges(sp.width)   # 선로 중심 ~ 승강장 끝단, 벽체 안쪽 면 (t 절대값)
         width = inner - edge
         if width <= 0:
             raise ValueError(f"승강장 폭이 0 이하입니다: 선로간격/승강장 끝단({edge:.2f}m)이 벽체 안쪽 면({inner:.2f}m)을 넘습니다.")

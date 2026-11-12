@@ -21,6 +21,20 @@ class PlatformParameters:
     plat_type: PlatformType = PlatformType.NORMAL
     support_t: float = 0.3
 
+    @property
+    def exists(self) -> bool:
+        return self.plat_thick > 0
+
+    @property
+    def top_level(self) -> float:
+        """승강장 슬래브 상면 높이 (바닥 슬래브 상면 기준)"""
+        return self.plat_height + self.plat_thick
+
+    def slab_t_ranges(self, clear_width: float) -> list[tuple[float, float]]:
+        """좌·우 승강장 슬래브의 t 범위 [(t0, t1) 좌, (t0, t1) 우]. 선로측 끝단 ~ 벽체 안쪽 면(내공 폭/2)"""
+        edge, inner = self.track_spacing / 2.0 + self.plat_offset, clear_width / 2.0
+        return [(-inner, -edge), (edge, inner)]
+
     def validate(self):
         for label, v in (("선로 간격", self.track_spacing), ("승강장 끝단 거리", self.plat_offset),
                          ("승강장 슬래브 두께", self.plat_thick), ("승강장 높이", self.plat_height),

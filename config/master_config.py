@@ -7,6 +7,7 @@ from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
 from openings.opening_check import check_openings
 from platforms.platform_params import PlatformParameters
+from stairs.stair_check import check_stair_layouts, layout_stairs
 
 
 @dataclasses.dataclass
@@ -16,7 +17,8 @@ class StationProjectConfig:
     platform: PlatformParameters = dataclasses.field(default_factory=PlatformParameters)
     column: ColumnParameters = dataclasses.field(default_factory=ColumnParameters)
     align: Alignment = dataclasses.field(default_factory=AlignmentConfig)
-    openings: list = dataclasses.field(default_factory=list)      # list[OpeningSpec]: 슬래브 오프닝
+    openings: list = dataclasses.field(default_factory=list)      # list[OpeningSpec]: 슬래브 오프닝 (직접 입력)
+    stairs: list = dataclasses.field(default_factory=list)        # list[StairSpec]: 직선 계단 (위층 슬래브 오프닝 자동 생성)
 
     def __post_init__(self):
         # 층별 기둥 설정이 비어 있으면 전 층 기본 1열 배치로 채움
@@ -28,7 +30,6 @@ class StationProjectConfig:
         self.station.validate()
         self.platform.validate()
         self.align.validate()
-        check_openings(self.station, self.openings)
         st, a = self.station, self.align
         eps = 1e-6
         if st.start_station < a.start_station - eps or st.start_station + st.length > a.end_station + eps:
@@ -42,6 +43,18 @@ class StationProjectConfig:
             if k_max * half_w >= 0.5:
                 raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 외곽 폭({2 * half_w:g}m)에 비해 너무 작아 "
                                  "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
+        # 계단·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (계단이 만드는 오프닝도 함께 검사)
+        layouts = layout_stairs(self)
+        check_openings(self.station, self.openings + [lay.opening for lay in layouts])
+        check_stair_layouts(self, layouts)
+
+    def stair_layouts(self) -> list:
+        """계단별 배치 계산 결과 (StairLayout). 계단 엔진·슬래브 엔진이 같은 결과를 쓴다"""
+        return layout_stairs(self)
+
+    def all_openings(self) -> list:
+        """직접 입력한 오프닝 + 계단이 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
+        return list(self.openings) + [lay.opening for lay in self.stair_layouts()]
 
     # ---------- 선형 접점: 엔진/내보내기는 이 메서드로만 선형에 접근한다 ----------
     def _sta(self, s: float) -> float:

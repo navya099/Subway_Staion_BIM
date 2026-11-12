@@ -7,6 +7,7 @@ from gui.column_tab import ColumnTab
 from gui.opening_tab import OpeningTab
 from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
+from gui.stair_tab import StairTab
 from gui.station_tab import StationTab
 from gui.tk_adapter import TkAdapter
 
@@ -49,13 +50,19 @@ class StationBIMApp:
 
         # 탭 4: 슬래브 오프닝
         tab_opening = ttk.Frame(notebook)
-        notebook.add(tab_opening, text=" 4. 슬래브 오프닝 ")
+        notebook.add(tab_opening, text=" 4. 오프닝 ")
         self.opening_tab = OpeningTab(tab_opening, self.entries)
         self.opening_tab.build()
 
-        # 탭 5: 출력 설정
+        # 탭 5: 계단
+        tab_stair = ttk.Frame(notebook)
+        notebook.add(tab_stair, text=" 5. 계단 ")
+        self.stair_tab = StairTab(tab_stair, self.entries)
+        self.stair_tab.build()
+
+        # 탭 6: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text=" 5. 출력 설정 ")
+        notebook.add(tab_print, text=" 6. 출력 ")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -69,12 +76,15 @@ class StationBIMApp:
                   command=self.root.destroy).pack(side="right", padx=8, pady=8)
 
     def _on_tab_changed(self, event=None):
-        """1번 탭에서 바꾼 값(내공 길이, 층수, 시작 측점)을 기둥·오프닝 탭에 반영"""
+        """1번 탭에서 바꾼 값(내공 길이, 층수, 시작 측점, 층 높이)을 기둥·오프닝·계단 탭에 반영"""
         if hasattr(self, 'column_tab'):
             self.column_tab.refresh_counts()
         if hasattr(self, 'opening_tab'):
             self.opening_tab.update_floor_ui()
             self.opening_tab.refresh_ranges()
+        if hasattr(self, 'stair_tab'):
+            self.stair_tab.update_floor_ui()
+            self.stair_tab.refresh_info()
 
     def _on_floors_changed(self, event=None):
         """🌟 층수가 변경될 때 메인 앱을 통해 ColumnTab의 UI 갱신을 트리거"""
@@ -84,6 +94,8 @@ class StationBIMApp:
             self.column_tab.update_column_floor_ui()
         if hasattr(self, 'opening_tab'):
             self.opening_tab.update_floor_ui()
+        if hasattr(self, 'stair_tab'):
+            self.stair_tab.update_floor_ui()
 
     def on_generate(self):
         try:

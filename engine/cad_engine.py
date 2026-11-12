@@ -9,6 +9,7 @@ from exporter.ifc_exporter import IFCExporter
 from helper.view_item import ViewItem, draw_view_items
 from platforms.platform_engine import PlatformEngine
 from slabs.slab_engine import SlabEngine
+from stairs.stair_engine import StairEngine
 from walls.wall_engine import WallEngine
 
 
@@ -22,8 +23,10 @@ class StationCADEngine:
         self.slabs = SlabEngine(config)
         self.walls = WallEngine(config)
         self.columns = ColumnEngine(config)
+        self.stairs = StairEngine(config)
         self.slabs.check_columns(self.columns)
-        self.sub_engines = [self.platform, self.slabs, self.walls, self.columns]
+        self.stairs.check_columns(self.columns)
+        self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs]
     @staticmethod
     def _save(doc, filename):
         filename = str(filename)
@@ -57,6 +60,8 @@ class StationCADEngine:
                 engine.add_wall_mesh(msp)
             if hasattr(engine, 'add_column_mesh'):
                 engine.add_column_mesh(msp)
+            if hasattr(engine, 'add_stair_mesh'):
+                engine.add_stair_mesh(msp)
 
         self._save(doc, filename)
         return os.path.abspath(filename)
@@ -190,6 +195,6 @@ class StationCADEngine:
         exporter.export_slabs(self.slabs)
         exporter.export_walls(self.walls)
         exporter.export_columns(self.columns)
-        # 추후 Slab, Platform 등도 exporter.export_slabs(...) 형태로 확장
+        exporter.export_stairs(self.stairs)
         exporter.save(str(output_path))
         return os.path.abspath(output_path)

@@ -25,6 +25,8 @@ LAYER_DEFINITIONS = {
     "PROF_HATCH": {"color": 8},
     "STRUCT_COLUMN": {"color": 3},
     "SEC_BEYOND": {"color": 8},     # 횡단면도의 절단되지 않고 보이는 부재 (기둥)
-    "PROF_BEYOND": {"color": 8}     # 종단면도의 절단되지 않고 보이는 부재 (승강장, 측면 기둥)
+    "PROF_BEYOND": {"color": 8},    # 종단면도의 절단되지 않고 보이는 부재 (승강장, 측면 기둥, 측면 계단)
+    "STRUCT_STAIR": {"color": 6},   # 계단 (자홍색)
+    "PLAN_STAIR": {"color": 6},     # 평면도 계단 디딤판·계단참
 
 }

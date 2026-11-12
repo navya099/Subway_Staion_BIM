@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_six_tabs_fit_in_window_width(app):
-    """탭 6개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_seven_tabs_fit_in_window_width(app):
+    """탭 7개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 6
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 7
 
 
 # ---------------- 계단 탭 ----------------
@@ -884,3 +884,70 @@ def test_generate_with_stairs_end_to_end(app, tmp_path):
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
     assert len(f.by_type("IfcStair")) == 2 and len(f.by_type("IfcStairFlight")) >= 4
     assert sorted(o.Name.split("_")[1] for o in f.by_type("IfcOpeningElement")) == ["ST1", "ST2"]
+
+
+# ---------------- 에스컬레이터 탭 ----------------
+def add_escalator(app, floor=None, direction=None, **fields):
+    """에스컬레이터 탭에서 '+ 에스컬레이터 추가' 후 콤보박스·입력칸에 값을 넣음 (실제 입력과 같은 경로). 마지막 인덱스 반환"""
+    tab = app.escalator_tab
+    tab.add_escalator()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    if floor is not None:
+        tab._combos[(i, "floor")].current(floor - 1)
+        tab._combos[(i, "floor")].event_generate("<<ComboboxSelected>>")
+    if direction is not None:
+        tab._combos[(i, "direction")].set(direction)
+        tab._combos[(i, "direction")].event_generate("<<ComboboxSelected>>")
+    for key, text in fields.items():
+        tab._vars[(i, key)].set(text)
+    app.root.update()
+    return i
+
+
+def test_escalator_tab_exists_and_starts_empty(app):
+    assert app.escalator_tab.drafts.items == []
+    assert TkAdapter.collect_entries(app.entries).escalators == []
+
+
+def test_escalator_input_becomes_spec(app):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_escalator(app, floor=2, direction=UP_MINUS, sta_wp="254.45", t_center="-6", name="E1", upper_flat_steps="2")
+    cfg_specs = app.escalator_tab.drafts.to_specs(3, 134.45)
+    (sp,) = cfg_specs
+    assert (sp.name, sp.lower_floor, sp.direction, sp.upper_flat_steps) == ("E1", 2, -1, 2)
+    assert sp.s_wp == pytest.approx(120.0) and app.escalator_tab._combos[(0, "floor")].get() == "B2F → B1F"
+
+
+def test_escalator_floor_choices_and_preview(app):
+    set_floors(app, 2)
+    set_heights(app, 6.0, 6.0)
+    set_entry(app, "start_station", "0")
+    i = add_escalator(app, sta_wp="100")
+    tab = app.escalator_tab
+    assert tab.floor_choices() == ["B2F → B1F"]
+    (var, _), = tab._info_vars
+    assert "WP 간 10.39m" in var.get()
+    tab._vars[(i, "angle_deg")].set("x")
+    assert "확인" in var.get()
+
+
+def test_bad_escalator_input_names_it(app):
+    add_escalator(app, name="EX", truss_depth="0")
+    with pytest.raises(ValueError, match=r"에스컬레이터 1\(EX\).*트러스 높이"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_generate_with_escalators_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    set_entry(app, "mid_t", "1.2")                                                            # 2층 시작 에스컬레이터의 피트 깊이
+    add_escalator(app, floor=1, sta_wp="174.45", t_center="6.5")                              # 승강장 위
+    add_escalator(app, floor=2, direction=UP_MINUS, sta_wp="254.45", t_center="-6")
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert len(f.by_type("IfcTransportElement")) == 2 and len(f.by_type("IfcRailing")) == 8
+    assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == [
+        "OPEN_ES1_PIT_PLAT_B3F_R", "OPEN_ES1_SLAB_B2F_MID", "OPEN_ES2_PIT_SLAB_B2F_MID", "OPEN_ES2_SLAB_B1F_MID"]

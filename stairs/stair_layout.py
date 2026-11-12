@@ -98,9 +98,9 @@ def plan_risers(height: float, spec, rise_of_run=None):
     raise ValueError("계단 단수를 정할 수 없습니다")
 
 
-def base_level(cfg, spec, name: str) -> tuple[float, bool]:
-    """계단 시작면 높이 (바닥 슬래브 상면 기준)와 승강장 위 여부.
-    최하층에서 계단 폭이 승강장 슬래브 안에 완전히 들어가면 승강장 상면에서 시작, 걸치면 오류"""
+def base_level(cfg, spec, name: str, what: str = "계단") -> tuple[float, bool]:
+    """계단·에스컬레이터 시작면 높이 (바닥 슬래브 상면 기준)와 승강장 위 여부 (spec: lower_floor, t_lo, t_hi).
+    최하층에서 평면 폭이 승강장 슬래브 안에 완전히 들어가면 승강장 상면에서 시작, 걸치면 오류"""
     st, pl = cfg.station, cfg.platform
     if spec.lower_floor == 1 and pl.exists:
         for t0, t1 in pl.slab_t_ranges(st.width):
@@ -109,7 +109,7 @@ def base_level(cfg, spec, name: str) -> tuple[float, bool]:
             if inside:
                 return pl.top_level, True
             if overlap:
-                raise ValueError(f"계단 {name}: t {spec.t_lo:g} ~ {spec.t_hi:g} 이(가) 승강장 슬래브(t {t0:g} ~ {t1:g})에 "
+                raise ValueError(f"{what} {name}: t {spec.t_lo:g} ~ {spec.t_hi:g} 이(가) 승강장 슬래브(t {t0:g} ~ {t1:g})에 "
                                  "걸쳐 있습니다. 승강장 안에 완전히 넣거나 승강장 밖으로 옮기세요")
     return st.floor_level(spec.lower_floor), False
 

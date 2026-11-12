@@ -71,13 +71,14 @@ def test_plan_risers_without_slope():
 
 # ===================================================== 배치 규약
 def test_layout_risers_uniform_and_match_real_elevations_with_slope():
-    """구배(약 18‰)가 있어도 모든 단높이가 같고, 단높이 x 단수 = 위층 도착점 표고 − 시작점 표고"""
+    """구배(약 18‰)가 있어도 모든 단높이가 같고, 단높이 x 단수 = 위층 슬래브와 맞닿는 점의 바닥 표고 − 시작점 표고"""
     cfg = cfg_with(stair(1, s=30.0), stair(2, s=120.0, d=-1))
     assert abs(cfg.grade_permil(0.0)) > 10.0
     for lay in cfg.stair_layouts():
         st = cfg.station
         e0 = elev(cfg, lay.s_at(0.0), lay.base_level)
-        e1 = elev(cfg, lay.s_at(lay.run), st.floor_level(lay.lower_floor + 1))
+        e1 = elev(cfg, lay.s_at(lay.length), st.floor_level(lay.lower_floor + 1))     # 위층 슬래브와 맞닿는 점의 바닥 표고
+        assert lay.length == pytest.approx(lay.run + lay.spec.tread)
         assert lay.n_risers * lay.riser == pytest.approx(e1 - e0, abs=1e-9)
         assert lay.riser <= lay.spec.riser_max + 1e-9
         assert sum(lay.flight_risers) == lay.n_risers
@@ -113,7 +114,7 @@ def test_platform_ranges_helper_matches_platform_objects():
 def test_direction_minus_mirrors_layout():
     cfg = cfg_with(stair(2, s=40.0, name="A"), stair(2, s=160.0, d=-1, name="B"))
     a, b = cfg.stair_layouts()
-    assert a.s_range == pytest.approx((40.0, 40.0 + a.run)) and b.s_range == pytest.approx((160.0 - b.run, 160.0))
+    assert a.s_range == pytest.approx((40.0, 40.0 + a.length)) and b.s_range == pytest.approx((160.0 - b.length, 160.0))
     assert a.n_risers >= b.n_risers                                       # A 는 구배를 따라 오르막, B 는 내리막 방향
     eng = StationCADEngine(cfg)
     assert by_name(eng, "B").direction == -1
@@ -134,10 +135,13 @@ def test_flights_and_landings_structure():
     assert [f.n_risers for f in s.flights] == lay.flight_risers
     assert all(f.n_treads == f.n_risers - 1 for f in s.flights)
     land = s.landings[0]
-    (sa, sb, _), = land.surfaces
+    (sa, sb, top), = land.surfaces
     assert sb - sa == pytest.approx(1.5)
-    st = land.shape.strips[0]
-    assert st.zt - st.zb0 == pytest.approx(0.2) and st.zb0 == st.zb1
+    assert len(land.shape.strips) == 2                                       # 경사 하면(단너비만큼) + 수평 하면
+    knee, flat = land.shape.strips
+    band = 0.2 * (1 + (lay.riser / 0.3) ** 2) ** 0.5                         # 연직 두께 = 허리 두께 / cos(경사각)
+    assert knee.s1 - knee.s0 == pytest.approx(0.3) and knee.zb1 == pytest.approx(top - band)
+    assert flat.zb0 == pytest.approx(top - band) and flat.zb1 == pytest.approx(top - band)
     assert s.level == "B2F" and s.lower_floor == 2
 
 
@@ -149,6 +153,61 @@ def test_strips_are_contiguous_and_below_tops():
         for a, b in zip(strips, strips[1:]):
             assert b.s0 == pytest.approx(a.s1)
         assert all(st.zb0 < st.zt and st.zb1 < st.zt for st in strips)
+
+
+def test_soffit_is_one_continuous_band_with_aligned_kinks():
+    """실무 도면 기준: 하면이 계단 전체에서 끊김 없이 이어지고(계단참 아래 단차 없음), 구조 상면선(디딤판 안쪽 모서리 선 /
+    계단참 상면)에서 연직으로 같은 두께만큼 아래. 경사부와 계단참의 꺾이는 점이 상·하면에서 같은 s"""
+    cfg = cfg_with(stair(1, s=30.0), stair(2, s=150.0, d=-1))
+    for lay in cfg.stair_layouts():
+        sp = lay.spec
+        band = sp.waist_t * (1 + (lay.riser / sp.tread) ** 2) ** 0.5
+        strips = sorted((st for p in lay.parts for st in p.strips), key=lambda x: x.s0)
+        for a, b in zip(strips, strips[1:]):
+            assert b.zb0 == pytest.approx(a.zb1, abs=1e-9)                  # 하면 연속
+        # 계단참: 마지막 챌판 + 단너비 까지는 런의 경사 하면, 그 뒤 계단참 상면 − band (수평), 다음 런 첫 챌판부터 다시 경사
+        for i, p in enumerate(lay.parts):
+            if p.kind != StairPartKind.LANDING:
+                continue
+            (ua, ub, top), = p.surfaces
+            knee_s = lay.s_at(ua + sp.tread)
+            ks = [st for st in p.strips if abs(st.s0 - knee_s) < 1e-9 or abs(st.s1 - knee_s) < 1e-9]
+            assert ks and all(abs((st.zb0 if abs(st.s0 - knee_s) < 1e-9 else st.zb1) - (top - band)) < 1e-9 for st in ks)
+            nxt = lay.parts[i + 1]
+            first = min(nxt.strips, key=lambda x: abs(x.s0 - lay.s_at(ub)) if sp.direction > 0 else abs(x.s1 - lay.s_at(ub)))
+            z_first = first.zb0 if sp.direction > 0 else first.zb1
+            assert z_first == pytest.approx(top - band)                      # 다음 런의 하면이 계단참 하면에서 시작
+        # 런의 하면 = 디딤판 안쪽 모서리 선 − band (시작면 위로 올라온 뒤)
+        f2 = [p for p in lay.parts if p.kind == StairPartKind.FLIGHT][1]
+        for (ua, ub, zt) in f2.surfaces[2:]:
+            st = next(x for x in f2.strips if x.s0 - 1e-9 <= min(lay.s_at(ua), lay.s_at(ub)) < x.s1 - 1e-9)
+            s_corner = lay.s_at(ua)                                          # 이 디딤판 챌판 아래 안쪽 모서리 (상면 − 단높이)
+            z = st.zb0 if abs(st.s0 - s_corner) < 1e-9 else st.zb1
+            assert z == pytest.approx(zt - lay.riser - band, abs=1e-9)
+
+
+def test_top_end_reaches_upper_slab_top_flush():
+    """위층 도착: 마지막 챌판 위 바닥 높이 디딤판 1개까지 계단에 포함되고, 그 끝에서 위층 슬래브 상면과 같은 높이로 맞닿음.
+    자동 오프닝도 그 점까지"""
+    eng = eng_with(stair(1, s=30.0), stair(2, s=150.0, d=-1))
+    cfg = eng.cfg
+    for s, lay in zip(eng.stairs.all_stairs(), cfg.stair_layouts()):
+        slab = next(x for pk in eng.slabs.slab_packages for x in pk.slabs if x.slab_no == s.lower_floor)
+        meet = lay.s_at(lay.length)
+        end = max(s.parts[-1].shape.strips, key=lambda x: x.s1) if s.direction > 0 else min(s.parts[-1].shape.strips, key=lambda x: x.s0)
+        assert (end.s1 if s.direction > 0 else end.s0) == pytest.approx(meet)
+        assert end.zt == pytest.approx(PM.z_at(cfg, slab, meet) + slab.shape.thickness, abs=1e-9)   # 슬래브 상면과 같은 높이
+        assert end.zt == pytest.approx(s.pos_z + s.n_risers * s.riser)
+        top_strips = [x for x in s.parts[-1].shape.strips if abs(x.zt - end.zt) < 1e-9]       # 바닥 높이 디딤판 = 단너비 1개
+        assert sum(x.s1 - x.s0 for x in top_strips) == pytest.approx(lay.spec.tread)
+        o = next(o for o in slab.openings if o.name.startswith(f"OPEN_{s.name}_"))
+        assert (o.s_range[1] if s.direction > 0 else o.s_range[0]) == pytest.approx(meet)
+        assert s.flights[-1].n_treads == s.flights[-1].n_risers - 1          # 바닥 높이 디딤판은 단 수에 넣지 않음
+
+
+def test_landing_shorter_than_tread_rejected():
+    with pytest.raises(ValueError, match="단너비"):
+        StationCADEngine(cfg_with(stair(2, s=40.0, landing_len=0.25)))
 
 
 # ===================================================== 자동 오프닝

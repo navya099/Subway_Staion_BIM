@@ -27,6 +27,8 @@ def check_stair_spec(station, spec, name: str):
     if spec.flight_rise_max < 2 * spec.riser_max - _EPS:
         raise ValueError(f"계단 {name}: 런 높이 상한({spec.flight_rise_max:g}m)은 단높이 상한의 2배"
                          f"({2 * spec.riser_max:g}m) 이상이어야 합니다")
+    if spec.landing_len < spec.tread - _EPS:
+        raise ValueError(f"계단 {name}: 계단참 길이({spec.landing_len:g}m)는 단너비({spec.tread:g}m) 이상이어야 합니다")
     hw = station.width / 2.0
     if spec.t_lo < -hw - _EPS or spec.t_hi > hw + _EPS:
         raise ValueError(f"계단 {name}: t 범위 {spec.t_lo:.3f} ~ {spec.t_hi:.3f} 이(가) 내공 폭(±{hw:g}m)을 벗어납니다")
@@ -44,7 +46,7 @@ def layout_stairs(cfg) -> list:
         lay = layout_stair(cfg, spec, name)
         s0, s1 = lay.s_range
         if s0 < -_EPS or s1 > st.length + _EPS:
-            raise ValueError(f"계단 {name}: 계단 범위 s {s0:.3f} ~ {s1:.3f} (길이 {lay.run:.2f}m) 이(가) "
+            raise ValueError(f"계단 {name}: 계단 범위 s {s0:.3f} ~ {s1:.3f} (길이 {lay.length:.2f}m) 이(가) "
                              f"내공 길이(0 ~ {st.length:g}m)를 벗어납니다. 시작 위치나 오르는 방향을 확인하세요")
         out.append(lay)
     return out

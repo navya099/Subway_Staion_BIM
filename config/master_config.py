@@ -5,6 +5,7 @@ from columns.column_params import ColumnParameters
 from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
+from escalators.escalator_check import check_escalator_layouts, layout_escalators
 from openings.opening_check import check_openings
 from platforms.platform_params import PlatformParameters
 from stairs.stair_check import check_stair_layouts, layout_stairs
@@ -19,6 +20,7 @@ class StationProjectConfig:
     align: Alignment = dataclasses.field(default_factory=AlignmentConfig)
     openings: list = dataclasses.field(default_factory=list)      # list[OpeningSpec]: 슬래브 오프닝 (직접 입력)
     stairs: list = dataclasses.field(default_factory=list)        # list[StairSpec]: 직선 계단 (위층 슬래브 오프닝 자동 생성)
+    escalators: list = dataclasses.field(default_factory=list)    # list[EscalatorSpec]: 에스컬레이터 (위층 오프닝·하부 피트 자동 생성)
 
     def __post_init__(self):
         # 층별 기둥 설정이 비어 있으면 전 층 기본 1열 배치로 채움
@@ -43,18 +45,36 @@ class StationProjectConfig:
             if k_max * half_w >= 0.5:
                 raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 외곽 폭({2 * half_w:g}m)에 비해 너무 작아 "
                                  "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
-        # 계단·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (계단이 만드는 오프닝도 함께 검사)
-        layouts = layout_stairs(self)
-        check_openings(self.station, self.openings + [lay.opening for lay in layouts])
-        check_stair_layouts(self, layouts)
+        # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
+        stairs, escs = layout_stairs(self), layout_escalators(self)
+        check_openings(self.station, self.openings + self._auto_openings(stairs, escs))
+        check_stair_layouts(self, stairs)
+        check_escalator_layouts(self, escs, stairs)
 
     def stair_layouts(self) -> list:
         """계단별 배치 계산 결과 (StairLayout). 계단 엔진·슬래브 엔진이 같은 결과를 쓴다"""
         return layout_stairs(self)
 
+    def escalator_layouts(self) -> list:
+        """에스컬레이터별 배치 계산 결과 (EscalatorLayout). 에스컬레이터·슬래브·승강장 엔진이 같은 결과를 쓴다"""
+        return layout_escalators(self)
+
+    @staticmethod
+    def _auto_openings(stairs: list, escs: list) -> list:
+        out = [lay.opening for lay in stairs]
+        for lay in escs:
+            out.append(lay.opening)
+            if lay.pit_opening:
+                out.append(lay.pit_opening)
+        return out
+
     def all_openings(self) -> list:
-        """직접 입력한 오프닝 + 계단이 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
-        return list(self.openings) + [lay.opening for lay in self.stair_layouts()]
+        """직접 입력한 오프닝 + 계단·에스컬레이터가 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
+        return list(self.openings) + self._auto_openings(self.stair_layouts(), self.escalator_layouts())
+
+    def platform_holes(self) -> list:
+        """승강장 슬래브에 뚫는 구멍 [(이름, s0, s1, t0, t1)]: 승강장 위 에스컬레이터의 하부 피트"""
+        return [lay.platform_hole for lay in self.escalator_layouts() if lay.platform_hole]
 
     # ---------- 선형 접점: 엔진/내보내기는 이 메서드로만 선형에 접근한다 ----------
     def _sta(self, s: float) -> float:

@@ -1,10 +1,14 @@
 from config.master_config import StationProjectConfig
 from helper import prism_member as PM
 from helper.view_item import ViewItem
+from openings import decompose
+from openings.opening_data import OpeningData
+from openings.opening_kind import OpeningKind
 from platforms.platform_data import PlatformData
 from platforms.platform_package import PlatformPackage
 from platforms.platform_type import PlatformPart, PlatformSide, PlatformType
 from platforms.rectangular_platform import RectangularPlatform
+from slabs.slab_piece import SlabPiece
 
 
 class PlatformEngine:
@@ -78,13 +82,51 @@ class PlatformEngine:
                 add(f"PLATW_{level}_{code}_OUT", PlatformPart.SUPPORT_WALL, side, "콘크리트-승강장지지벽체",
                     st, *out_leg, 0.0, p.plat_height)
         self.platform_packages.append(package)
+        self._cut_holes()
+
+    def _cut_holes(self):
+        """승강장 위 에스컬레이터의 하부 피트: 승강장 슬래브를 구멍만큼 조각으로 나누고 구멍 객체를 만든다.
+        구멍은 슬래브 하나 안에 있어야 하고(배치 계산이 보장) 지지벽체와 겹치면 안 된다"""
+        holes = self.cfg.platform_holes()
+        if not holes:
+            return
+        plats = [pl for pk in self.platform_packages for pl in pk.platforms]
+        for name, s0, s1, t0, t1 in holes:
+            slab = next((pl for pl in plats if pl.part == PlatformPart.SLAB and
+                         PM.t_range(pl)[0] - 1e-6 <= t0 and t1 <= PM.t_range(pl)[1] + 1e-6), None)
+            if slab is None:
+                raise ValueError(f"승강장 구멍 {name}: 승강장 슬래브 안에 있지 않습니다")
+            for leg in plats:
+                if leg.part == PlatformPart.SUPPORT_WALL and decompose.overlap_area(
+                        (s0, s1, t0, t1), (*PM.s_range(leg), *PM.t_range(leg))) > 1e-9:
+                    raise ValueError(f"승강장 구멍 {name}: 승강장 지지벽체 {leg.name} 과(와) 겹칩니다 "
+                                     "(에스컬레이터 t 위치나 트러스 폭을 확인하세요)")
+            slab.openings.append(OpeningData(
+                name=f"OPEN_{name}_{slab.name}", family_name="승강장 구멍", type_name="에스컬레이터 피트",
+                level=slab.level, kind=OpeningKind.ESCALATOR, slab_name=slab.name,
+                s_range=(s0, s1), t_range=(t0, t1), **self._piece_dims(s0, s1, t0, t1)))
+        for slab in plats:
+            if slab.openings:
+                region = (*PM.s_range(slab), *PM.t_range(slab))
+                holes_of = [(*o.s_range, *o.t_range) for o in slab.openings]
+                slab.pieces = [SlabPiece(name=f"{slab.name}_P{k}", **self._piece_dims(*rect))
+                               for k, rect in enumerate(decompose.subtract_rects(region, holes_of), start=1)]
+
+    def _piece_dims(self, s0, s1, t0, t1) -> dict:
+        """승강장 슬래브와 같은 높이·두께의 (s0~s1) x (t0~t1) 부재 위치·형상"""
+        p, sp = self.p, self.sp
+        lv0, lv1 = self.lv(s0) - sp.offset, self.lv(s1) - sp.offset
+        return dict(pos_x=(s0 + s1) / 2.0, pos_y=(t0 + t1) / 2.0,
+                    pos_z=self.lv((s0 + s1) / 2.0) - sp.offset + p.plat_height,
+                    shape=RectangularPlatform(length=s1 - s0, width=t1 - t0, thickness=p.plat_thick, rise=lv1 - lv0,
+                                              curve_factor=PM.curve_factor(self.cfg, s0, s1, (t0 + t1) / 2.0)))
 
     # ---------- 작도 ----------
     def add_platform_mesh(self, msp):
         """3D 절대 좌표계 메쉬 (직선: 각기둥, 곡선: 선형을 따르는 스윕). 한 번만 호출할 것"""
         for package in self.platform_packages:
             for plat in package.platforms:
-                faces = PM.mesh_faces(self.cfg, plat)
+                faces = [f for m in plat.members for f in PM.mesh_faces(self.cfg, m)]
                 plat.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_PLATFORM"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
@@ -102,8 +144,10 @@ class PlatformEngine:
                 if pl.part == PlatformPart.SLAB:
                     code = "L" if pl.side == PlatformSide.LEFT else "R"
                     label = (f"SIDE PLATFORM ({code})", min(t0, t1) + 0.5, zb + th + 0.3, 0.4, "SEC_TEXT")
-                items.append(ViewItem.rect(pl.name, "SEC_PLATFORM", t0, t1, zb, zb + th,
-                                           hatch_layer="SEC_HATCH", label=label))
+                gaps = [o.t_range for o in pl.openings if o.s_range[0] - 1e-9 <= sta < o.s_range[1] - 1e-9]
+                for k, (a, b) in enumerate(decompose.subtract_intervals(t0, t1, gaps)):   # 피트 구멍 구간은 비움
+                    items.append(ViewItem.rect(pl.name, "SEC_PLATFORM", a, b, zb, zb + th,
+                                               hatch_layer="SEC_HATCH", label=label if k == 0 else None))
         return items
 
     def profile_items(self):

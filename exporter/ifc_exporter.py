@@ -13,7 +13,10 @@ from platforms.platform_engine import PlatformEngine
 from platforms.platform_type import PlatformPart
 from slabs.slab_engine import SlabEngine
 from slabs.slab_shape_type import SlabKind
-from stairs.stair_engine import StairEngine, part_quads
+from escalators.escalator_engine import EscalatorEngine
+from escalators.escalator_type import EscalatorPartKind
+from helper.strip_member import part_faces
+from stairs.stair_engine import StairEngine
 from stairs.stair_type import StairPartKind
 from walls.wall_engine import WallEngine
 
@@ -218,8 +221,11 @@ class IFCExporter:
                 if not plat.shape:
                     continue
                 is_slab = plat.part == PlatformPart.SLAB
-                placement, representation = self._member_geometry(
-                    plat, "PlatformProfile" if is_slab else "PlatformSupportProfile")
+                if is_slab and plat.pieces:                      # 에스컬레이터 피트 구멍이 있는 승강장 슬래브: 조각들
+                    placement, representation = self._slab_geometry(plat)
+                else:
+                    placement, representation = self._member_geometry(
+                        plat, "PlatformProfile" if is_slab else "PlatformSupportProfile")
                 ifc_plat = self.file.create_entity(
                     "IfcSlab" if is_slab else "IfcWall",
                     GlobalId=ifcopenshell.guid.compress(uuid.UUID(plat.guid).hex),
@@ -232,6 +238,8 @@ class IFCExporter:
                 if plat.material:
                     self._assign_material(ifc_plat, plat.material)
                 elements.append(ifc_plat)
+                if is_slab:
+                    self._export_slab_openings(plat, ifc_plat)
 
             if elements:
                 self.file.create_entity(
@@ -321,7 +329,7 @@ class IFCExporter:
                     else self._placement(stair.pos_z))
                 parts = []
                 for part in stair.parts:
-                    placement, representation = self._stair_part_geometry(part)
+                    placement, representation = self._strip_part_geometry(part, "StairProfile")
                     common = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(part.guid).hex), Name=part.name,
                                   ObjectType=part.type_name, ObjectPlacement=placement, Representation=representation)
                     if part.kind == StairPartKind.FLIGHT:
@@ -340,17 +348,54 @@ class IFCExporter:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=storey, RelatedElements=elements)
 
-    def _stair_part_geometry(self, part):
-        """계단 런/계단참의 (배치, 형상). 직선: 계단 모양 s–z 단면 압출 1개, 곡선: 띠마다 닫힌 면 집합"""
+    _ESC_ENTITY = {EscalatorPartKind.TRUSS: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.STEPS: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.BALUSTRADE: ("IfcRailing", "BALUSTRADE"),
+                   EscalatorPartKind.HANDRAIL: ("IfcRailing", "HANDRAIL")}
+
+    def export_escalators(self, escalator_engine: EscalatorEngine):
+        """에스컬레이터: IfcTransportElement(ESCALATOR) 가 트러스·스텝(IfcBuildingElementPart), 난간 패널·핸드레일(IfcRailing)을
+        IfcRelAggregates 로 묶고, IfcTransportElement 만 시작 층 IfcBuildingStorey 에 포함"""
+        for package in escalator_engine.escalator_packages:
+            storey = self.storeys[package.level]
+            elements = []
+            for esc in package.escalators:
+                s0 = esc.s_wp[0]
+                ifc_esc = self.file.create_entity(
+                    "IfcTransportElement", GlobalId=ifcopenshell.guid.compress(uuid.UUID(esc.guid).hex),
+                    Name=esc.name, Description=f"{esc.level} → 위층" + (", 승강장 위" if esc.on_platform else ""),
+                    ObjectType=esc.type_name, PredefinedType="ESCALATOR",
+                    ObjectPlacement=self._create_local_placement(s0, esc.pos_y, esc.pos_z) if self.config.align.is_straight
+                    else self._placement(esc.pos_z))
+                parts = []
+                for part in esc.parts:
+                    entity, predefined = self._ESC_ENTITY[part.kind]
+                    placement, representation = self._strip_part_geometry(part, f"Escalator{part.kind.value.title()}Profile")
+                    el = self.file.create_entity(
+                        entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(part.guid).hex), Name=part.name,
+                        ObjectType=part.kind.value, ObjectPlacement=placement, Representation=representation,
+                        PredefinedType=predefined)
+                    if part.material:
+                        self._assign_material(el, part.material)
+                    parts.append(el)
+                self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingObject=ifc_esc, RelatedObjects=parts)
+                elements.append(ifc_esc)
+            if elements:
+                self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingStructure=storey, RelatedElements=elements)
+
+    def _strip_part_geometry(self, part, profile_name):
+        """띠 부재(계단 런/계단참, 에스컬레이터 부재)의 (배치, 형상). 직선: s–z 단면 다각형 압출 1개, 곡선: 띠마다 닫힌 면 집합"""
         cfg = self.config
         t0, t1 = part.t_range
         if cfg.align.is_straight:
             pts = part.shape.profile_points()
             s_min, z_min = min(p[0] for p in pts), min(p[1] for p in pts)
             local = [(s - s_min, z - z_min) for s, z in pts]
-            solid = self._profile_solid(local, t1 - t0, "StairProfile")
+            solid = self._profile_solid(local, t1 - t0, profile_name)
             return self._create_local_placement(s_min, t0, z_min), self._product_shape([solid], "SweptSolid")
-        items = [self._face_set(quads) for quads in part_quads(cfg, part)]
+        items = [self._face_set(quads) for quads in part_faces(cfg, part)]
         return self._placement(), self._product_shape(items, "Tessellation")
 
     def _member_geometry(self, m, profile_name):

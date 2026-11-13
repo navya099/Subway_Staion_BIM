@@ -28,5 +28,9 @@ LAYER_DEFINITIONS = {
     "PROF_BEYOND": {"color": 8},    # 종단면도의 절단되지 않고 보이는 부재 (승강장, 측면 기둥, 측면 계단)
     "STRUCT_STAIR": {"color": 6},   # 계단 (자홍색)
     "PLAN_STAIR": {"color": 6},     # 평면도 계단 디딤판·계단참
+    "STRUCT_ESCALATOR": {"color": 30},   # 에스컬레이터 (주황)
+    "SEC_ESCALATOR": {"color": 30},      # 횡단면도 에스컬레이터 절단면
+    "PROF_ESCALATOR": {"color": 30},     # 종단면도 에스컬레이터 절단면
+    "PLAN_ESCALATOR": {"color": 30},     # 평면도 에스컬레이터
 
 }

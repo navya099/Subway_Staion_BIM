@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from helper import prism_member as PM
+from helper.strip_member import part_faces, section_spans
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
 from slabs.slab_engine import SlabEngine
@@ -9,39 +9,9 @@ from stairs.stair_shape import StairPartShape
 from stairs.stair_type import StairPartKind
 
 
-def strip_rings(cfg, strip, t0: float, t1: float) -> list:
-    """띠 1개의 표본 측점별 단면 링 [t0 하단, t1 하단, t1 상단, t0 상단] (WCS). 하면은 s 에 대해 직선, 상면은 수평"""
-    out = []
-    for s in cfg.sample_s(strip.s0, strip.s1):
-        zb = strip.zb_at(s)
-        (xa, ya), (xb, yb) = cfg.to_world(s, t0), cfg.to_world(s, t1)
-        out.append([(xa, ya, zb), (xb, yb, zb), (xb, yb, strip.zt), (xa, ya, strip.zt)])
-    return out
-
-
-def strip_faces(cfg, strip, t0: float, t1: float) -> list[tuple]:
-    """띠 1개의 닫힌 면 집합 (바깥 방향). 직선은 6면 각기둥.
-    곡선에서 경사 하면은 양 끝 단면(방사 방향 선)이 평행하지 않아 비틀린 사각형이 되므로, 중심점을 둔 삼각형 4개로 나눠
-    대각선 한쪽으로 자를 때 생기는 체적 편차를 없앤다 (상면은 수평, 측면은 연직이라 평면)"""
-    rs = strip_rings(cfg, strip, t0, t1)
-    quads = PM.sweep_quads(rs)
-    if cfg.align.is_straight or abs(strip.zb1 - strip.zb0) < 1e-12:
-        return quads
-    bottoms = {frozenset((r0[0], r1[0], r1[1], r0[1])) for r0, r1 in zip(rs, rs[1:])}
-    out = []
-    for q in quads:
-        if frozenset(q) in bottoms:
-            c = tuple(sum(p[i] for p in q) / 4.0 for i in range(3))
-            out.extend((q[i], q[(i + 1) % 4], c) for i in range(4))
-        else:
-            out.append(q)
-    return out
-
-
 def part_quads(cfg, part: StairPartData) -> list[list[tuple]]:
-    """부재(런/계단참)의 띠마다 닫힌 면 집합 (띠끼리는 맞닿기만 하고 겹치지 않음). 면은 사각형 또는 삼각형"""
-    t0, t1 = part.t_range
-    return [strip_faces(cfg, st, t0, t1) for st in part.shape.strips]
+    """부재(런/계단참)의 띠마다 닫힌 면 집합 (helper.strip_member.part_faces)"""
+    return part_faces(cfg, part)
 
 
 class StairEngine:
@@ -124,13 +94,10 @@ class StairEngine:
         for stair in self.all_stairs():
             labeled = False
             for part in stair.parts:
-                t0, t1 = part.t_range
-                for st in part.shape.strips:
-                    if not st.s0 - 1e-9 <= sta < st.s1 - 1e-9:
-                        continue
-                    label = None if labeled else (stair.name, t0 + 0.2, st.zt + 0.3, 0.4, "SEC_TEXT")
+                for t0, t1, zb, zt in section_spans(part, sta):
+                    label = None if labeled else (stair.name, t0 + 0.2, zt + 0.3, 0.4, "SEC_TEXT")
                     labeled = True
-                    items.append(ViewItem.rect(part.name, "SEC_CONCRETE", t0, t1, st.zb_at(sta), st.zt,
+                    items.append(ViewItem.rect(part.name, "SEC_CONCRETE", t0, t1, zb, zt,
                                                hatch_layer="SEC_HATCH", label=label))
         return items
 

@@ -167,7 +167,7 @@ class StationCADEngine:
         return os.path.abspath(filename)
 
     def _plan_items_world(self, items):
-        """전개 평면(u=s, v=t)의 윤곽을 WCS 로 변환: 직사각형은 선형을 따라 표본 측점마다 휜 다각형, 원은 중심 이동"""
+        """전개 평면(u=s, v=t)의 윤곽을 WCS 로 변환: 직사각형은 선형을 따라 표본 측점마다 휜 다각형, 원은 중심 이동, 다각형은 꼭짓점 이동"""
         cfg, out = self.cfg, []
         for it in items:
             label = None
@@ -177,6 +177,10 @@ class StationCADEngine:
             if it.circle is not None:
                 cu, cv, r = it.circle
                 out.append(ViewItem(it.name, it.layer, circle=(*cfg.to_world(cu, cv), r), label=label))
+                continue
+            if it.pts is not None:                          # 다각형(출구통로 등 세계 좌표의 곧은 부재): 꼭짓점만 옮김
+                out.append(ViewItem(it.name, it.layer, u0=it.u0, u1=it.u1,
+                                    pts=[cfg.to_world(u, v) for u, v in it.pts], label=label))
                 continue
             ss = cfg.sample_s(it.u0, it.u1)
             pts = [cfg.to_world(s, it.vb0) for s in ss] + [cfg.to_world(s, it.vt0) for s in reversed(ss)]

@@ -1,18 +1,23 @@
-"""출구통로 입력의 화면 비의존 모델 (문자열 초안 → PassageSpec 변환 + 검증)"""
-from dataclasses import dataclass
+"""출구통로 입력의 화면 비의존 모델 (문자열 초안 → PassageSpec 변환 + 검증)
+
+경로는 꼭짓점 표(행 = 꼭짓점)로 입력한다. 통로마다 좌표 방식을 하나 고른다 (모델은 꼭짓점마다 다른 방식도 지원).
+- 선형 상대: (STA, t, 높이) — STA 는 절대 측점, t 는 선형 중심에서 왼쪽 +, 높이는 접합부 FL 기준
+- 절대 좌표: (X, Y, EL) — 선형과 같은 평면 좌표계, EL 은 바닥 상면 절대 표고
+첫 꼭짓점의 높이는 비워 두면 접합부 FL 이다.
+"""
+import math
+from dataclasses import dataclass, field
 
 from gui.column_draft import _num, level_name
-from gui.stair_draft import DIRECTIONS, UP_MINUS, UP_PLUS
-from passages.passage_spec import PassageSpec
+from passages.passage_spec import STATION, WORLD, PassageSpec, PathVertex
 
 _SPEC = PassageSpec()               # 초기값은 모델 기본값이 단일 출처
 
-SIDE_PLUS = "왼쪽 (+t)"
-SIDE_MINUS = "오른쪽 (−t)"
-SIDES = [SIDE_PLUS, SIDE_MINUS]
-_SIDE = {SIDE_PLUS: 1, SIDE_MINUS: -1}
-TURNS = DIRECTIONS                 # 꺾임 방향: 종점 방향(+s) / 시점 방향(−s)
-_TURN = {UP_PLUS: 1, UP_MINUS: -1}
+MODE_STATION = "선형 상대 (STA, t, 높이)"
+MODE_WORLD = "절대 좌표 (X, Y, EL)"
+MODES = [MODE_STATION, MODE_WORLD]
+_MODE = {MODE_STATION: STATION, MODE_WORLD: WORLD}
+COLUMN_LABELS = {MODE_STATION: ("STA", "t (왼쪽 +)", "높이(FL 기준)"), MODE_WORLD: ("X", "Y", "EL")}
 
 
 def floor_label(floor_count: int, floor_n: int) -> str:
@@ -20,15 +25,18 @@ def floor_label(floor_count: int, floor_n: int) -> str:
 
 
 @dataclass
+class VertexDraft:
+    x: str = "0"
+    y: str = "0"
+    z: str = ""
+
+
+@dataclass
 class PassageDraft:
-    """출구통로 1개 (입력창 문자열 그대로 보관)
-    sta_center: 통로 중심의 절대 STA (m) - 정거장 시작 측점을 빼서 내공 시점 기준 s 로 변환한다
-    floor: 통로가 붙는 층 번호 (1 = 최하층)"""
+    """출구통로 1개 (입력창 문자열 그대로 보관). floor: 통로가 붙는 층 번호 (1 = 최하층)"""
     name: str = ""
     floor: int = 1
-    side: str = SIDE_PLUS
-    turn: str = UP_PLUS
-    sta_center: str = "0"
+    mode: str = MODE_STATION
     inner_width: str = f"{_SPEC.inner_width:g}"
     inner_height: str = f"{_SPEC.inner_height:g}"
     wall_t: str = f"{_SPEC.wall_t:g}"
@@ -38,25 +46,35 @@ class PassageDraft:
     top_haunch_h: str = f"{_SPEC.top_haunch_h:g}"
     bottom_haunch_w: str = f"{_SPEC.bottom_haunch_w:g}"
     bottom_haunch_h: str = f"{_SPEC.bottom_haunch_h:g}"
-    length1: str = f"{_SPEC.length1:g}"
-    length2: str = f"{_SPEC.length2:g}"
-    grade_permil: str = f"{_SPEC.grade_permil:g}"
+    vertices: list = field(default_factory=list)
 
     def to_spec(self, where: str, start_station: float) -> PassageSpec:
-        if self.side not in _SIDE:
-            raise ValueError(f"{where}: 측벽 방향이 올바르지 않습니다 ('{self.side}')")
-        if self.turn not in _TURN:
-            raise ValueError(f"{where}: 꺾임 방향이 올바르지 않습니다 ('{self.turn}')")
+        if self.mode not in _MODE:
+            raise ValueError(f"{where}: 좌표 방식이 올바르지 않습니다 ('{self.mode}')")
+        mode = _MODE[self.mode]
+        cols = COLUMN_LABELS[self.mode]
+        path = []
+        for j, v in enumerate(self.vertices, start=1):
+            w = f"{where} 꼭짓점 {j}"
+            x = _num(v.x, w, cols[0])
+            y = _num(v.y, w, cols[1])
+            z = None if j == 1 and not str(v.z).strip() else _num(v.z, w, cols[2])
+            path.append(PathVertex(mode, x - start_station if mode == STATION else x, y, z))
         pos = lambda attr, label: _num(getattr(self, attr), where, label, positive=True)
         nonneg = lambda attr, label: _num(getattr(self, attr), where, label, nonneg=True)
         return PassageSpec(
-            floor=self.floor, side=_SIDE[self.side], s_center=_num(self.sta_center, where, "중심 측점") - start_station,
+            floor=self.floor, path=path,
             inner_width=pos("inner_width", "내공 폭"), inner_height=pos("inner_height", "내공 높이"),
             wall_t=pos("wall_t", "벽 두께"), floor_t=pos("floor_t", "바닥 슬래브 두께"), roof_t=pos("roof_t", "천장 슬래브 두께"),
             top_haunch_w=nonneg("top_haunch_w", "상부 헌치 폭"), top_haunch_h=nonneg("top_haunch_h", "상부 헌치 높이"),
             bottom_haunch_w=nonneg("bottom_haunch_w", "하부 헌치 폭"), bottom_haunch_h=nonneg("bottom_haunch_h", "하부 헌치 높이"),
-            length1=pos("length1", "첫 구간 길이"), length2=nonneg("length2", "꺾임 후 길이"), turn=_TURN[self.turn],
-            grade_permil=_num(self.grade_permil, where, "구배"), name=self.name.strip())
+            name=self.name.strip())
+
+
+def default_draft(floor: int, sta: float, t_face: float) -> PassageDraft:
+    """새 통로 초안: 선형 상대 좌표로 측벽(왼쪽)에서 직각으로 15m 나가는 수평 직선"""
+    return PassageDraft(floor=floor, vertices=[VertexDraft(f"{sta:g}", f"{t_face:g}", ""),
+                                               VertexDraft(f"{sta:g}", f"{t_face + 15.0:g}", "0")])
 
 
 class PassageDrafts:
@@ -75,7 +93,7 @@ class PassageDrafts:
         return changed
 
     def to_specs(self, start_station: float) -> list[PassageSpec]:
-        """초안 → PassageSpec 목록. 잘못된 입력은 몇 번째 통로인지 밝혀서 ValueError"""
+        """초안 → PassageSpec 목록. 잘못된 입력은 몇 번째 통로·꼭짓점인지 밝혀서 ValueError"""
         return [it.to_spec(self.where(i, it), start_station) for i, it in enumerate(self.items)]
 
     @staticmethod
@@ -84,17 +102,15 @@ class PassageDrafts:
 
 
 def preview(it: PassageDraft, start_station: float) -> str:
-    """입력 중 미리보기: 측벽 오프닝 STA 범위, 통로 길이·끝 위치 (직선 선형 기준)"""
+    """입력 중 미리보기: 꼭짓점 수, 평면 길이(입력 좌표 기준), 측벽 오프닝 STA 범위(선형 상대일 때)"""
     try:
         sp = it.to_spec("", start_station)
     except ValueError:
         return "→ 입력값을 확인하세요"
-    sta = sp.s_center + start_station
-    a = sp.half_in
-    text = f"→ 측벽 오프닝 STA {sta - a:.2f} ~ {sta + a:.2f} (폭 {sp.inner_width:g} x 높이 {sp.inner_height:g})\n"
-    if sp.bent:
-        end = sta + sp.turn * sp.length2
-        text += f"   L자: 직각 {sp.length1:g}m 후 꺾어 {sp.length2:g}m, 끝 STA ≈ {end:.2f}"
-    else:
-        text += f"   직선 {sp.length1:g}m (외벽 바깥면부터)"
+    pts = [(v.x, v.y) for v in sp.path]
+    length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+    text = f"→ 꼭짓점 {len(pts)}개, 평면 길이 약 {length:.2f}m"
+    if sp.path and sp.path[0].mode == STATION:
+        sta = sp.path[0].x + start_station
+        text += f"\n   측벽 오프닝 STA {sta - sp.half_in:.2f} ~ {sta + sp.half_in:.2f} (폭 {sp.inner_width:g} x 높이 {sp.inner_height:g})"
     return text

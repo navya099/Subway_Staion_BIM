@@ -403,16 +403,20 @@ class IFCExporter:
             for ps in package.passages:
                 asm = self.file.create_entity(
                     "IfcElementAssembly", GlobalId=ifcopenshell.guid.compress(uuid.UUID(ps.guid).hex), Name=ps.name,
-                    Description=f"{ps.level} 출구통로" + (" (L자)" if ps.bent else ""), ObjectType="EXIT_PASSAGE",
+                    Description=f"{ps.level} 출구통로 (꼭짓점 {len(ps.vertices)}개, 꺾임 {len(ps.corners)}곳)", ObjectType="EXIT_PASSAGE",
                     ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
                 parts = []
                 for e in ps.elements:
                     entity, predefined = self._PASSAGE_ENTITY[e.kind]
-                    items = [self._box_piece_solid(p, f"Passage{e.kind.value.title()}Profile") for p in e.pieces]
+                    if any(p.skewed for p in e.pieces):         # 꺾임부 연귀(비스듬한 끝): 면 집합으로 정확히
+                        items, rep = [self._face_set(p.faces()) for p in e.pieces], "Tessellation"
+                    else:
+                        items = [self._box_piece_solid(p, f"Passage{e.kind.value.title()}Profile") for p in e.pieces]
+                        rep = "SweptSolid"
                     el = self.file.create_entity(
                         entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
                         ObjectType=e.type_name, ObjectPlacement=self._placement(),
-                        Representation=self._product_shape(items, "SweptSolid"), PredefinedType=predefined)
+                        Representation=self._product_shape(items, rep), PredefinedType=predefined)
                     if e.material:
                         self._assign_material(el, e.material)
                     parts.append(el)

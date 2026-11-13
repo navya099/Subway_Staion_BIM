@@ -125,3 +125,46 @@ class StationProjectConfig:
     def origin(self) -> tuple[float, float]:
         """정거장 시점(s=0)의 WCS 평면 좌표"""
         return self.to_world(0.0, 0.0)
+
+    def to_station(self, x: float, y: float, margin: float = 300.0) -> tuple[float, float]:
+        """WCS 평면 좌표 → 정거장 로컬 (s, t) (to_world 의 역변환: 점에서 선형에 내린 수선의 발).
+        탐색 범위는 정거장 구간 ± margin (선형 범위 안). 수선의 발이 없으면 ValueError"""
+        a, base = self.align, self.station.start_station
+        lo = max(a.start_station, base - margin)
+        hi = min(a.end_station, base + self.station.length + margin)
+
+        def f(sta):                                     # 선형 접선 방향 성분: 수선의 발에서 0
+            px, py = a.point_at(sta)
+            th = a.azimuth_at(sta)
+            return (x - px) * math.cos(th) + (y - py) * math.sin(th)
+
+        n = max(2, int((hi - lo) / 1.0) + 1)
+        stas = [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+        best = None
+        for sta in stas:                                 # 표본점(양 끝 포함)이 바로 수선의 발인 경우
+            if abs(f(sta)) < 1e-9:
+                px, py = a.point_at(sta)
+                d = math.hypot(x - px, y - py)
+                if best is None or d < best[1]:
+                    best = (sta, d)
+        for s0, s1 in zip(stas, stas[1:]):
+            f0, f1 = f(s0), f(s1)
+            if f0 == 0.0 or f0 * f1 < 0:
+                for _ in range(80):                      # 이분법
+                    sm = 0.5 * (s0 + s1)
+                    fm = f(sm)
+                    if f0 * fm <= 0:
+                        s1 = sm
+                    else:
+                        s0, f0 = sm, fm
+                sta = 0.5 * (s0 + s1)
+                px, py = a.point_at(sta)
+                d = math.hypot(x - px, y - py)
+                if best is None or d < best[1]:
+                    best = (sta, d)
+        if best is None:
+            raise ValueError(f"좌표 ({x:.3f}, {y:.3f}) 에서 선형에 내린 수선의 발이 정거장 주변(±{margin:g}m)에 없습니다")
+        sta = best[0]
+        px, py = a.point_at(sta)
+        th = a.azimuth_at(sta)
+        return sta - base, -(x - px) * math.sin(th) + (y - py) * math.cos(th)

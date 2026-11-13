@@ -1,32 +1,49 @@
 import dataclasses
+from typing import Optional
+
+STATION = "station"     # 선형 상대 좌표: (s, t) — s = 내공 시점 기준 진행방향 거리, t = 선형 중심에서 왼쪽 +
+WORLD = "world"         # 절대 좌표: (X, Y) — 선형과 같은 평면 좌표계(WCS)
+MODES = (STATION, WORLD)
+
+
+@dataclasses.dataclass
+class PathVertex:
+    """통로 경로(중심선 폴리선)의 꼭짓점 1개. 꼭짓점마다 좌표 방식을 따로 정할 수 있다.
+
+    Attributes:
+        mode: STATION (선형 상대) 또는 WORLD (절대)
+        x, y: STATION 이면 (s, t), WORLD 이면 (X, Y)
+        z: 통로 바닥 상면 높이. STATION 이면 접합부(첫 꼭짓점) FL 기준 상대 높이, WORLD 이면 절대 표고(EL).
+           첫 꼭짓점은 비우면(None) 접합부 FL 이고, 값을 주면 그 FL 과 같아야 한다.
+    """
+    mode: str = STATION
+    x: float = 0.0
+    y: float = 0.0
+    z: Optional[float] = None
 
 
 @dataclasses.dataclass
 class PassageSpec:
-    """출구통로 1개의 입력 제원. 본체 측벽에서 선형에 직각으로 나가는 직선 박스(첫 구간)와,
-    필요하면 꺾임점에서 선형 접선 방향(+s/−s)으로 꺾이는 두 번째 직선 박스로 이루어진다 (L자).
+    """출구통로 1개의 입력 제원. 경로(중심선 폴리선)를 따라가는 박스 구조물.
 
-    - 단면은 내공 기준: 내공 폭 × 내공 높이 + 벽·바닥·천장 두께. 상·하부 헌치는 각각 천장·바닥 슬래브에 포함
-    - 첫 구간은 floor 층 외벽 바깥면(중심 STA s_center)에서 시작하고, 그 층 측벽에는 통로 내공 크기의 오프닝이 뚫린다
-    - 통로 바닥 상면 = 그 층 FL (측벽 접합부), 구배(‰)로 끝까지 오르내림. 꺾임부(모서리 사각형)는 수평
-    - 길이는 통로 중심선 기준: 첫 구간 = 외벽 바깥면 ~ 꺾임점(두 중심선의 교점), 두 번째 구간 = 꺾임점 ~ 끝. 끝단은 개방
+    - 첫 꼭짓점 = 본체 측벽 접합점: floor 층 외벽 바깥면 위에 있어야 하고, 첫 구간은 본체에 직각으로 나가야 한다.
+      그 층 측벽에는 통로 내공 크기의 오프닝이 뚫리고, 첫 꼭짓점의 바닥 높이는 그 층 FL 이다.
+    - 꼭짓점 사이는 직선(평면) + 바닥 높이 직선 보간: 높이가 같으면 수평, 다르면 경사.
+      평면에서 일직선인 꼭짓점을 넣으면 경사가 바뀌는 점(경사 시작·끝)이 된다.
+    - 평면에서 꺾이는 꼭짓점은 임의 각도(연귀 접합)이고, 그 앞뒤 구간은 수평이어야 한다 (꺾임부 수평참).
+    - 단면은 내공 기준: 내공 폭 × 내공 높이 + 벽·바닥·천장 두께. 상·하부 헌치는 각각 천장·바닥 슬래브에 포함. 끝단은 개방.
 
     Attributes:
         floor: 통로가 붙는 층 (1 = 최하층)
-        side: +1 = t 큰 쪽(진행방향 왼쪽), -1 = t 작은 쪽
-        s_center: 통로 중심의 진행방향 위치 s (m, 내공 시점 기준)
+        path: PathVertex 목록 (2개 이상)
         inner_width / inner_height: 내공 폭 / 높이 (m)
         wall_t / floor_t / roof_t: 벽 / 바닥 슬래브 / 천장 슬래브 두께 (m)
         top_haunch_w / top_haunch_h: 상부 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         bottom_haunch_w / bottom_haunch_h: 하부 헌치 수평 / 연직 크기 (m, 0 이면 없음)
-        length1: 첫 구간 길이 (m), length2: 꺾임 후 길이 (m, 0 이면 꺾임 없음)
-        turn: 꺾이는 방향 +1 = 종점 방향(+s), -1 = 시점 방향(−s)
-        grade_permil: 통로 구배 (‰, + 면 본체에서 멀어질수록 오름)
         name: 비우면 EX + 일련번호
     """
     floor: int = 1
-    side: int = 1
-    s_center: float = 0.0
+    path: list = dataclasses.field(default_factory=list)
     inner_width: float = 4.0
     inner_height: float = 3.0
     wall_t: float = 0.6
@@ -36,10 +53,6 @@ class PassageSpec:
     top_haunch_h: float = 0.3
     bottom_haunch_w: float = 0.0
     bottom_haunch_h: float = 0.0
-    length1: float = 15.0
-    length2: float = 0.0
-    turn: int = 1
-    grade_permil: float = 0.0
     name: str = ""
 
     @property
@@ -50,9 +63,15 @@ class PassageSpec:
     def half_out(self) -> float:
         return self.inner_width / 2.0 + self.wall_t
 
-    @property
-    def bent(self) -> bool:
-        return self.length2 > 0
+
+def station_path(points: list) -> list:
+    """[(s, t, z|None), ...] → 선형 상대 좌표 꼭짓점 목록 (테스트·코드 입력용)"""
+    return [PathVertex(STATION, s, t, z) for s, t, z in points]
+
+
+def world_path(points: list) -> list:
+    """[(X, Y, EL|None), ...] → 절대 좌표 꼭짓점 목록"""
+    return [PathVertex(WORLD, x, y, z) for x, y, z in points]
 
 
 def resolve_passage_names(specs: list) -> list[str]:

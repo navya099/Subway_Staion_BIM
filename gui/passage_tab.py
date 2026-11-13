@@ -1,28 +1,27 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.passage_draft import SIDES, TURNS, PassageDraft, PassageDrafts, floor_label, preview
+from gui.passage_draft import (COLUMN_LABELS, MODES, PassageDraft, PassageDrafts, VertexDraft, default_draft,
+                               floor_label, preview)
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
 ENTRY_W = 8
 
-# (라벨, 속성) 2열 배치
-_FIELDS = [("중심 STA", "sta_center", "구배(‰)", "grade_permil"),
-           ("내공 폭", "inner_width", "내공 높이", "inner_height"),
+# (라벨, 속성) 2열 배치: 단면
+_FIELDS = [("내공 폭", "inner_width", "내공 높이", "inner_height"),
            ("벽 두께", "wall_t", "바닥 두께", "floor_t"),
            ("천장 두께", "roof_t", None, None),
            ("상부 헌치 폭", "top_haunch_w", "상부 헌치 높이", "top_haunch_h"),
-           ("하부 헌치 폭", "bottom_haunch_w", "하부 헌치 높이", "bottom_haunch_h"),
-           ("첫 구간 길이", "length1", "꺾임 후 길이", "length2")]
+           ("하부 헌치 폭", "bottom_haunch_w", "하부 헌치 높이", "bottom_haunch_h")]
 
 
 class PassageTab:
-    """탭 7: 출구통로 (본체 측벽에서 직각으로 나가는 박스, 필요하면 선형 접선 방향으로 한 번 꺾임)
+    """탭 7: 출구통로 (경로 = 중심선 폴리선 꼭짓점 표)
 
-    - 위치: 통로가 붙는 층, 측벽(왼쪽 +t / 오른쪽 −t), 통로 중심 STA
-    - 단면: 내공 폭·높이 + 벽·바닥·천장 두께, 상·하부 헌치. 바닥 상면은 그 층 FL 에서 시작해 구배로 오르내림
-    - 길이: 통로 중심선 기준 (첫 구간 = 외벽 바깥면 ~ 꺾임점, 꺾임 후 = 꺾임점 ~ 끝). 꺾임 후 길이 0 이면 직선
+    - 좌표 방식: 선형 상대 (STA, t, FL 기준 높이) 또는 절대 좌표 (X, Y, EL)
+    - 첫 꼭짓점 = 본체 측벽 바깥면 위 접합점, 첫 구간은 본체에 직각. 첫 꼭짓점 높이는 비우면 FL
+    - 꼭짓점 사이 높이는 직선 보간 (같으면 수평, 다르면 경사), 꺾이는 꼭짓점 앞뒤는 수평이어야 함
     - 본체 측벽에는 통로 내공 크기의 오프닝이 자동으로 뚫림
     """
 
@@ -32,19 +31,19 @@ class PassageTab:
         self.drafts = PassageDrafts()
         self.entries['passage_drafts'] = self.drafts
         self.floor_count = 0
-        self._vars = {}            # 테스트/갱신용: (번호, 필드) → StringVar
+        self._vars = {}            # 테스트/갱신용: (번호, 필드) → StringVar,  (번호, 'v', 꼭짓점, 'x'|'y'|'z') → StringVar
         self._info_vars = []       # (StringVar, PassageDraft) 미리보기
-        self._combos = {}          # (번호, 'floor'|'side'|'turn') → Combobox
+        self._combos = {}          # (번호, 'floor'|'mode') → Combobox
 
     # ------------------------------------------------------------------ 구성
     def build(self):
         tk.Label(self.parent, text="[ 출구통로 ]", font=("Malgun Gothic", 10, "bold"),
                  fg="#6A1B9A").pack(anchor="w", padx=15, pady=(12, 2))
         tk.Label(self.parent, justify="left", fg="#555555", font=("Malgun Gothic", 8), wraplength=430,
-                 text="• 길이 단위는 모두 m.  측벽에서 직각으로 나가는 박스 (꺾임 후 길이 > 0 이면 L자)\n"
-                      "• 중심 STA: 통로 중심의 절대 STA.  측벽 오프닝은 자동\n"
-                      "• 길이는 통로 중심선 기준 (외벽 바깥면 ~ 꺾임점 ~ 끝), 끝단은 열려 있음\n"
-                      "• 바닥은 그 층 FL 에서 시작해 구배(‰)로 오르내림, 꺾임부는 수평").pack(anchor="w", padx=15)
+                 text="• 경로 = 통로 중심선 꼭짓점 (선형 상대 STA·t·높이 또는 절대 X·Y·EL)\n"
+                      "• 첫 꼭짓점은 측벽 바깥면 위, 첫 구간은 본체에 직각. 첫 높이는 비우면 FL\n"
+                      "• 꼭짓점 높이가 같으면 수평, 다르면 경사 (일직선 꼭짓점 = 경사 시작점)\n"
+                      "• 꺾이는 꼭짓점 앞뒤 구간은 수평, 꺾임은 임의 각도(연귀)").pack(anchor="w", padx=15)
 
         bar = tk.Frame(self.parent)
         bar.pack(fill="x", padx=15, pady=(6, 2))
@@ -98,11 +97,15 @@ class PassageTab:
         self.floor_count = n
         self.render()
 
-    def _start_station(self) -> float:
+    def _float(self, key, default):
         try:
-            return float(self.entries['start_station'].get())
+            return float(self.entries[key].get())
         except (KeyError, ValueError):
-            return 0.0
+            return default
+
+    def _t_face(self, floor_n: int) -> float:
+        """그 층 외벽 바깥면의 t (내공 폭/2 + 외벽 두께). 입력이 비어 있으면 기본값"""
+        return self._float('width', 18.0) / 2.0 + self._float(f'wall_t_{floor_n}', 1.0)
 
     def floor_choices(self) -> list[str]:
         return [floor_label(self.floor_count, n) for n in range(1, self.floor_count + 1)]
@@ -110,20 +113,33 @@ class PassageTab:
     # ------------------------------------------------------------------ 편집 동작
     def add_passage(self):
         top = max(1, self.floor_count)                       # 출구통로는 보통 대합실(최상층)에 붙음
-        self.drafts.items.append(PassageDraft(floor=top, sta_center=f"{self._start_station() + 30.0:g}"))
+        sta = self._float('start_station', 0.0) + 30.0
+        self.drafts.items.append(default_draft(top, sta, self._t_face(top)))
         self.render()
 
     def remove_passage(self, idx):
         del self.drafts.items[idx]
         self.render()
 
+    def add_vertex(self, idx):
+        vs = self.drafts.items[idx].vertices
+        last = vs[-1] if vs else VertexDraft()
+        vs.append(VertexDraft(last.x, last.y, last.z or "0"))         # 마지막 꼭짓점을 복사해 이어서 편집
+        self.render()
+
+    def remove_vertex(self, idx, j):
+        vs = self.drafts.items[idx].vertices
+        if len(vs) > 2:                                              # 경로는 꼭짓점 2개 이상
+            del vs[j]
+            self.render()
+
     def set_floor(self, idx, floor_n: int):
         self.drafts.items[idx].floor = floor_n
         self.refresh_info()
 
-    def set_choice(self, idx, attr: str, label: str):
-        setattr(self.drafts.items[idx], attr, label)
-        self.refresh_info()
+    def set_mode(self, idx, label: str):
+        self.drafts.items[idx].mode = label
+        self.render()                                                # 꼭짓점 표 머리글이 바뀜
 
     # ------------------------------------------------------------------ 그리기
     def render(self):
@@ -164,15 +180,6 @@ class PassageTab:
                     lambda c, k=i: self.set_floor(k, c.current() + 1), width=6).pack(side="left", padx=(2, 0))
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_passage(i)).pack(side="right")
 
-        row = tk.Frame(box)
-        row.pack(fill="x", pady=(4, 0))
-        tk.Label(row, text="측벽", font=FONT).pack(side="left")
-        self._combo(row, i, "side", SIDES, it.side if it.side in SIDES else SIDES[0],
-                    lambda c, k=i: self.set_choice(k, "side", c.get()), width=10).pack(side="left", padx=(2, 8))
-        tk.Label(row, text="꺾임 방향", font=FONT).pack(side="left")
-        self._combo(row, i, "turn", TURNS, it.turn if it.turn in TURNS else TURNS[0],
-                    lambda c, k=i: self.set_choice(k, "turn", c.get()), width=13).pack(side="left", padx=(2, 0))
-
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
         for r, (l1, a1, l2, a2) in enumerate(_FIELDS):
@@ -181,6 +188,25 @@ class PassageTab:
             if l2:
                 tk.Label(grid, text=l2, font=FONT).grid(row=r, column=2, sticky="w")
                 self._entry(grid, it, a2, (i, a2), width=ENTRY_W).grid(row=r, column=3, padx=(2, 0), pady=1)
+
+        row = tk.Frame(box)
+        row.pack(fill="x", pady=(6, 0))
+        tk.Label(row, text="경로 좌표", font=FONT_B).pack(side="left")
+        mode = it.mode if it.mode in MODES else MODES[0]
+        self._combo(row, i, "mode", MODES, mode, lambda c, k=i: self.set_mode(k, c.get()),
+                    width=22).pack(side="left", padx=(4, 0))
+
+        table = tk.Frame(box)
+        table.pack(fill="x", pady=(2, 0))
+        for c, head in enumerate(("#",) + COLUMN_LABELS[mode]):
+            tk.Label(table, text=head, font=("Malgun Gothic", 8), fg="#555555").grid(row=0, column=c, sticky="w")
+        for j, v in enumerate(it.vertices):
+            tk.Label(table, text=str(j + 1), font=FONT).grid(row=j + 1, column=0, sticky="w")
+            for c, attr in enumerate(("x", "y", "z"), start=1):
+                self._entry(table, v, attr, (i, "v", j, attr), width=10).grid(row=j + 1, column=c, padx=(2, 4), pady=1)
+            tk.Button(table, text="−", font=FONT, width=2, command=lambda k=i, jj=j: self.remove_vertex(k, jj)).grid(
+                row=j + 1, column=4)
+        tk.Button(box, text="+ 꼭짓점", font=FONT, command=lambda k=i: self.add_vertex(k)).pack(anchor="w", pady=(2, 0))
 
         info = tk.StringVar(value="")
         self._info_vars.append((info, it))
@@ -197,7 +223,7 @@ class PassageTab:
         return tk.Entry(parent, textvariable=var, width=width, font=FONT)
 
     def refresh_info(self):
-        """통로별 미리보기: 측벽 오프닝 STA 범위, 길이·끝 위치"""
-        start = self._start_station()
+        """통로별 미리보기: 꼭짓점 수, 평면 길이, 측벽 오프닝 STA 범위"""
+        start = self._float('start_station', 0.0)
         for var, it in self._info_vars:
             var.set(preview(it, start))

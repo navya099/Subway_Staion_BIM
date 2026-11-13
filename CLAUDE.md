@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 523개 통과** (GUI 76개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 536개 통과** (GUI 77개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -52,8 +52,8 @@ walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
 stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
-passages/                   출구통로: spec(입력), layout(통로 좌표계·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
-helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
+passages/                   출구통로: spec(경로 꼭짓점 입력), layout(경로 해석·연귀·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
+helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / passage_tab / print_tab (탭 1~8),
@@ -86,15 +86,18 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 자동 오프닝: 위층 슬래브(번호 k) = 트러스가 슬래브를 지나는 구간 ∪ 머리 높이 부족 구간 ~ 트러스 상단 끝. 하부 피트 = 트러스 하면이 시작면 아래인 구간 → 아래 슬래브(k−1) 오프닝, **피트가 슬래브보다 깊으면 오류**(바닥 내린 피트는 이후 단계). 승강장 위면 승강장 슬래브에 구멍(`cfg.platform_holes()`, `PlatformData.pieces/openings`), 지지벽체와 겹치면 오류.
   - IFC: `IfcTransportElement`(ESCALATOR) ⊃ 트러스·스텝 `IfcBuildingElementPart`, 난간 `IfcRailing`(BALUSTRADE), 핸드레일 `IfcRailing`(HANDRAIL). 승강장 IfcSlab 에도 IfcOpeningElement.
   - 검증: 치수·층·내공 범위, 트러스 폭 ≥ 스텝+난간, 같은 층 에스컬레이터·계단끼리 비겹침, 서 있는 슬래브의 다른 오프닝 위 금지(계단도 피트 위 금지), 시작 층 기둥 비관통.
-- **출구통로(1단계)**: `PassageSpec`(층, 측벽 ±t, 중심 STA, 내공 폭·높이 4.0×3.0, 벽·바닥·천장 0.6, 상부 헌치 0.3×0.3·하부 헌치(기본 없음), 첫 구간 길이 15, 꺾임 후 길이(0 = 직선), 꺾임 방향 ±s, 구배 ‰).
-  - 통로 좌표 (X, Y): 원점 = 중심 STA 에서 그 층 외벽 바깥면, X = 선형 직교(본체에서 멀어짐), Y = 꺾임 방향(선형 접선 × turn). **모두 세계 좌표의 곧은 박스**(곡선 선형에서도 곧음, 두 번째 구간은 꺾임점 접선 방향).
-  - 길이는 통로 중심선 기준(외벽 바깥면 ~ 꺾임점 ~ 끝), 끝단 개방. 단면은 내공 기준, 슬래브가 외폭 전체, 벽은 슬래브 사이. 헌치는 천장/바닥 슬래브 부재에 포함.
-  - L자 모서리: 첫 구간 슬래브·바깥 벽(A)은 모서리 바깥까지, 꺾는 쪽 벽(B)은 두 번째 구간 벽 앞까지, 두 번째 구간 바깥 벽(OUT)은 모서리를 지나 끝까지 — 조각끼리 겹치지 않음.
-  - 바닥 상면: 측벽 접합부 = 그 층 FL, 구배로 오르내림, **꺾임부(모서리 사각형)는 수평**.
-  - 본체 측벽 오프닝: 그 층 측벽(side +1 = t 큰 쪽 = 벽 코드 R)을 s–z 면에서 통로 내공 크기만큼 조각(`WallData.pieces/openings`)으로 분해, IFC 는 IfcWall 조각 + IfcOpeningElement(PASSAGE).
-  - 형상 = `helper/box_piece.py` BoxPiece(연직 단면 × 수평 축 + 구배), IFC 는 조각마다 IfcExtrudedAreaSolid(압출 방향 (0, 구배, 1)). 2D 도면은 정거장 로컬로 옮겨 그림(곡선은 중심 STA 접선 근사), 종단면도에는 그리지 않음, 평면도는 최하층 통로만.
-  - IFC: `IfcElementAssembly`(USERDEFINED, EXIT_PASSAGE) ⊃ 구간별 `IfcSlab`(FLOOR/ROOF) + `IfcWall`, 통로가 붙는 층 storey 에 포함.
-  - 검증: 치수·헌치·꺾임 길이, 측벽 오프닝이 내공 길이 안, 내공 높이 ≤ 그 층 내공 높이, 아래·위층 외벽이 더 두꺼우면 간섭 오류, 통로끼리 겹침.
+- **출구통로(경로 입력)**: `PassageSpec`(층, `path` = 통로 중심선 폴리선 꼭짓점 목록, 내공 폭·높이 4.0×3.0, 벽·바닥·천장 0.6, 상부 헌치 0.3×0.3·하부 헌치(기본 없음)).
+  - 꼭짓점 `PathVertex(mode, x, y, z)`: **꼭짓점마다** 좌표 방식 선택 — `station` = 선형 상대 (s, t, 접합부 FL 기준 높이), `world` = 절대 (X, Y, EL). GUI 는 통로마다 한 방식(STA 로 입력해 s 로 변환), 모델은 혼용 가능(향후 큰 UI 대비).
+  - 절대 좌표 해석을 위해 `StationProjectConfig.to_station(x, y)`(to_world 의 역변환, 수선의 발 탐색)를 둠. 선형 접점은 여전히 config 하나.
+  - 첫 꼭짓점 = 그 층 외벽 바깥면 위 접합점(|t| = W/2 + 벽 두께, 1mm 허용), 첫 구간은 본체에 직각(바깥쪽). 첫 높이는 비우면 FL, 주면 FL 과 같아야 함(5mm).
+  - 높이는 꼭짓점 사이 직선 보간: 같으면 수평, 다르면 경사. 평면 일직선 꼭짓점 = 경사 변화점(직각 끝으로 조각 분할).
+  - 꺾이는 꼭짓점: **임의 각도(≤135°), 이등분선 연귀 접합**. 단면 v 위치에서 앞 구간 끝 = L − v·tan(δ/2), 뒤 구간 시작 = v·tan(δ/2) (δ = 왼쪽 + 회전각). **꺾임 앞뒤 구간은 수평이어야 함**(아니면 오류). 연귀는 재료를 더하거나 빼지 않아 벽 체적 = 2·벽두께·H·중심선 길이.
+  - 부재는 평면 직선 구간(run, 꺾임마다 증가)별: `S{run}_FLOOR/ROOF/WALL_L/WALL_R` (L = 진행방향 왼쪽). 헌치는 천장/바닥 슬래브에 포함. 끝단 개방.
+  - 형상 = `helper/box_piece.py` BoxPiece(연직 단면 × 수평 축 + 구배, 끝단 비스듬함 ks/ke). IFC: 직각 끝 조각만이면 IfcExtrudedAreaSolid(압출 방향 (0, 구배, 1)), 연귀가 있으면 그 부재는 IfcPolygonalFaceSet(평면 면, 정확).
+  - 본체 측벽 오프닝: 그 층 측벽(t 부호로 찾음, +t = 벽 코드 R)을 s–z 면에서 첫 꼭짓점 s ± 내공 폭/2 × FL ~ FL+내공 높이로 조각(`WallData.pieces/openings`) 분해, IFC 는 IfcWall 조각 + IfcOpeningElement(PASSAGE).
+  - 2D: 횡단면도는 측점 sta 의 연직면(선형 접선이 법선)으로 조각을 **정확히** 자른 다각형(`BoxPiece.cut_by_plane`), 평면도는 최하층 통로 벽 평면을 to_station 으로 옮긴 다각형(WCS 평면도에서는 꼭짓점을 그대로 되돌림). 종단면도에는 그리지 않음.
+  - IFC: `IfcElementAssembly`(USERDEFINED, EXIT_PASSAGE) ⊃ run 별 `IfcSlab`(FLOOR/ROOF) + `IfcWall`, 통로가 붙는 층 storey 에 포함.
+  - 검증: 꼭짓점 2개 이상·형식, 치수·헌치, 접합점·직각·첫 높이, 같은 위치 꼭짓점, 꺾임각, 꺾임부 수평, 연귀에 비해 짧은 구간, 경로 자기 겹침(이웃 아닌 구간), 측벽 오프닝이 내공 길이 안, 내공 높이 ≤ 층 내공 높이, 위·아래층 외벽 간섭, 통로끼리 겹침.
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
 
 ## 5. 테스트 작성 규약
@@ -118,7 +121,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 입력 저장/불러오기(JSON), GUI 입력 전체 프로젝트 파일화.
 
 - 계단 2단계 후보: U자(꺾임) 계단, 엘리베이터 객체, 계단 위 난간, 층별 평면도에 계단·에스컬레이터 표시.
-- 출구통로 2단계 후보: 출입구(지표면 표고, 지상까지 계단·에스컬레이터, 지상 구조물), 끝단 폐합, 곡선 선형에서 두 번째 구간과 본체 간격 검사, 종단면도 표시.
+- 출구통로 다음 후보: 출입구(지표면 표고, 지상까지 계단·에스컬레이터, 지상 구조물), 끝단 폐합, 통로 경로와 본체(다른 층·곡선 안쪽)의 간섭 검사, 종단면도 표시, 경로 그래픽 편집 UI(Revit 식).
 - 에스컬레이터 2단계 후보: 바닥을 내린 피트 구조(슬래브보다 깊은 피트), 상·하부 곡선 전이부, 핸드레일 끝 곡선(뉴얼), 실무 도면 제원 반영.
 
 **알려진 정리 항목**

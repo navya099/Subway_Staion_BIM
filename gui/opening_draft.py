@@ -5,8 +5,9 @@ from gui.column_draft import _num, level_name
 from openings.opening_kind import OpeningKind
 from openings.opening_spec import OpeningSpec
 
-KIND_LABELS = [k.label for k in OpeningKind]
-_BY_LABEL = {k.label: k for k in OpeningKind}
+_SLAB_KINDS = [k for k in OpeningKind if k is not OpeningKind.PASSAGE]     # 측벽 오프닝은 출구통로가 자동으로 만듦
+KIND_LABELS = [k.label for k in _SLAB_KINDS]
+_BY_LABEL = {k.label: k for k in _SLAB_KINDS}
 
 
 def slab_choice_label(floor_count: int, slab_no: int) -> str:

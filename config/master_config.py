@@ -7,6 +7,7 @@ from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
 from escalators.escalator_check import check_escalator_layouts, layout_escalators
 from openings.opening_check import check_openings
+from passages.passage_check import check_passage_layouts, layout_passages
 from platforms.platform_params import PlatformParameters
 from stairs.stair_check import check_stair_layouts, layout_stairs
 
@@ -21,6 +22,7 @@ class StationProjectConfig:
     openings: list = dataclasses.field(default_factory=list)      # list[OpeningSpec]: 슬래브 오프닝 (직접 입력)
     stairs: list = dataclasses.field(default_factory=list)        # list[StairSpec]: 직선 계단 (위층 슬래브 오프닝 자동 생성)
     escalators: list = dataclasses.field(default_factory=list)    # list[EscalatorSpec]: 에스컬레이터 (위층 오프닝·하부 피트 자동 생성)
+    passages: list = dataclasses.field(default_factory=list)      # list[PassageSpec]: 출구통로 (본체 측벽 오프닝 자동 생성)
 
     def __post_init__(self):
         # 층별 기둥 설정이 비어 있으면 전 층 기본 1열 배치로 채움
@@ -50,6 +52,7 @@ class StationProjectConfig:
         check_openings(self.station, self.openings + self._auto_openings(stairs, escs))
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
+        check_passage_layouts(self, layout_passages(self))
 
     def stair_layouts(self) -> list:
         """계단별 배치 계산 결과 (StairLayout). 계단 엔진·슬래브 엔진이 같은 결과를 쓴다"""
@@ -71,6 +74,14 @@ class StationProjectConfig:
     def all_openings(self) -> list:
         """직접 입력한 오프닝 + 계단·에스컬레이터가 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
         return list(self.openings) + self._auto_openings(self.stair_layouts(), self.escalator_layouts())
+
+    def passage_layouts(self) -> list:
+        """출구통로별 배치 계산 결과 (PassageLayout). 통로·벽체 엔진이 같은 결과를 쓴다"""
+        return layout_passages(self)
+
+    def wall_openings(self) -> list:
+        """본체 측벽 오프닝 [(이름, 층, side, s0, s1, z_rel0, z_rel1)]: 출구통로 접합부 (z_rel = 바닥 슬래브 상면 기준)"""
+        return [lay.wall_opening for lay in self.passage_layouts()]
 
     def platform_holes(self) -> list:
         """승강장 슬래브에 뚫는 구멍 [(이름, s0, s1, t0, t1)]: 승강장 위 에스컬레이터의 하부 피트"""

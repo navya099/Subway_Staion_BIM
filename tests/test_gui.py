@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_seven_tabs_fit_in_window_width(app):
-    """탭 7개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_eight_tabs_fit_in_window_width(app):
+    """탭 8개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 7
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 8
 
 
 # ---------------- 계단 탭 ----------------
@@ -951,3 +951,99 @@ def test_generate_with_escalators_end_to_end(app, tmp_path):
     assert len(f.by_type("IfcTransportElement")) == 2 and len(f.by_type("IfcRailing")) == 8
     assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == [
         "OPEN_ES1_PIT_PLAT_B3F_R", "OPEN_ES1_SLAB_B2F_MID", "OPEN_ES2_PIT_SLAB_B2F_MID", "OPEN_ES2_SLAB_B1F_MID"]
+
+
+# ---------------- 출구통로 탭 ----------------
+from gui.passage_draft import MODE_WORLD
+
+
+def add_passage(app, floor=None, mode=None, vertices=None, **fields):
+    """출구통로 탭에서 '+ 출구통로 추가' 후 콤보박스·입력칸·꼭짓점 표에 값을 넣음 (실제 입력과 같은 경로). 마지막 인덱스 반환.
+    vertices: [(x, y, z), ...] 문자열 — 기본 꼭짓점 2개보다 많으면 '+ 꼭짓점' 을 눌러 늘림"""
+    tab = app.passage_tab
+    tab.add_passage()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    if floor is not None:
+        tab._combos[(i, "floor")].current(floor - 1)
+        tab._combos[(i, "floor")].event_generate("<<ComboboxSelected>>")
+    if mode is not None:
+        tab._combos[(i, "mode")].set(mode)
+        tab._combos[(i, "mode")].event_generate("<<ComboboxSelected>>")
+        app.root.update()
+    if vertices is not None:
+        while len(tab.drafts.items[i].vertices) < len(vertices):
+            tab.add_vertex(i)
+        app.root.update()
+        for j, xyz in enumerate(vertices):
+            for attr, text in zip("xyz", xyz):
+                tab._vars[(i, "v", j, attr)].set(text)
+    for key, text in fields.items():
+        tab._vars[(i, key)].set(text)
+    app.root.update()
+    return i
+
+
+def test_passage_tab_default_is_valid_straight_at_top_floor(app):
+    assert app.passage_tab.drafts.items == []
+    assert TkAdapter.collect_entries(app.entries).passages == []
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_passage(app)
+    tab = app.passage_tab
+    it = tab.drafts.items[0]
+    assert it.floor == 3 and tab._combos[(0, "floor")].get() == "B1F"
+    assert [(v.x, v.y, v.z) for v in it.vertices] == [("164.45", "10", ""), ("164.45", "25", "0")]   # 외벽 바깥면 t = 9 + 1
+    (sp,) = TkAdapter.collect_entries(app.entries).passages
+    assert sp.path[0].x == pytest.approx(30.0) and sp.path[1].z == 0.0
+
+
+def test_passage_vertex_table_add_remove_and_mode_headers(app):
+    i = add_passage(app, vertices=[("100", "10", ""), ("100", "20", "0"), ("100", "25", "0.3")])
+    tab = app.passage_tab
+    assert len(tab.drafts.items[i].vertices) == 3
+    tab.remove_vertex(i, 1); app.root.update()
+    assert [v.y for v in tab.drafts.items[i].vertices] == ["10", "25"]
+    tab.remove_vertex(i, 0); app.root.update()                                       # 2개 미만으로는 지워지지 않음
+    assert len(tab.drafts.items[i].vertices) == 2
+    tab._combos[(i, "mode")].set(MODE_WORLD)
+    tab._combos[(i, "mode")].event_generate("<<ComboboxSelected>>"); app.root.update()
+    assert tab.drafts.items[i].mode == MODE_WORLD
+    box = tab.body.winfo_children()[0]                                               # 통로 1 LabelFrame
+    labels = [lb.cget("text") for frame in box.winfo_children() for lb in frame.winfo_children()
+              if lb.winfo_class() == "Label"]
+    assert "EL" in labels and "STA" not in labels
+
+
+def test_passage_input_becomes_path_spec(app):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_passage(app, floor=3, name="P", vertices=[("254.45", "-10", ""), ("254.45", "-15", "0"), ("254.45", "-20", "0.3"),
+                                                  ("254.45", "-23", "0.3"), ("234.45", "-23", "0.3")])
+    (sp,) = TkAdapter.collect_entries(app.entries).passages
+    assert sp.name == "P" and sp.floor == 3 and len(sp.path) == 5
+    assert [v.mode for v in sp.path] == ["station"] * 5
+    assert (sp.path[0].x, sp.path[4].x) == pytest.approx((120.0, 100.0)) and sp.path[2].z == 0.3
+
+
+def test_passage_preview_and_bad_input(app):
+    set_entry(app, "start_station", "0")
+    i = add_passage(app, name="Q", vertices=[("100", "10", ""), ("100", "25", "0")])
+    (var, _), = app.passage_tab._info_vars
+    assert "꼭짓점 2개" in var.get() and "STA 98.00 ~ 102.00" in var.get()
+    app.passage_tab._vars[(i, "v", 1, "z")].set("")
+    assert "확인" in var.get()
+    with pytest.raises(ValueError, match=r"출구통로 1\(Q\) 꼭짓점 2"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_generate_with_path_passages_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_passage(app, floor=3, vertices=[("184.45", "10", ""), ("184.45", "25", "0")])
+    add_passage(app, floor=3, vertices=[("254.45", "-10", ""), ("254.45", "-22", "0"), ("234.45", "-22", "0")])
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert len(f.by_type("IfcElementAssembly")) == 2
+    assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == ["OPEN_EX1_WALL_B1F_R", "OPEN_EX2_WALL_B1F_L"]

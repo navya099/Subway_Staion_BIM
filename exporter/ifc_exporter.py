@@ -16,6 +16,8 @@ from slabs.slab_shape_type import SlabKind
 from escalators.escalator_engine import EscalatorEngine
 from escalators.escalator_type import EscalatorPartKind
 from helper.strip_member import part_faces
+from passages.passage_engine import PassageEngine
+from passages.passage_type import PassagePartKind
 from stairs.stair_engine import StairEngine
 from stairs.stair_type import StairPartKind
 from walls.wall_engine import WallEngine
@@ -190,7 +192,10 @@ class IFCExporter:
             for wall in package.walls:
                 if not wall.shape:
                     continue
-                placement, representation = self._member_geometry(wall, "WallProfile")
+                if wall.pieces:                                   # 출구통로 오프닝이 있는 측벽: 조각들
+                    placement, representation = self._slab_geometry(wall)
+                else:
+                    placement, representation = self._member_geometry(wall, "WallProfile")
                 ifc_wall = self.file.create_entity(
                     "IfcWall",
                     GlobalId=ifcopenshell.guid.compress(uuid.UUID(wall.guid).hex),
@@ -203,6 +208,7 @@ class IFCExporter:
                 if wall.material:
                     self._assign_material(ifc_wall, wall.material)
                 elements.append(ifc_wall)
+                self._export_slab_openings(wall, ifc_wall)
 
             if elements:
                 self.file.create_entity(
@@ -384,6 +390,62 @@ class IFCExporter:
             if elements:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=storey, RelatedElements=elements)
+
+    _PASSAGE_ENTITY = {PassagePartKind.FLOOR: ("IfcSlab", "FLOOR"), PassagePartKind.ROOF: ("IfcSlab", "ROOF"),
+                       PassagePartKind.WALL: ("IfcWall", "SOLIDWALL")}
+
+    def export_passages(self, passage_engine: PassageEngine):
+        """출구통로: IfcElementAssembly(USERDEFINED: EXIT_PASSAGE) 가 구간별 바닥·천장 슬래브(IfcSlab)와 측벽(IfcWall)을 묶고,
+        IfcElementAssembly 만 통로가 붙는 층 IfcBuildingStorey 에 포함. 부재 형상 = 조각마다 곧은 압출(세계 좌표)"""
+        for package in passage_engine.passage_packages:
+            storey = self.storeys[package.level]
+            elements = []
+            for ps in package.passages:
+                asm = self.file.create_entity(
+                    "IfcElementAssembly", GlobalId=ifcopenshell.guid.compress(uuid.UUID(ps.guid).hex), Name=ps.name,
+                    Description=f"{ps.level} 출구통로 (꼭짓점 {len(ps.vertices)}개, 꺾임 {len(ps.corners)}곳)", ObjectType="EXIT_PASSAGE",
+                    ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+                parts = []
+                for e in ps.elements:
+                    entity, predefined = self._PASSAGE_ENTITY[e.kind]
+                    if any(p.skewed for p in e.pieces):         # 꺾임부 연귀(비스듬한 끝): 면 집합으로 정확히
+                        items, rep = [self._face_set(p.faces()) for p in e.pieces], "Tessellation"
+                    else:
+                        items = [self._box_piece_solid(p, f"Passage{e.kind.value.title()}Profile") for p in e.pieces]
+                        rep = "SweptSolid"
+                    el = self.file.create_entity(
+                        entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                        ObjectType=e.type_name, ObjectPlacement=self._placement(),
+                        Representation=self._product_shape(items, rep), PredefinedType=predefined)
+                    if e.material:
+                        self._assign_material(el, e.material)
+                    parts.append(el)
+                self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingObject=asm, RelatedObjects=parts)
+                elements.append(asm)
+            if elements:
+                self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingStructure=storey, RelatedElements=elements)
+
+    def _box_piece_solid(self, p, profile_name):
+        """BoxPiece → 세계 좌표의 IfcExtrudedAreaSolid: 연직 단면(v, dz)을 축 방향 + 구배로 민 각기둥.
+        Position: 원점 = 축 시작점(기준 표고), z' = 축 방향, x' = v(축의 왼쪽) → y' = 연직 위.
+        압출 방향 (0, 구배, 1) 이라 연직 단면이 그대로 유지된다 (체적 = 단면적 x 수평 길이)"""
+        f = self.file
+        x0, y0, z0 = p.point(p.a0, 0.0, 0.0)
+        poly = f.create_entity("IfcPolyline", Points=[f.create_entity("IfcCartesianPoint", Coordinates=(float(v), float(dz)))
+                                                      for v, dz in p.sect + [p.sect[0]]])
+        profile = f.create_entity("IfcArbitraryClosedProfileDef", ProfileType="AREA", ProfileName=profile_name, OuterCurve=poly)
+        position = f.create_entity(
+            "IfcAxis2Placement3D",
+            Location=f.create_entity("IfcCartesianPoint", Coordinates=(float(x0), float(y0), float(z0))),
+            Axis=f.create_entity("IfcDirection", DirectionRatios=(float(p.ux), float(p.uy), 0.0)),
+            RefDirection=f.create_entity("IfcDirection", DirectionRatios=(float(p.vx), float(p.vy), 0.0)))
+        norm = math.hypot(1.0, p.slope)
+        return f.create_entity(
+            "IfcExtrudedAreaSolid", SweptArea=profile, Position=position,
+            ExtrudedDirection=f.create_entity("IfcDirection", DirectionRatios=(0.0, float(p.slope / norm), float(1.0 / norm))),
+            Depth=float(p.length * norm))
 
     def _strip_part_geometry(self, part, profile_name):
         """띠 부재(계단 런/계단참, 에스컬레이터 부재)의 (배치, 형상). 직선: s–z 단면 다각형 압출 1개, 곡선: 띠마다 닫힌 면 집합"""

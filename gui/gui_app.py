@@ -6,6 +6,7 @@ from engine.bim_engine import BIMEngine
 from gui.column_tab import ColumnTab
 from gui.escalator_tab import EscalatorTab
 from gui.opening_tab import OpeningTab
+from gui.passage_tab import PassageTab
 from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
 from gui.stair_tab import StairTab
@@ -67,9 +68,15 @@ class StationBIMApp:
         self.escalator_tab = EscalatorTab(tab_esc, self.entries)
         self.escalator_tab.build()
 
-        # 탭 7: 출력 설정
+        # 탭 7: 출구통로
+        tab_passage = ttk.Frame(notebook)
+        notebook.add(tab_passage, text=" 7. 통로 ")
+        self.passage_tab = PassageTab(tab_passage, self.entries)
+        self.passage_tab.build()
+
+        # 탭 8: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text=" 7. 출력 ")
+        notebook.add(tab_print, text=" 8. 출력 ")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -83,7 +90,7 @@ class StationBIMApp:
                   command=self.root.destroy).pack(side="right", padx=8, pady=8)
 
     def _on_tab_changed(self, event=None):
-        """1번 탭에서 바꾼 값(내공 길이, 층수, 시작 측점, 층 높이)을 기둥·오프닝·계단·에스컬레이터 탭에 반영"""
+        """1번 탭에서 바꾼 값(내공 길이, 층수, 시작 측점, 층 높이)을 기둥·오프닝·계단·에스컬레이터·통로 탭에 반영"""
         if hasattr(self, 'column_tab'):
             self.column_tab.refresh_counts()
         if hasattr(self, 'opening_tab'):
@@ -95,6 +102,9 @@ class StationBIMApp:
         if hasattr(self, 'escalator_tab'):
             self.escalator_tab.update_floor_ui()
             self.escalator_tab.refresh_info()
+        if hasattr(self, 'passage_tab'):
+            self.passage_tab.update_floor_ui()
+            self.passage_tab.refresh_info()
 
     def _on_floors_changed(self, event=None):
         """🌟 층수가 변경될 때 메인 앱을 통해 ColumnTab의 UI 갱신을 트리거"""
@@ -108,6 +118,8 @@ class StationBIMApp:
             self.stair_tab.update_floor_ui()
         if hasattr(self, 'escalator_tab'):
             self.escalator_tab.update_floor_ui()
+        if hasattr(self, 'passage_tab'):
+            self.passage_tab.update_floor_ui()
 
     def on_generate(self):
         try:

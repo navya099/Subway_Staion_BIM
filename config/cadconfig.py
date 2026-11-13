@@ -32,5 +32,7 @@ LAYER_DEFINITIONS = {
     "SEC_ESCALATOR": {"color": 30},      # 횡단면도 에스컬레이터 절단면
     "PROF_ESCALATOR": {"color": 30},     # 종단면도 에스컬레이터 절단면
     "PLAN_ESCALATOR": {"color": 30},     # 평면도 에스컬레이터
+    "STRUCT_PASSAGE": {"color": 140},    # 출구통로 (하늘색)
+    "PLAN_PASSAGE": {"color": 140},      # 평면도 출구통로 벽
 
 }

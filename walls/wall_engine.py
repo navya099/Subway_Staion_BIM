@@ -4,6 +4,10 @@ from walls.rectangular_wall import RectangularWall
 from walls.wall_data import WallData
 from walls.wall_package import WallPackage
 from helper.view_item import ViewItem
+from openings import decompose
+from openings.opening_data import OpeningData
+from openings.opening_kind import OpeningKind
+from slabs.slab_piece import SlabPiece
 from walls.wall_shape_type import WallRole, WallShapeType
 
 
@@ -83,13 +87,53 @@ class WallEngine:
                     shape=shape,
                 ))
             self.wall_packages.append(package)
+        self._cut_openings()
+
+    def _cut_openings(self):
+        """출구통로 접합부: 그 층 측벽을 s–z 면에서 오프닝만큼 조각으로 나누고 오프닝 객체를 만든다"""
+        openings = self.cfg.wall_openings()
+        if not openings:
+            return
+        p = self.sp
+        for name, floor_n, side, s0, s1, z0, z1 in openings:
+            level = self.level_name(floor_n)
+            package = next(pk for pk in self.wall_packages if pk.level == level)
+            role = WallRole.RIGHT if side > 0 else WallRole.LEFT          # 벽체 코드 R 이 t 큰 쪽 (_wall_defs)
+            wall = next(w for w in package.walls if w.role == role)
+            if any(decompose.overlap_area((s0, s1, z0, z1), (*o.s_range, *o.t_range)) > 1e-9 for o in wall.openings):
+                raise ValueError(f"출구통로 {name}: {wall.name} 의 다른 통로 오프닝과 겹칩니다")
+            t0, t1 = PM.t_range(wall)
+            wall.openings.append(OpeningData(
+                name=f"OPEN_{name}_{wall.name}", family_name="측벽 오프닝", type_name="출구통로", level=level,
+                kind=OpeningKind.PASSAGE, slab_name=wall.name, s_range=(s0, s1), t_range=(z0, z1),
+                **self._piece_dims(s0, s1, t0, t1, z0, z1)))
+        for package in self.wall_packages:
+            for wall in package.walls:
+                if not wall.openings:
+                    continue
+                floor_n = next(n for n in range(1, p.floors + 1) if self.level_name(n) == package.level)
+                z_lo, z_hi = self.z_offsets(floor_n)
+                t0, t1 = PM.t_range(wall)
+                holes = [(*o.s_range, *o.t_range) for o in wall.openings]       # 오프닝의 t_range 자리에 (z0, z1) 보관
+                wall.pieces = [SlabPiece(name=f"{wall.name}_P{k}", **self._piece_dims(a, b, t0, t1, zl, zh))
+                               for k, (a, b, zl, zh) in enumerate(
+                                   decompose.subtract_rects((*PM.s_range(wall), z_lo, z_hi), holes), start=1)]
+
+    def _piece_dims(self, s0, s1, t0, t1, z0, z1) -> dict:
+        """(s0~s1) x (t0~t1) x (z0~z1, 바닥 슬래브 상면 기준) 벽체 조각의 위치·형상"""
+        p = self.sp
+        lv0, lv1 = self.cfg.lv(s0) - p.offset, self.cfg.lv(s1) - p.offset
+        return dict(pos_x=(s0 + s1) / 2.0, pos_y=(t0 + t1) / 2.0, pos_z=self.cfg.lv((s0 + s1) / 2.0) - p.offset + z0,
+                    shape=RectangularWall(wall_type=WallShapeType.RECTANGLE, length=s1 - s0, width=t1 - t0,
+                                          height=z1 - z0, rise=lv1 - lv0,
+                                          curve_factor=PM.curve_factor(self.cfg, s0, s1, (t0 + t1) / 2.0)))
 
     # ---------- 작도 ----------
     def add_wall_mesh(self, msp):
         """3D 절대 좌표계 메쉬 (직선: 각기둥, 곡선: 선형을 따르는 스윕). 한 번만 호출할 것"""
         for package in self.wall_packages:
             for wall in package.walls:
-                faces = PM.mesh_faces(self.cfg, wall)
+                faces = [f for m in wall.members for f in PM.mesh_faces(self.cfg, m)]
                 wall.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_WALL"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
@@ -100,11 +144,12 @@ class WallEngine:
             for w in package.walls:
                 if w.role == WallRole.END and sta <= PM.s_range(w)[0] + 1e-9:   # 내공 끝(s = L)의 단면은 일반 단면 (마감벽은 그 바깥)
                     continue
-                cut = PM.section_rect(self.cfg, w, sta)
-                if cut:
-                    t0, t1, zb = cut
-                    items.append(ViewItem.rect(w.name, "SEC_CONCRETE", t0, t1, zb, zb + w.shape.height,
-                                               hatch_layer="SEC_HATCH", merge=True))
+                for m in w.members:                                 # 통로 오프닝이 있으면 조각별 (오프닝 위 인방 등)
+                    cut = PM.section_rect(self.cfg, m, sta)
+                    if cut:
+                        t0, t1, zb = cut
+                        items.append(ViewItem.rect(w.name, "SEC_CONCRETE", t0, t1, zb, zb + m.shape.height,
+                                                   hatch_layer="SEC_HATCH", merge=True))
         return items
 
     def profile_items(self):
@@ -127,6 +172,17 @@ class WallEngine:
                 if zb - 1e-9 <= zc < zb + w.shape.height - 1e-9:
                     cut.append((w, (s0, s1, t0, t1)))
         by_role = {w.role: c for w, c in cut}
+        gaps = [w for w, _ in cut if w.openings]
+        if gaps:                                                     # 통로 오프닝이 절단 높이에 걸리면 조각별로 그림
+            out = []
+            for w, c in cut:
+                for m in w.members:
+                    ms0, ms1 = PM.s_range(m)
+                    zb = PM.z_at(self.cfg, m, (ms0 + ms1) / 2.0)
+                    zc = self.cfg.lv((ms0 + ms1) / 2.0) - self.sp.offset + cut_h
+                    if zb - 1e-9 <= zc < zb + m.shape.height - 1e-9:
+                        out.append(ViewItem.rect(m.name, "PLAN_OUTLINE", ms0, ms1, c[2], c[3]))
+            return out
         if len(by_role) == 4:
             st, en, lf, rt = (by_role[WallRole.START], by_role[WallRole.END],
                               by_role[WallRole.LEFT], by_role[WallRole.RIGHT])

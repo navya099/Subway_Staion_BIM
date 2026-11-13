@@ -7,6 +7,7 @@ from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
 from escalators.escalator_check import check_escalator_layouts, layout_escalators
 from openings.opening_check import check_openings
+from passages.passage_check import check_passage_layouts, layout_passages
 from platforms.platform_params import PlatformParameters
 from stairs.stair_check import check_stair_layouts, layout_stairs
 
@@ -21,6 +22,7 @@ class StationProjectConfig:
     openings: list = dataclasses.field(default_factory=list)      # list[OpeningSpec]: 슬래브 오프닝 (직접 입력)
     stairs: list = dataclasses.field(default_factory=list)        # list[StairSpec]: 직선 계단 (위층 슬래브 오프닝 자동 생성)
     escalators: list = dataclasses.field(default_factory=list)    # list[EscalatorSpec]: 에스컬레이터 (위층 오프닝·하부 피트 자동 생성)
+    passages: list = dataclasses.field(default_factory=list)      # list[PassageSpec]: 출구통로 (본체 측벽 오프닝 자동 생성)
 
     def __post_init__(self):
         # 층별 기둥 설정이 비어 있으면 전 층 기본 1열 배치로 채움
@@ -50,6 +52,7 @@ class StationProjectConfig:
         check_openings(self.station, self.openings + self._auto_openings(stairs, escs))
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
+        check_passage_layouts(self, layout_passages(self))
 
     def stair_layouts(self) -> list:
         """계단별 배치 계산 결과 (StairLayout). 계단 엔진·슬래브 엔진이 같은 결과를 쓴다"""
@@ -71,6 +74,14 @@ class StationProjectConfig:
     def all_openings(self) -> list:
         """직접 입력한 오프닝 + 계단·에스컬레이터가 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
         return list(self.openings) + self._auto_openings(self.stair_layouts(), self.escalator_layouts())
+
+    def passage_layouts(self) -> list:
+        """출구통로별 배치 계산 결과 (PassageLayout). 통로·벽체 엔진이 같은 결과를 쓴다"""
+        return layout_passages(self)
+
+    def wall_openings(self) -> list:
+        """본체 측벽 오프닝 [(이름, 층, side, s0, s1, z_rel0, z_rel1)]: 출구통로 접합부 (z_rel = 바닥 슬래브 상면 기준)"""
+        return [lay.wall_opening for lay in self.passage_layouts()]
 
     def platform_holes(self) -> list:
         """승강장 슬래브에 뚫는 구멍 [(이름, s0, s1, t0, t1)]: 승강장 위 에스컬레이터의 하부 피트"""
@@ -114,3 +125,46 @@ class StationProjectConfig:
     def origin(self) -> tuple[float, float]:
         """정거장 시점(s=0)의 WCS 평면 좌표"""
         return self.to_world(0.0, 0.0)
+
+    def to_station(self, x: float, y: float, margin: float = 300.0) -> tuple[float, float]:
+        """WCS 평면 좌표 → 정거장 로컬 (s, t) (to_world 의 역변환: 점에서 선형에 내린 수선의 발).
+        탐색 범위는 정거장 구간 ± margin (선형 범위 안). 수선의 발이 없으면 ValueError"""
+        a, base = self.align, self.station.start_station
+        lo = max(a.start_station, base - margin)
+        hi = min(a.end_station, base + self.station.length + margin)
+
+        def f(sta):                                     # 선형 접선 방향 성분: 수선의 발에서 0
+            px, py = a.point_at(sta)
+            th = a.azimuth_at(sta)
+            return (x - px) * math.cos(th) + (y - py) * math.sin(th)
+
+        n = max(2, int((hi - lo) / 1.0) + 1)
+        stas = [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+        best = None
+        for sta in stas:                                 # 표본점(양 끝 포함)이 바로 수선의 발인 경우
+            if abs(f(sta)) < 1e-9:
+                px, py = a.point_at(sta)
+                d = math.hypot(x - px, y - py)
+                if best is None or d < best[1]:
+                    best = (sta, d)
+        for s0, s1 in zip(stas, stas[1:]):
+            f0, f1 = f(s0), f(s1)
+            if f0 == 0.0 or f0 * f1 < 0:
+                for _ in range(80):                      # 이분법
+                    sm = 0.5 * (s0 + s1)
+                    fm = f(sm)
+                    if f0 * fm <= 0:
+                        s1 = sm
+                    else:
+                        s0, f0 = sm, fm
+                sta = 0.5 * (s0 + s1)
+                px, py = a.point_at(sta)
+                d = math.hypot(x - px, y - py)
+                if best is None or d < best[1]:
+                    best = (sta, d)
+        if best is None:
+            raise ValueError(f"좌표 ({x:.3f}, {y:.3f}) 에서 선형에 내린 수선의 발이 정거장 주변(±{margin:g}m)에 없습니다")
+        sta = best[0]
+        px, py = a.point_at(sta)
+        th = a.azimuth_at(sta)
+        return sta - base, -(x - px) * math.sin(th) + (y - py) * math.cos(th)

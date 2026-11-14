@@ -15,12 +15,12 @@ from gui.tk_adapter import TkAdapter
 
 
 @pytest.fixture
-def app():
+def app(tmp_path):
     try:
         root = tk.Tk()
     except tk.TclError:
         pytest.skip("디스플레이가 없어 GUI 테스트를 건너뜀")
-    a = StationBIMApp(root)
+    a = StationBIMApp(root, recent_file=str(tmp_path / "recent.json"), watch=False)   # 사용자 최근 목록을 건드리지 않음
     root.update()
     yield a
     root.destroy()
@@ -1114,3 +1114,157 @@ def test_generate_with_entrance_end_to_end(app, tmp_path):
     asm = [a for a in f.by_type("IfcElementAssembly") if a.ObjectType == "ENTRANCE"]
     assert [a.Name for a in asm] == ["EN1"]
     assert len(f.by_type("IfcStair")) == 1 and len(f.by_type("IfcTransportElement")) == 1
+
+
+# ---------------- 프로젝트 저장 / 불러오기 ----------------
+from gui.project_file import open_project
+
+
+class _FileDialogs:
+    """프로젝트 메뉴용 대화상자 대체: 저장/열기 경로와 저장 확인 답을 정해 둠"""
+    def __init__(self, save_path="", open_path="", answer=None):
+        self.calls, self.save_path, self.open_path, self.answer = [], save_path, open_path, answer
+
+    def asksaveasfilename(self, **kw): self.calls.append(("save_dialog",)); return self.save_path
+    def askopenfilename(self, **kw): self.calls.append(("open_dialog",)); return self.open_path
+    def askyesnocancel(self, title, msg, **kw): self.calls.append(("ask", msg)); return self.answer
+    def showerror(self, title, msg, **kw): self.calls.append(("error", msg))
+    def showwarning(self, title, msg, **kw): self.calls.append(("warning", msg))
+    def showinfo(self, title, msg, **kw): self.calls.append(("info", msg))
+
+
+def patch_files(monkeypatch, **kw):
+    d = _FileDialogs(**kw)
+    monkeypatch.setattr("gui.gui_app.filedialog", d)
+    monkeypatch.setattr("gui.gui_app.messagebox", d)
+    return d
+
+
+def build_project(app):
+    """여러 탭을 건드린 프로젝트: 층수·층고, 승강장, 기둥 2패턴, 오프닝, 계단, 통로, 출입구"""
+    set_floors(app, 3)
+    set_heights(app, 6.5, 5.8, 6.2)
+    set_entry(app, "start_station", "134.45")
+    set_entry(app, "plat_height", "1.15")
+    app.entries["sync_all"].set(False)
+    app.column_tab.add_pattern(1, 0)
+    app.column_tab.set_shape(1, 0, 1, CIRCLE)
+    app.root.update()
+    add_opening(app, name="OP", sta_start="150", length="8")
+    add_stair(app, name="ST", sta_start="160")
+    add_passage(app, floor=3, vertices=[("184.45", "10", ""), ("184.45", "25", "0"), ("204.45", "25", "0")])
+    zp = TkAdapter.collect_entries(app.entries).passage_layouts()[0].vertices[-1].z
+    add_entrance(app, ground_el=f"{zp + 15:.3f}", side=SIDE_RIGHT)
+    app.root.update()
+
+
+def test_title_shows_project_name_and_dirty_mark(app, monkeypatch, tmp_path):
+    assert app.root.title().startswith("새 프로젝트 — ") and not app.is_dirty()
+    set_entry(app, "length", "150")
+    app.refresh_title()
+    assert app.root.title().startswith("새 프로젝트 * — ")
+    patch_files(monkeypatch, save_path=str(tmp_path / "역사"))         # 확장자 없이 입력하면 .ssbim
+    assert app.on_save() is True
+    assert app.project_path == str(tmp_path / "역사.ssbim") and app.root.title().startswith("역사.ssbim — ")
+    set_entry(app, "length", "150")                                     # 같은 값으로 되돌리면 변경 아님
+    app.refresh_title()
+    assert not app.is_dirty()
+
+
+def test_save_new_open_restores_everything(app, monkeypatch, tmp_path):
+    build_project(app)
+    before_state = app.collect_state()
+    before_cfg = TkAdapter.collect_entries(app.entries)
+    path = str(tmp_path / "p.ssbim")
+    d = patch_files(monkeypatch, save_path=path, answer=False)
+    assert app.on_save() and os.path.exists(path)
+    assert app.on_save() and d.calls.count(("save_dialog",)) == 1      # 두 번째 저장은 같은 파일에 바로
+    assert app.on_new() and app.project_path is None
+    assert app.entries["floors"].get() == "2" and app.stair_tab.drafts.items == [] and app.entrance_tab.drafts.items == []
+    assert app.on_open(path) and app.project_path == path
+    assert app.collect_state().key() == before_state.key() and not app.is_dirty()
+    assert app.entries["floor_height_3"].get() == "6.2" and app.entries["floor_height_1"].get() == "6.5"
+    assert app.station_tab.floor_count == 3 and app.column_tab.floor_count == 3
+    assert app.column_tab.drafts.floors[1].rows[0].patterns[1].shape == CIRCLE
+    assert app.entrance_tab._combos[(0, "side")].get() == SIDE_RIGHT    # 화면 위젯도 복원
+    assert app.stair_tab._vars[(0, "sta_start")].get() == "160"
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.station == before_cfg.station and cfg.platform == before_cfg.platform and cfg.column == before_cfg.column
+    assert (cfg.openings, cfg.stairs, cfg.passages, cfg.entrances) == \
+        (before_cfg.openings, before_cfg.stairs, before_cfg.passages, before_cfg.entrances)
+    assert app.recent.items[0] == os.path.abspath(path)
+
+
+def test_new_project_restores_defaults_even_after_edits(app, monkeypatch):
+    d = patch_files(monkeypatch, answer=False)
+    start = app.collect_state().key()
+    app.column_tab.drafts.floors[1].rows[0].interval = "99"            # 초안을 직접 고쳐도 기본값은 오염되지 않음
+    set_entry(app, "width", "30")
+    assert app.on_new() and ("ask", "'새 프로젝트' 의 변경 사항을 저장할까요?") in d.calls
+    assert app.collect_state().key() == start
+
+
+def test_unsaved_changes_prompt_on_exit(app, monkeypatch, tmp_path):
+    set_entry(app, "length", "123")
+    d = patch_files(monkeypatch, answer=None)                           # 취소 → 종료하지 않음
+    assert app.on_exit() is False and app.root.winfo_exists()
+    d.answer, d.save_path = True, ""                                    # 저장 → 저장 대화상자에서 취소 → 종료하지 않음
+    assert app.on_exit() is False
+    d.save_path = str(tmp_path / "x.ssbim")                             # 저장 후 종료
+    monkeypatch.setattr(app.root, "destroy", lambda: d.calls.append(("destroyed",)))   # 테스트 뒤에는 실제 destroy 로 복원
+    assert app.on_exit() is True and os.path.exists(d.save_path) and ("destroyed",) in d.calls
+    assert open_project(d.save_path).fields["length"] == "123"
+
+
+def test_open_without_changes_does_not_ask(app, monkeypatch, tmp_path):
+    path = str(tmp_path / "a.ssbim")
+    d = patch_files(monkeypatch, save_path=path)
+    app.on_save()
+    d.calls.clear()
+    assert app.on_open(path) and not any(c[0] == "ask" for c in d.calls)
+
+
+def test_open_bad_file_keeps_screen_and_drops_missing_recent(app, monkeypatch, tmp_path):
+    bad = tmp_path / "bad.ssbim"
+    bad.write_text('{"format": "x"}', encoding="utf-8")
+    set_entry(app, "length", "77")
+    app._saved_key = app.collect_state().key()
+    d = patch_files(monkeypatch)
+    assert app.on_open(str(bad)) is False and app.entries["length"].get() == "77"
+    assert d.calls[-1][0] == "error" and "프로젝트 파일이 아닙니다" in d.calls[-1][1]
+    gone = str(tmp_path / "gone.ssbim")
+    app.recent.add(gone)
+    assert app.on_open(gone) is False and app.recent.items == []
+    assert app.recent_menu.entrycget(0, "label") == "(없음)"
+
+
+def test_menu_and_recent_entries(app, monkeypatch, tmp_path):
+    labels = [app.file_menu.entrycget(i, "label") for i in range(app.file_menu.index("end") + 1)
+              if app.file_menu.type(i) != "separator"]
+    assert labels == ["새 프로젝트", "열기…", "최근 프로젝트", "저장", "다른 이름으로 저장…", "종료"]
+    assert app.file_menu.entrycget(0, "accelerator") == "Ctrl+N"
+    patch_files(monkeypatch, save_path=str(tmp_path / "r.ssbim"))
+    app.on_save()
+    assert "r.ssbim" in app.recent_menu.entrycget(0, "label")
+
+
+def test_project_embeds_loaded_alignment_file(app, monkeypatch, tmp_path):
+    src = tmp_path / "src" / "curve_alignment_elements.json"
+    src.parent.mkdir()
+    shutil.copy(SAMPLE_EL, src)
+    patch_dialogs(monkeypatch, open_path=str(src))
+    app.station_tab.load_alignment_file()
+    expect = TkAdapter.collect_entries(app.entries).align
+    path = str(tmp_path / "c.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save()
+    shutil.rmtree(src.parent)                                            # 원본 선형 파일을 지워도
+    app.on_new()
+    assert app.entries["alignment_source"].alignment is None and str(app.entries["bp_x"].cget("state")) == "normal"
+    assert app.on_open(path)
+    a = TkAdapter.collect_entries(app.entries).align
+    assert isinstance(a, CurvedAlignment) and a.end_station == pytest.approx(expect.end_station)
+    assert str(app.entries["bp_x"].cget("state")) == "disabled" and "프로젝트에 포함된 선형" in app.station_tab.align_status.get()
+    assert not app.is_dirty()
+    app.station_tab.reset_alignment()                                    # 선형을 BP/EP 로 바꾸면 변경
+    assert app.is_dirty()

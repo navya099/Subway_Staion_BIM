@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 568개 통과** (GUI 81개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 596개 통과** (GUI 89개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -58,8 +58,8 @@ helper/                     prism_member.py(각기둥/스윕 기하), strip_memb
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / passage_tab / entrance_tab / print_tab (탭 1~9),
-                            column_draft·opening_draft·stair_draft·escalator_draft·passage_draft·entrance_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_passages, test_entrances, test_gui
+                            column_draft·opening_draft·stair_draft·escalator_draft·passage_draft·entrance_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_passages, test_entrances, test_project_file, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -108,6 +108,11 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - IFC: `IfcElementAssembly`(USERDEFINED, ENTRANCE) ⊃ IfcSlab(FLOOR/ROOF)·IfcWall·IfcStair(⊃ Flight/Landing)·IfcTransportElement(⊃ 부재), 통로 층 storey. 띠 = s–z 사각형을 t 로 압출(IfcExtrudedAreaSolid).
   - 2D: 횡단면도에서 정확히 자름(`cut_faces_by_plane`), 평면도는 통로가 최하층일 때 외곽만. 종단면도에는 그리지 않음.
   - 검증: 통로 존재·통로당 1개, 치수, 내공 폭 ≥ 통로 내공 폭, 에스컬레이터 구역 ≥ 트러스 외폭, 지표가 통로 바닥보다 충분히 높음(토피), 계단 바닥 위.
+- **프로젝트 파일(*.ssbim, JSON)**: 파일 메뉴(새 프로젝트 Ctrl+N / 열기 Ctrl+O / 최근 프로젝트 5개 / 저장 Ctrl+S / 다른 이름으로 저장 Ctrl+Shift+S / 종료).
+  - **화면 입력 그대로** 저장: `ProjectState` = 입력칸 텍스트(`fields`, 층별 `floor_height_n`/`wall_t_n` 포함) + 승강장 형식·기둥 동기화 + 탭별 입력 초안(dataclass → JSON). 미완성·오류 입력도 그대로 복원. 형식 `format`/`version`(현재 1), 없는 필드는 기본값·모르는 필드는 무시(옛/새 파일 호환), 더 새 버전은 오류.
+  - 불러온 선형 파일은 **원본 내용 + 읽기 옵션을 포함**(zlib+base64, 선형 JSON 이 참조하는 points/landxml 파일도 함께, 참조는 파일 이름으로 바꿈). 열 때 임시 폴더에 풀어 다시 읽음, 실패하면 BP/EP 직선으로 열고 경고. `AlignmentSource.embedded` 는 불러올 때 만듦.
+  - 복원 순서(`StationBIMApp.apply_state`): 선형 초기화 → 층별이 아닌 입력칸 → 층수 반영(`_on_floors_changed`) → 층별 입력칸 → 초안 교체(복사본) → 탭 render → 선형. 초안은 화면이 계속 고치므로 수집·복원 모두 deepcopy.
+  - 변경 표시: 저장 시점 `ProjectState.key()` 와 비교(700ms 주기, 선형은 지문). 제목 "이름 * — 앱", 새 프로젝트·열기·종료(창 닫기 포함) 전에 저장 확인. 저장은 임시 파일 후 교체(원자적). 최근 목록은 `%APPDATA%/subway_station_bim/recent.json`(테스트는 `recent_file` 인자로 격리, `watch=False`).
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
 
 ## 5. 테스트 작성 규약
@@ -128,7 +133,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
 - 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
-- 오프닝 입력 저장/불러오기(JSON), GUI 입력 전체 프로젝트 파일화.
+- 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 
 - 계단 2단계 후보: U자(꺾임) 계단, 엘리베이터 객체, 계단 위 난간, 층별 평면도에 계단·에스컬레이터 표시.
 - 출입구 2단계 후보: 천장을 도면처럼 계단참마다 꺾기, 깊이별 벽 두께(700/800/900), 상부 캐노피(지상 구조물), E-E 단면처럼 계단식 파라펫, 지형 자료 불러오기(지표 EL 자동), 종단면도·층별 평면도 표시, 계단연석 분리.

@@ -24,6 +24,7 @@ from gui.opening_draft import OpeningDraft, OpeningDrafts
 from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
 from gui.stair_draft import StairDraft, StairDrafts
+from gui.vent_draft import VentDraft, VentDrafts
 
 FORMAT = "subway_station_bim_project"
 VERSION = 1
@@ -31,11 +32,12 @@ SUFFIX = ".ssbim"
 FILETYPES = [("정거장 BIM 프로젝트", "*" + SUFFIX), ("모든 파일", "*.*")]
 
 # 목록 필드의 원소 형식 (dataclass 필드 형식이 그냥 list 라서 따로 둠)
-_NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft, (PassageDraft, "vertices"): VertexDraft}
+_NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft, (PassageDraft, "vertices"): VertexDraft,
+           (VentDraft, "vertices"): VertexDraft}
 # 목록형 탭: 상태 필드 이름 → (초안 묶음, 원소 형식)
 LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": (StairDrafts, StairDraft),
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),
-               "entrance_drafts": (EntranceDrafts, EntranceDraft)}
+               "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft)}
 
 
 # ====================================================================== 초안 dataclass ↔ JSON
@@ -191,6 +193,7 @@ class ProjectState:
     escalator_drafts: list = field(default_factory=list)
     passage_drafts: list = field(default_factory=list)
     entrance_drafts: list = field(default_factory=list)
+    vent_drafts: list = field(default_factory=list)
     print_draft: PrintDraft = field(default_factory=PrintDraft)     # 출력 탭 옵션
     alignment: Optional[EmbeddedAlignment] = None
 

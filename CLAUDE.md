@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 633개 통과** (GUI 95개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 673개 통과** (GUI 98개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -54,13 +54,14 @@ openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), 
 stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
 passages/                   출구통로: spec(경로 꼭짓점 입력), layout(경로 해석·연귀·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
+ventilations/               환기구: spec(연속박스 단면·그릴 입력), layout(수직구·칸별 오프닝·그릴 조각), check(검증·간섭), data/engine
 entrances/                  출입구: spec(입력·구역 폭), layout(지표 EL 기준 자동 계산: 박스·계단·에스컬레이터 띠, EntranceFrame), check(검증), data/engine
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
-gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / passage_tab / entrance_tab / print_tab (탭 1~9),
-                            column_draft·opening_draft·stair_draft·escalator_draft·passage_draft·entrance_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_passages, test_entrances, test_project_file, test_output_options, test_gui
+gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~10, 제목은 짧게 '1.선형' …),
+                            column_draft·opening_draft·stair_draft·escalator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -110,6 +111,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - IFC: `IfcElementAssembly`(USERDEFINED, ENTRANCE) ⊃ IfcSlab(FLOOR/ROOF)·IfcWall·IfcStair(⊃ Flight/Landing)·IfcTransportElement(⊃ 부재), 통로 층 storey. 띠 = s–z 사각형을 t 로 압출(IfcExtrudedAreaSolid).
   - 2D: 횡단면도에서 정확히 자름(`cut_faces_by_plane`), 평면도는 통로가 최하층일 때 외곽만. 종단면도에는 그리지 않음.
   - 검증: 통로 존재·통로당 1개, 치수, 내공 폭 ≥ 통로 내공 폭, 에스컬레이터 구역 ≥ 트러스 외폭, 지표가 통로 바닥보다 충분히 높음(토피), 계단 바닥 위.
+- **환기구(1단계)**: `VentSpec`(층, `path` = 출구통로와 같은 PathVertex, **n련 연속박스**: 련 수 4·칸 내공 2.5×3.0·바깥 벽 0.6·중벽 0.4·바닥/천장 0.6·칸마다 상부 헌치 0.3, 수직구 깊이(비우면 칸 높이), 그릴 두께 0.1·테두리 0.1·살 0.03·간격 0.1).
+  - 경로 해석은 출구통로의 `resolve_vertices(…, what="환기구")` 그대로(첫 꼭짓점 = 외벽 바깥면, 첫 구간 직각·수평, 꺾임 연귀·앞뒤 수평). 칸 v 구간은 오른쪽(−v) 칸부터, 단면 = FLOOR·ROOF·WALL_L/R·MID{k} (+헌치는 ROOF).
+  - **수직 구간** = 평면 위치 같고 높이만 다른 연속 두 꼭짓점(위로만, 연속 금지, 앞뒤 덕트 수평). 기존 출구통로는 수직 이동을 지원하지 않음(같은 평면 위치 = 오류) — BoxPiece 를 상자(축 u × 단면 v·z)로 써서 수직구를 표현.
+  - 수직구 접합(실무식): 수직 꼭짓점 = 수직구 내공 중심, 아래 덕트 방향 u 로 깊이 D. 아래 덕트는 내공이 +D/2 까지 → 끝 벽(END_E, 바닥 하면~천장 상면), 천장은 [L−D/2, L+D/2] 에서 칸 자리만 비움(벽 위 띠만, 헌치 없음). 수직구 = 아래 천장 상면 ~ (위 덕트 바닥 하면 | 마지막이면 꼭짓점 높이), 앞·뒤 벽(wall_t)·좌우 벽·중벽. 위 덕트는 아래 덕트와 **같은 선(같은/반대 방향)**만, 내공 −D/2 부터 + 시작 벽(END_S), 바닥은 [−D/2, D/2] 칸 자리 비움.
+  - 그릴: 경로 마지막 끝면 칸마다(`GRILL{k}`). 수직구 끝 = 상단 수평(윗면 = 마지막 꼭짓점 높이, u 방향 살), 덕트 끝 = 끝 단면 연직(덕트 개방, 연직 살, 그 자리 헌치 없음). 테두리 4 + 살(폭 bar, 개수 = int((안폭 − 간격)/(bar + 간격)), 등간격).
+  - 부재 코드: `D{run}_FLOOR/ROOF/WALL_L/WALL_R/MID{k}/END_S/END_E`(run 은 꺾임·수직구마다 증가), `V{j}_WALL_F/B/L/R/MID{k}`, `GRILL{k}`. 본체 측벽 오프닝은 칸마다(`{이름}_C{k}`, `OpeningKind.VENT_DUCT`, `cfg.wall_openings()` 8번째 값 = 종류).
+  - IFC: `IfcElementAssembly`(USERDEFINED, VENTILATION) ⊃ IfcSlab(FLOOR/ROOF)·IfcWall(바깥·중벽·끝·수직구)·**IfcAirTerminal(GRILLE, Steel)**. 3D DXF 레이어 STRUCT_VENT / STRUCT_GRILL, 횡단면 SEC_CONCRETE / SEC_GRILL, 평면 PLAN_VENT(그 층 벽 평면).
+  - 검증: 형식·치수·련 수(1~20)·중벽·헌치(칸 폭 절반 미만)·그릴 테두리, 칸 높이 ≤ 층 내공, 위·아래층 외벽 간섭, 수직 구간 규칙(아래로·연속·앞뒤 수평·같은 선·너무 낮음·덕트가 수직구에 비해 짧음), 측벽 오프닝 범위, 자기 겹침, 환기구끼리·출구통로와 겹침.
 - **프로젝트 파일(*.ssbim, JSON)**: 파일 메뉴(새 프로젝트 Ctrl+N / 열기 Ctrl+O / 최근 프로젝트 5개 / 저장 Ctrl+S / 다른 이름으로 저장 Ctrl+Shift+S / 종료).
   - **화면 입력 그대로** 저장: `ProjectState` = 입력칸 텍스트(`fields`, 층별 `floor_height_n`/`wall_t_n` 포함) + 승강장 형식·기둥 동기화 + 탭별 입력 초안(dataclass → JSON). 미완성·오류 입력도 그대로 복원. 형식 `format`/`version`(현재 1), 없는 필드는 기본값·모르는 필드는 무시(옛/새 파일 호환), 더 새 버전은 오류.
   - 불러온 선형 파일은 **원본 내용 + 읽기 옵션을 포함**(zlib+base64, 선형 JSON 이 참조하는 points/landxml 파일도 함께, 참조는 파일 이름으로 바꿈). 열 때 임시 폴더에 풀어 다시 읽음, 실패하면 BP/EP 직선으로 열고 경고. `AlignmentSource.embedded` 는 불러올 때 만듦.
@@ -144,6 +153,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 
 - 계단 2단계 후보: U자(꺾임) 계단, 엘리베이터 객체, 계단 위 난간.
 - 출입구 2단계 후보: 천장을 도면처럼 계단참마다 꺾기, 깊이별 벽 두께(700/800/900), 상부 캐노피(지상 구조물), E-E 단면처럼 계단식 파라펫, 지형 자료 불러오기(지표 EL 자동), 종단면도·층별 평면도 표시, 계단연석 분리.
+- 환기구 2단계 후보: 아래로 내려가는 수직구, 위 덕트가 다른 방향(직각)으로 나가는 수직구, 본체 천장에서 바로 올라가는 수직구, 지상 환기탑·루버, 수직구 깊이 방향 회전, 종단면도 표시.
 - 출구통로 다음 후보: 끝단 폐합, 통로 경로와 본체(다른 층·곡선 안쪽)의 간섭 검사, 종단면도 표시, 경로 그래픽 편집 UI(Revit 식).
 - 에스컬레이터 2단계 후보: 바닥을 내린 피트 구조(슬래브보다 깊은 피트), 상·하부 곡선 전이부, 핸드레일 끝 곡선(뉴얼), 실무 도면 제원 반영.
 

@@ -95,17 +95,18 @@ class WallEngine:
         if not openings:
             return
         p = self.sp
-        for name, floor_n, side, s0, s1, z0, z1 in openings:
+        for name, floor_n, side, s0, s1, z0, z1, code in openings:
+            kind = OpeningKind.VENT_DUCT if code == "VENT_DUCT" else OpeningKind.PASSAGE
             level = self.level_name(floor_n)
             package = next(pk for pk in self.wall_packages if pk.level == level)
             role = WallRole.RIGHT if side > 0 else WallRole.LEFT          # 벽체 코드 R 이 t 큰 쪽 (_wall_defs)
             wall = next(w for w in package.walls if w.role == role)
             if any(decompose.overlap_area((s0, s1, z0, z1), (*o.s_range, *o.t_range)) > 1e-9 for o in wall.openings):
-                raise ValueError(f"출구통로 {name}: {wall.name} 의 다른 통로 오프닝과 겹칩니다")
+                raise ValueError(f"{kind.label} {name}: {wall.name} 의 다른 통로·환기구 오프닝과 겹칩니다")
             t0, t1 = PM.t_range(wall)
             wall.openings.append(OpeningData(
-                name=f"OPEN_{name}_{wall.name}", family_name="측벽 오프닝", type_name="출구통로", level=level,
-                kind=OpeningKind.PASSAGE, slab_name=wall.name, s_range=(s0, s1), t_range=(z0, z1),
+                name=f"OPEN_{name}_{wall.name}", family_name="측벽 오프닝", type_name=kind.label, level=level,
+                kind=kind, slab_name=wall.name, s_range=(s0, s1), t_range=(z0, z1),
                 **self._piece_dims(s0, s1, t0, t1, z0, z1)))
         for package in self.wall_packages:
             for wall in package.walls:

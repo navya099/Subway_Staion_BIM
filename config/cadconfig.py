@@ -35,5 +35,9 @@ LAYER_DEFINITIONS = {
     "STRUCT_PASSAGE": {"color": 140},    # 출구통로 (하늘색)
     "PLAN_PASSAGE": {"color": 140},      # 평면도 출구통로 벽
     "STRUCT_ENTRANCE": {"color": 170},   # 출입구 (박스·계단·에스컬레이터)
+    "STRUCT_VENT": {"color": 130},       # 환기구 콘크리트 (덕트·수직구)
+    "STRUCT_GRILL": {"color": 9},        # 환기구 금속 그릴
+    "PLAN_VENT": {"color": 130},         # 평면도 환기구 벽
+    "SEC_GRILL": {"color": 9},           # 횡단면도 그릴 절단면
 
 }

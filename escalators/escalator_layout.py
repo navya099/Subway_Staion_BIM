@@ -61,46 +61,12 @@ class EscalatorLayout:
         return names
 
 
-def _crossing(a, b, fa, fb):
-    """[a, b] 에서 f 가 부호를 바꾸면 선형 보간한 0 점"""
-    return a + (b - a) * fa / (fa - fb)
-
-
-def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
-    """에스컬레이터 1대의 배치 (spec 의 기본 범위 검사는 escalator_check.check_escalator_spec 이 먼저 한다)"""
-    st = cfg.station
-    k, d = spec.lower_floor, spec.direction
-    z_base, on_platform = base_level(cfg, spec, name, "에스컬레이터")
-    z_top = st.floor_level(k + 1)
-    tan, r, dep, depth = spec.tan, spec.riser, spec.step_depth, spec.truss_depth
-
-    def s_at(u):
-        return spec.s_wp + d * u
-
-    def elev(u, z_rel):
-        return cfg.lv(s_at(u)) - st.offset + z_rel
-
-    e0 = elev(0.0, z_base)
-    run = (z_top - z_base) / tan                      # 상부 WP: 경사선이 위층 바닥면(구배 반영)과 만나는 점
-    for _ in range(_MAX_ITER):
-        nxt = (elev(run, z_top) - e0) / tan
-        if abs(nxt - run) < 1e-12:
-            break
-        run = nxt
-    else:
-        raise ValueError(f"에스컬레이터 {name}: 상부 WP 계산이 수렴하지 않습니다 (종단구배를 확인하세요)")
-    if run <= 0:
-        raise ValueError(f"에스컬레이터 {name}: 위층 바닥이 시작면보다 낮습니다")
-    e1 = elev(run, z_top)
-
-    def nose(u):
-        """스텝 코 선"""
-        if u <= 0.0:
-            return elev(u, z_base)
-        if u >= run:
-            return elev(u, z_top)
-        return e0 + u * tan
-
+def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor):
+    """에스컬레이터 부재 띠 (정거장·출입구 공통 핵심 기하).
+    nose(u): 스텝 코 선 절대 표고, e0 = 하부 WP 표고, run = WP 간 수평 거리, s_at(u): 진행 좌표 → 부재 s 좌표,
+    curve_factor(sa, sb, t_center): 띠 체적 보정. t 범위는 spec(t_center, 폭)으로 정한다.
+    반환: (부재 목록 EscPartLayout, 구간별 트러스 상면 {(ua, ub): (z_a, z_b)}, 구간 경계 u 목록)"""
+    r, dep, depth = spec.riser, spec.step_depth, spec.truss_depth
     u_lo, u_hi = -spec.lower_ext, run + spec.upper_ext
     step_lo, step_hi = -spec.lower_flat_steps * dep, run + spec.upper_flat_steps * dep
     pts = {u_lo, u_hi, step_lo, step_hi, 0.0, run}
@@ -130,10 +96,10 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
         if sa > sb:
             sa, sb, zba, zbb, zta, ztb = sb, sa, zbb, zba, ztb, zta
         t0, t1 = t_of[key]
-        strips[key].append(Strip(sa, sb, zba, zbb, zta, curve_factor=PM.curve_factor(cfg, sa, sb, (t0 + t1) / 2.0), zt1=ztb))
+        strips[key].append(Strip(sa, sb, zba, zbb, zta, curve_factor=curve_factor(sa, sb, (t0 + t1) / 2.0), zt1=ztb))
 
     hh, plate = spec.handrail_height, r + STEP_PLATE_T
-    truss_top = {}                                     # 오프닝 판정용: 구간별 (트러스 상면 a, b)
+    truss_top = {}
     for a, b in zip(us, us[1:]):
         m = (a + b) / 2.0
         na, nb = nose(a), nose(b)
@@ -158,6 +124,53 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
 
     parts = [EscPartLayout(kind, side, t_of[(kind, side)], sorted(strips[(kind, side)], key=lambda s: s.s0))
              for kind, side, _ in part_defs]
+    return parts, truss_top, us
+
+
+def _crossing(a, b, fa, fb):
+    """[a, b] 에서 f 가 부호를 바꾸면 선형 보간한 0 점"""
+    return a + (b - a) * fa / (fa - fb)
+
+
+def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
+    """에스컬레이터 1대의 배치 (spec 의 기본 범위 검사는 escalator_check.check_escalator_spec 이 먼저 한다)"""
+    st = cfg.station
+    k, d = spec.lower_floor, spec.direction
+    z_base, on_platform = base_level(cfg, spec, name, "에스컬레이터")
+    z_top = st.floor_level(k + 1)
+    tan, depth = spec.tan, spec.truss_depth
+    tc, t_truss = spec.t_center, (spec.t_lo, spec.t_hi)
+
+    def s_at(u):
+        return spec.s_wp + d * u
+
+    def elev(u, z_rel):
+        return cfg.lv(s_at(u)) - st.offset + z_rel
+
+    e0 = elev(0.0, z_base)
+    run = (z_top - z_base) / tan                      # 상부 WP: 경사선이 위층 바닥면(구배 반영)과 만나는 점
+    for _ in range(_MAX_ITER):
+        nxt = (elev(run, z_top) - e0) / tan
+        if abs(nxt - run) < 1e-12:
+            break
+        run = nxt
+    else:
+        raise ValueError(f"에스컬레이터 {name}: 상부 WP 계산이 수렴하지 않습니다 (종단구배를 확인하세요)")
+    if run <= 0:
+        raise ValueError(f"에스컬레이터 {name}: 위층 바닥이 시작면보다 낮습니다")
+    e1 = elev(run, z_top)
+
+    def nose(u):
+        """스텝 코 선"""
+        if u <= 0.0:
+            return elev(u, z_base)
+        if u >= run:
+            return elev(u, z_top)
+        return e0 + u * tan
+
+    u_lo, u_hi = -spec.lower_ext, run + spec.upper_ext
+    parts, truss_top, us = escalator_part_strips(
+        spec, nose, e0, run, s_at, lambda sa, sb, tc: PM.curve_factor(cfg, sa, sb, tc))
 
     # 위층 슬래브(번호 k) 오프닝: 트러스가 슬래브를 지나는 구간 + 스텝 코 선 위 머리 높이 부족 구간 → 트러스 상단 끝까지
     z_sb, z_st = z_top - st.mid_t, z_top

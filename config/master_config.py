@@ -5,6 +5,7 @@ from columns.column_params import ColumnParameters
 from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
+from entrances.entrance_check import layout_entrances
 from escalators.escalator_check import check_escalator_layouts, layout_escalators
 from openings.opening_check import check_openings
 from passages.passage_check import check_passage_layouts, layout_passages
@@ -23,6 +24,7 @@ class StationProjectConfig:
     stairs: list = dataclasses.field(default_factory=list)        # list[StairSpec]: 직선 계단 (위층 슬래브 오프닝 자동 생성)
     escalators: list = dataclasses.field(default_factory=list)    # list[EscalatorSpec]: 에스컬레이터 (위층 오프닝·하부 피트 자동 생성)
     passages: list = dataclasses.field(default_factory=list)      # list[PassageSpec]: 출구통로 (본체 측벽 오프닝 자동 생성)
+    entrances: list = dataclasses.field(default_factory=list)     # list[EntranceSpec]: 출입구 (출구통로 끝에 이어 지표까지)
 
     def __post_init__(self):
         # 층별 기둥 설정이 비어 있으면 전 층 기본 1열 배치로 채움
@@ -52,7 +54,9 @@ class StationProjectConfig:
         check_openings(self.station, self.openings + self._auto_openings(stairs, escs))
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
-        check_passage_layouts(self, layout_passages(self))
+        passages = layout_passages(self)
+        check_passage_layouts(self, passages)
+        layout_entrances(self, passages)
 
     def stair_layouts(self) -> list:
         """계단별 배치 계산 결과 (StairLayout). 계단 엔진·슬래브 엔진이 같은 결과를 쓴다"""
@@ -78,6 +82,10 @@ class StationProjectConfig:
     def passage_layouts(self) -> list:
         """출구통로별 배치 계산 결과 (PassageLayout). 통로·벽체 엔진이 같은 결과를 쓴다"""
         return layout_passages(self)
+
+    def entrance_layouts(self) -> list:
+        """출입구별 배치 계산 결과 (EntranceLayout). 출입구 엔진이 쓴다"""
+        return layout_entrances(self, self.passage_layouts())
 
     def wall_openings(self) -> list:
         """본체 측벽 오프닝 [(이름, 층, side, s0, s1, z_rel0, z_rel1)]: 출구통로 접합부 (z_rel = 바닥 슬래브 상면 기준)"""

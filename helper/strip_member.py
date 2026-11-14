@@ -98,6 +98,8 @@ def strip_faces(cfg, strip: Strip, t0: float, t1: float) -> list[tuple]:
     대각선 한쪽으로 자를 때 생기는 체적 편차를 없앤다 (측면은 연직이라 평면)"""
     rs = strip_rings(cfg, strip, t0, t1)
     quads = PM.sweep_quads(rs)
+    if min(strip.zt - strip.zb0, strip.zt_end - strip.zb1) < 1e-9:
+        return _degenerate_faces(rs)                  # 한쪽 끝 높이 0 (삼각 단면 띠)
     if cfg.align.is_straight:
         return quads
     twisted = set()
@@ -110,6 +112,33 @@ def strip_faces(cfg, strip: Strip, t0: float, t1: float) -> list[tuple]:
     out = []
     for q in quads:
         out.extend(_fan(q) if frozenset(q) in twisted else [q])
+    return out
+
+
+def _degenerate_faces(rs) -> list[tuple]:
+    """한쪽 끝의 높이가 0 인 띠(칸막이벽이 계단 슬래브 아래로 사라지는 점 등): 겹친 꼭짓점을 지운 면(삼각형 포함)을
+    부재 안쪽 점 기준으로 바깥 방향으로 맞춤. 면이 퇴화하면 사각형 법선이 0 이 되어 방향 판정이 틀리므로 따로 처리"""
+    raw = []
+    for r0, r1 in zip(rs, rs[1:]):
+        raw += [(r0[0], r1[0], r1[1], r0[1]), (r0[3], r0[2], r1[2], r1[3]), (r0[0], r0[3], r1[3], r1[0]), (r0[1], r1[1], r1[2], r0[2])]
+    raw += [tuple(rs[0]), tuple(rs[-1])]
+    pts = {p for f in raw for p in f}
+    ref = PM._mean(list(pts))
+    out = []
+    for f in raw:
+        poly = []
+        for p in f:
+            if not poly or max(abs(p[i] - poly[-1][i]) for i in range(3)) > 1e-12:
+                poly.append(p)
+        if len(poly) > 1 and max(abs(poly[0][i] - poly[-1][i]) for i in range(3)) <= 1e-12:
+            poly.pop()
+        if len(poly) < 3:
+            continue
+        n = PM._cross(PM._sub(poly[1], poly[0]), PM._sub(poly[-1], poly[0]))
+        if sum(c * c for c in n) < 1e-24:
+            continue
+        d = PM._sub(PM._mean(poly), ref)
+        out.append(tuple(poly) if sum(n[i] * d[i] for i in range(3)) >= 0 else tuple(reversed(poly)))
     return out
 
 

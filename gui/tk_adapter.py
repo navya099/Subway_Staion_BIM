@@ -3,6 +3,7 @@ from config.alignment_config import AlignmentConfig
 from config.master_config import StationProjectConfig
 from config.station_config import StationParameters
 from gui.column_draft import ColumnDrafts, level_name
+from gui.entrance_draft import EntranceDrafts
 from gui.escalator_draft import EscalatorDrafts
 from gui.opening_draft import OpeningDrafts
 from gui.passage_draft import PassageDrafts
@@ -81,8 +82,9 @@ class TkAdapter:
         stairs = (entries.get("stair_drafts") or StairDrafts()).to_specs(station_p.floors, station_p.start_station)
         escalators = (entries.get("escalator_drafts") or EscalatorDrafts()).to_specs(station_p.floors, station_p.start_station)
         passages = (entries.get("passage_drafts") or PassageDrafts()).to_specs(station_p.start_station)
+        entrances = (entries.get("entrance_drafts") or EntranceDrafts()).to_specs()
         cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings,
-                                   stairs=stairs, escalators=escalators, passages=passages)
+                                   stairs=stairs, escalators=escalators, passages=passages, entrances=entrances)
         cfg.validate()
         return cfg
 

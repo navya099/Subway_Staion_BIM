@@ -34,5 +34,6 @@ LAYER_DEFINITIONS = {
     "PLAN_ESCALATOR": {"color": 30},     # 평면도 에스컬레이터
     "STRUCT_PASSAGE": {"color": 140},    # 출구통로 (하늘색)
     "PLAN_PASSAGE": {"color": 140},      # 평면도 출구통로 벽
+    "STRUCT_ENTRANCE": {"color": 170},   # 출입구 (박스·계단·에스컬레이터)
 
 }

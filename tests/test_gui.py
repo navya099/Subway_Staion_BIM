@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_nine_tabs_fit_in_window_width(app):
-    """탭 9개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_ten_tabs_fit_in_window_width(app):
+    """탭 10개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 9
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 10
 
 
 # ---------------- 계단 탭 ----------------
@@ -1345,3 +1345,72 @@ def test_project_file_keeps_print_options(app, monkeypatch, tmp_path):
     assert tab.draft.plan_floors == {1, 3} and not tab._floor_vars[2].get() and tab._floor_vars[3].get()
     assert tab._vars["profile_offsets"].get() == "1.25" and tab._vars["dxf3d"].get() is False
     assert str(tab._cont_entries[0].cget("state")) == "normal" and not app.is_dirty()
+
+
+# ---------------- 환기구 탭 ----------------
+def add_vent(app, floor=None, vertices=None, **fields):
+    """환기구 탭에서 '+ 환기구 추가' 후 콤보박스·입력칸·꼭짓점 표에 값을 넣음. 마지막 인덱스 반환"""
+    tab = app.vent_tab
+    tab.add_vent()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    if floor is not None:
+        tab._combos[(i, "floor")].current(floor - 1)
+        tab._combos[(i, "floor")].event_generate("<<ComboboxSelected>>")
+    if vertices is not None:
+        while len(tab.drafts.items[i].vertices) < len(vertices):
+            tab.add_vertex(i)
+        while len(tab.drafts.items[i].vertices) > len(vertices):
+            tab.remove_vertex(i, len(tab.drafts.items[i].vertices) - 1)
+        app.root.update()
+        for j, xyz in enumerate(vertices):
+            for attr, text in zip(("x", "y", "z"), xyz):
+                tab._vars[(i, "v", j, attr)].set(text)
+    for k, v in fields.items():
+        tab._vars[(i, k)].set(v)
+    app.root.update()
+    return i
+
+
+def test_vent_tab_default_is_valid_shaft_at_top_floor(app):
+    assert app.vent_tab.drafts.items == [] and TkAdapter.collect_entries(app.entries).vents == []
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_vent(app)
+    tab = app.vent_tab
+    it = tab.drafts.items[0]
+    assert it.floor == 3 and tab._combos[(0, "floor")].get() == "B1F" and len(it.vertices) == 3
+    (sp,) = TkAdapter.collect_entries(app.entries).vents
+    assert sp.cells == 4 and sp.path[0].x == pytest.approx(60.0) and sp.path[2].z == 10.0
+    (var, _), = tab._info_vars
+    assert "4련" in var.get() and "수직 구간 1곳" in var.get()
+
+
+def test_vent_input_becomes_spec_and_bad_input(app):
+    set_floors(app, 3)
+    i = add_vent(app, cells="6", cell_width="2", shaft_depth="2.5", name="V")
+    (sp,) = TkAdapter.collect_entries(app.entries).vents
+    assert (sp.name, sp.cells, sp.cell_width, sp.shaft_depth) == ("V", 6, 2.0, 2.5)
+    app.vent_tab._vars[(i, "cells")].set("x")
+    with pytest.raises(ValueError, match=r"환기구 1\(V\): 련 수"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_generate_with_vent_end_to_end_and_project_round_trip(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_vent(app, vertices=[("184.45", "10", ""), ("184.45", "30", "0"), ("184.45", "30", "8"), ("184.45", "45", "8")],
+             cells="5")
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path / "out")
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert [a.Name for a in f.by_type("IfcElementAssembly") if a.ObjectType == "VENTILATION"] == ["VS1"]
+    assert len(f.by_type("IfcAirTerminal")) == 5
+    path = str(tmp_path / "v.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save()
+    app.on_new()
+    assert app.vent_tab.drafts.items == []
+    app.on_open(path)
+    assert app.vent_tab._vars[(0, "cells")].get() == "5" and len(app.vent_tab.drafts.items[0].vertices) == 4
+    assert TkAdapter.collect_entries(app.entries).vents == cfg.vents

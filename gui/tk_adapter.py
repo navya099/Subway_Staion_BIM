@@ -9,6 +9,7 @@ from gui.opening_draft import OpeningDrafts
 from gui.passage_draft import PassageDrafts
 from gui.print_draft import PrintDraft
 from gui.stair_draft import StairDrafts
+from gui.vent_draft import VentDrafts
 from platforms.platform_params import PlatformParameters
 from platforms.platform_type import PlatformType
 
@@ -84,8 +85,9 @@ class TkAdapter:
         escalators = (entries.get("escalator_drafts") or EscalatorDrafts()).to_specs(station_p.floors, station_p.start_station)
         passages = (entries.get("passage_drafts") or PassageDrafts()).to_specs(station_p.start_station)
         entrances = (entries.get("entrance_drafts") or EntranceDrafts()).to_specs()
+        vents = (entries.get("vent_drafts") or VentDrafts()).to_specs(station_p.start_station)
         cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings,
-                                   stairs=stairs, escalators=escalators, passages=passages, entrances=entrances)
+                                   stairs=stairs, escalators=escalators, passages=passages, entrances=entrances, vents=vents)
         cfg.validate()
         return cfg
 

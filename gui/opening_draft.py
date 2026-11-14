@@ -5,7 +5,7 @@ from gui.column_draft import _num, level_name
 from openings.opening_kind import OpeningKind
 from openings.opening_spec import OpeningSpec
 
-_SLAB_KINDS = [k for k in OpeningKind if k is not OpeningKind.PASSAGE]     # 측벽 오프닝은 출구통로가 자동으로 만듦
+_SLAB_KINDS = [k for k in OpeningKind if k not in (OpeningKind.PASSAGE, OpeningKind.VENT_DUCT)]   # 측벽 오프닝은 출구통로·환기구가 자동으로 만듦
 KIND_LABELS = [k.label for k in _SLAB_KINDS]
 _BY_LABEL = {k.label: k for k in _SLAB_KINDS}
 

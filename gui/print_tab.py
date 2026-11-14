@@ -14,7 +14,7 @@ PROFILE_AXES = [("profile_center", "선형 중심 (0)"), ("profile_track_l", "�
 
 
 class PrintTab:
-    """탭 9: 출력 옵션. '성과물 출력' 을 누르면 여기서 고른 성과물만 세부 옵션대로 출력"""
+    """탭 10: 출력 옵션. '성과물 출력' 을 누르면 여기서 고른 성과물만 세부 옵션대로 출력"""
 
     def __init__(self, parent, entries_dict):
         self.parent = parent

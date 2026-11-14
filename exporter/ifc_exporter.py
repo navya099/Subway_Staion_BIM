@@ -20,6 +20,8 @@ from escalators.escalator_type import EscalatorPartKind
 from helper.strip_member import part_faces
 from passages.passage_engine import PassageEngine
 from passages.passage_type import PassagePartKind
+from ventilations.vent_engine import VentEngine
+from ventilations.vent_type import VentPartKind
 from stairs.stair_engine import StairEngine
 from stairs.stair_type import StairPartKind
 from walls.wall_engine import WallEngine
@@ -510,6 +512,42 @@ class IFCExporter:
             if elements:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=storey, RelatedElements=elements)
+
+    _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
+                    VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),
+                    VentPartKind.END_WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.SHAFT_WALL: ("IfcWall", "SOLIDWALL"),
+                    VentPartKind.GRILL: ("IfcAirTerminal", "GRILLE")}
+
+    def export_vents(self, vent_engine: VentEngine):
+        """환기구: IfcElementAssembly(USERDEFINED: VENTILATION) 가 덕트 바닥·천장(IfcSlab), 바깥 벽·중벽·끝 벽·수직구 벽(IfcWall),
+        칸별 금속 그릴(IfcAirTerminal GRILLE)을 묶고, IfcElementAssembly 만 환기구가 붙는 층 storey 에 포함.
+        형상 = 조각마다 곧은 압출(세계 좌표), 연귀 조각이 있는 부재는 면 집합"""
+        by_storey: dict = {}
+        for vt in vent_engine.vents:
+            asm = self.file.create_entity(
+                "IfcElementAssembly", GlobalId=ifcopenshell.guid.compress(uuid.UUID(vt.guid).hex), Name=vt.name,
+                Description=f"{vt.level} 환기구 ({vt.cells}련, 수직구 {len(vt.shafts)}곳, 그릴 {len(vt.grills)}개)",
+                ObjectType="VENTILATION", ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+            parts = []
+            for e in vt.elements + vt.grills:
+                entity, predefined = self._VENT_ENTITY[e.kind]
+                if any(q.skewed for q in e.pieces):
+                    items, rep = [self._face_set(q.faces()) for q in e.pieces], "Tessellation"
+                else:
+                    items = [self._box_piece_solid(q, f"Vent{e.kind.value.title()}Profile") for q in e.pieces]
+                    rep = "SweptSolid"
+                el = self.file.create_entity(
+                    entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                    ObjectType=e.type_name, ObjectPlacement=self._placement(),
+                    Representation=self._product_shape(items, rep), PredefinedType=predefined)
+                if e.material:
+                    self._assign_material(el, e.material)
+                parts.append(el)
+            self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm, RelatedObjects=parts)
+            by_storey.setdefault(vt.level, []).append(asm)
+        for level, elements in by_storey.items():
+            self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingStructure=self.storeys[level], RelatedElements=elements)
 
     def _box_piece_solid(self, p, profile_name):
         """BoxPiece → 세계 좌표의 IfcExtrudedAreaSolid: 연직 단면(v, dz)을 축 방향 + 구배로 민 각기둥.

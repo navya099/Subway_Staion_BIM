@@ -8,6 +8,7 @@ class OpeningKind(Enum):
     ELEVATOR = ("ELEV", "엘리베이터")
     VENT = ("VENT", "환기·설비")
     PASSAGE = ("PASSAGE", "출구통로")       # 본체 측벽 오프닝 (출구통로 접합부, 직접 입력 대상 아님)
+    VENT_DUCT = ("VENT_DUCT", "환기구")     # 본체 측벽 오프닝 (환기구 칸마다, 직접 입력 대상 아님)
 
     @property
     def code(self) -> str:

@@ -14,13 +14,14 @@ from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
 from gui.project_file import FILETYPES, LIST_DRAFTS, SUFFIX, ProjectState, RecentProjects, open_project, save_project
 from gui.stair_tab import StairTab
+from gui.vent_tab import VentTab
 from gui.station_tab import StationTab
 from gui.tk_adapter import TkAdapter
 
 
 APP_TITLE = "지하철 개착정거장 자동 설계 (BIM Engine)"
 FLOOR_KEYS = ("floor_height_", "wall_t_")       # 층수에 따라 다시 만들어지는 입력칸
-DRAFT_TABS = ("column_tab", "opening_tab", "stair_tab", "escalator_tab", "passage_tab", "entrance_tab")
+DRAFT_TABS = ("column_tab", "opening_tab", "stair_tab", "escalator_tab", "passage_tab", "entrance_tab", "vent_tab")
 
 
 class StationBIMApp:
@@ -46,25 +47,26 @@ class StationBIMApp:
             self._watch()
 
     def _build_ui(self):
-        # 전체 메인 탭 노트북 생성
+        # 전체 메인 탭 노트북 생성 (탭 10개가 창 폭 480 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
+        ttk.Style(self.root).configure("TNotebook.Tab", padding=(1, 2), font=("Malgun Gothic", 8))
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
         # 탭 1: 선형 및 본체 제원
         tab_station = ttk.Frame(notebook)
-        notebook.add(tab_station, text=" 1. 선형·본체 ")
+        notebook.add(tab_station, text="1.선형")
         self.station_tab = StationTab(tab_station, self.entries, self._on_floors_changed)
         self.station_tab.build_station_tab()
 
         # 탭 2: 승강장 제원
         tab_platform = ttk.Frame(notebook)
-        notebook.add(tab_platform, text=" 2. 승강장 ")
+        notebook.add(tab_platform, text="2.승강장")
         self.platform_tab = PlatformTab(tab_platform, self.entries)
         self.platform_tab.build()
 
         # 탭 3: 중앙 기둥 제원
         tab_column = ttk.Frame(notebook)
-        notebook.add(tab_column, text=" 3. 기둥 ")
+        notebook.add(tab_column, text="3.기둥")
         self.column_tab = ColumnTab(tab_column, self.entries)
         self.column_tab.build()
         # 1번 탭에서 길이/외벽 두께를 바꾼 뒤 기둥 탭으로 오면 예상 기둥 개수를 다시 계산
@@ -72,37 +74,43 @@ class StationBIMApp:
 
         # 탭 4: 슬래브 오프닝
         tab_opening = ttk.Frame(notebook)
-        notebook.add(tab_opening, text=" 4. 오프닝 ")
+        notebook.add(tab_opening, text="4.오프닝")
         self.opening_tab = OpeningTab(tab_opening, self.entries)
         self.opening_tab.build()
 
         # 탭 5: 계단
         tab_stair = ttk.Frame(notebook)
-        notebook.add(tab_stair, text=" 5. 계단 ")
+        notebook.add(tab_stair, text="5.계단")
         self.stair_tab = StairTab(tab_stair, self.entries)
         self.stair_tab.build()
 
         # 탭 6: 에스컬레이터
         tab_esc = ttk.Frame(notebook)
-        notebook.add(tab_esc, text=" 6. ESC ")
+        notebook.add(tab_esc, text="6.ESC")
         self.escalator_tab = EscalatorTab(tab_esc, self.entries)
         self.escalator_tab.build()
 
         # 탭 7: 출구통로
         tab_passage = ttk.Frame(notebook)
-        notebook.add(tab_passage, text=" 7. 통로 ")
+        notebook.add(tab_passage, text="7.통로")
         self.passage_tab = PassageTab(tab_passage, self.entries)
         self.passage_tab.build()
 
         # 탭 8: 출입구
         tab_entrance = ttk.Frame(notebook)
-        notebook.add(tab_entrance, text=" 8. 출입구 ")
+        notebook.add(tab_entrance, text="8.출입구")
         self.entrance_tab = EntranceTab(tab_entrance, self.entries)
         self.entrance_tab.build()
 
-        # 탭 9: 출력 설정
+        # 탭 9: 환기구
+        tab_vent = ttk.Frame(notebook)
+        notebook.add(tab_vent, text="9.환기구")
+        self.vent_tab = VentTab(tab_vent, self.entries)
+        self.vent_tab.build()
+
+        # 탭 10: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text=" 9. 출력 ")
+        notebook.add(tab_print, text="10.출력")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -131,6 +139,9 @@ class StationBIMApp:
         if hasattr(self, 'passage_tab'):
             self.passage_tab.update_floor_ui()
             self.passage_tab.refresh_info()
+        if hasattr(self, 'vent_tab'):
+            self.vent_tab.update_floor_ui()
+            self.vent_tab.refresh_info()
         if hasattr(self, 'print_tab'):
             self.print_tab.update_floor_ui()
             self.print_tab.refresh_info()
@@ -149,6 +160,8 @@ class StationBIMApp:
             self.escalator_tab.update_floor_ui()
         if hasattr(self, 'passage_tab'):
             self.passage_tab.update_floor_ui()
+        if hasattr(self, 'vent_tab'):
+            self.vent_tab.update_floor_ui()
         if hasattr(self, 'print_tab'):
             self.print_tab.update_floor_ui()
 

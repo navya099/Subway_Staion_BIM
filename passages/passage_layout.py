@@ -71,8 +71,8 @@ def _haunch_bottom(v_face, into, hw, hh):
     return [(v_face, 0.0), (v_face + into * hw, 0.0), (v_face, hh)]
 
 
-def resolve_vertices(cfg, spec, name: str) -> tuple[list, int, float]:
-    """꼭짓점을 세계 좌표·절대 표고로 해석하고 접합부 조건 검사. (꼭짓점, side, 접합부 FL 표고)"""
+def resolve_vertices(cfg, spec, name: str, what: str = "출구통로") -> tuple[list, int, float]:
+    """꼭짓점을 세계 좌표·절대 표고로 해석하고 접합부 조건 검사. (꼭짓점, side, 접합부 FL 표고). what = 오류 문구의 구조물 이름"""
     st = cfg.station
     k = spec.floor
     raw = []
@@ -84,24 +84,24 @@ def resolve_vertices(cfg, spec, name: str) -> tuple[list, int, float]:
             x, y = v.x, v.y
             s, t = cfg.to_station(x, y)
         else:
-            raise ValueError(f"출구통로 {name}: 꼭짓점 {i} 의 좌표 방식이 올바르지 않습니다 ({v.mode!r})")
+            raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 좌표 방식이 올바르지 않습니다 ({v.mode!r})")
         raw.append((x, y, s, t))
     x0, y0, s0, t0 = raw[0]
     t_face = st.width / 2.0 + st.wall_t_at(k)
     if abs(abs(t0) - t_face) > 1e-3:
-        raise ValueError(f"출구통로 {name}: 첫 꼭짓점(t = {t0:.3f})이 {st.level_name(k)} 외벽 바깥면(t = ±{t_face:g})에 있지 않습니다")
+        raise ValueError(f"{what} {name}: 첫 꼭짓점(t = {t0:.3f})이 {st.level_name(k)} 외벽 바깥면(t = ±{t_face:g})에 있지 않습니다")
     side = 1 if t0 > 0 else -1
     e0 = cfg.lv(s0) - st.offset + st.floor_level(k)
     out = []
     for i, ((x, y, s, t), v) in enumerate(zip(raw, spec.path), start=1):
         if v.z is None:
             if i > 1:
-                raise ValueError(f"출구통로 {name}: 꼭짓점 {i} 의 바닥 높이를 입력하세요")
+                raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 바닥 높이를 입력하세요")
             z = e0
         else:
             z = e0 + v.z if v.mode == STATION else v.z
             if i == 1 and abs(z - e0) > _Z_TOL:
-                raise ValueError(f"출구통로 {name}: 첫 꼭짓점 바닥 높이({z:.3f})가 접합부 FL({e0:.3f})과 다릅니다 "
+                raise ValueError(f"{what} {name}: 첫 꼭짓점 바닥 높이({z:.3f})가 접합부 FL({e0:.3f})과 다릅니다 "
                                  "(비워 두면 FL)")
         out.append(ResolvedVertex(x, y, e0 if i == 1 else z, s, t))
     return out, side, e0

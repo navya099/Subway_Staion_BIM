@@ -22,6 +22,7 @@ from gui.entrance_draft import EntranceDraft, EntranceDrafts
 from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
 from gui.opening_draft import OpeningDraft, OpeningDrafts
 from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
+from gui.print_draft import PrintDraft
 from gui.stair_draft import StairDraft, StairDrafts
 
 FORMAT = "subway_station_bim_project"
@@ -190,6 +191,7 @@ class ProjectState:
     escalator_drafts: list = field(default_factory=list)
     passage_drafts: list = field(default_factory=list)
     entrance_drafts: list = field(default_factory=list)
+    print_draft: PrintDraft = field(default_factory=PrintDraft)     # 출력 탭 옵션
     alignment: Optional[EmbeddedAlignment] = None
 
     def to_dict(self) -> dict:
@@ -197,6 +199,7 @@ class ProjectState:
              "sync_all": self.sync_all, "column_floors": {str(n): _plain(f) for n, f in sorted(self.column_floors.items())}}
         for name in LIST_DRAFTS:
             d[name] = _plain(getattr(self, name))
+        d["print_draft"] = _plain(self.print_draft)
         d["alignment"] = _alignment_plain(self.alignment)
         return d
 
@@ -221,6 +224,8 @@ class ProjectState:
             if not isinstance(items, list):
                 raise ValueError(f"{name}: 목록이어야 합니다")
             setattr(st, name, [_build(elem, x, f"{name} {i + 1}") for i, x in enumerate(items)])
+        if d.get("print_draft") is not None:
+            st.print_draft = _build(PrintDraft, d["print_draft"], "출력 옵션")
         st.alignment = _alignment_build(d.get("alignment"))
         return st
 

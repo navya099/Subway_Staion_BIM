@@ -60,14 +60,14 @@ def merge_items(items: list[ViewItem], tol: float = 1e-6) -> list[ViewItem]:
     return out
 
 
-def draw_view_items(msp, items: list[ViewItem], du: float = 0.0):
-    """ViewItem 목록을 DXF 모델스페이스에 작도. du = u 방향 평행 이동량 (횡단면도 배치용)"""
+def draw_view_items(msp, items: list[ViewItem], du: float = 0.0, dv: float = 0.0):
+    """ViewItem 목록을 DXF 모델스페이스에 작도. du / dv = u / v 방향 평행 이동량 (횡단면도 가로 배치, 층별 평면도·종단 축별 세로 배치)"""
     for it in merge_items(items):
         if it.circle is not None:
             cu, cv, r = it.circle
-            msp.add_circle((du + cu, cv), r, dxfattribs={'layer': it.layer})
+            msp.add_circle((du + cu, dv + cv), r, dxfattribs={'layer': it.layer})
         else:
-            pts = [(du + u, v) for u, v in it.poly]
+            pts = [(du + u, dv + v) for u, v in it.poly]
             msp.add_lwpolyline(pts, close=True, dxfattribs={'layer': it.layer})
             if it.hatch_layer:
                 hatch = msp.add_hatch(color=8, dxfattribs={'layer': it.hatch_layer})
@@ -75,4 +75,4 @@ def draw_view_items(msp, items: list[ViewItem], du: float = 0.0):
                 hatch.paths.add_polyline_path(pts)
         if it.label:
             text, u, v, h, layer = it.label
-            msp.add_text(text, dxfattribs={'height': h, 'layer': layer}).set_placement((du + u, v))
+            msp.add_text(text, dxfattribs={'height': h, 'layer': layer}).set_placement((du + u, dv + v))

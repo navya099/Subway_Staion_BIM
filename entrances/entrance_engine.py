@@ -133,11 +133,11 @@ class EntranceEngine:
                                           hatch_layer="SEC_HATCH" if concrete else None, label=label))
         return items
 
-    def plan_items(self, cut_h):
-        """평면도(최하층 절단): 최하층 통로에 붙은 출입구의 외곽 (정거장 로컬 (s, t) 다각형)"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도(floor 층 절단): 그 층 통로에 붙은 출입구의 외곽 (정거장 로컬 (s, t) 다각형)"""
         items = []
         for ent in self.entrances:
-            if ent.floor != 1:
+            if ent.floor != floor:
                 continue
             u_end = ent.layout.u["end"]
             b = ent.layout.spec.inner_width / 2.0 + ent.layout.spec.wall_t

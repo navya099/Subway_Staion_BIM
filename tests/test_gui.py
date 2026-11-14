@@ -1268,3 +1268,80 @@ def test_project_embeds_loaded_alignment_file(app, monkeypatch, tmp_path):
     assert not app.is_dirty()
     app.station_tab.reset_alignment()                                    # 선형을 BP/EP 로 바꾸면 변경
     assert app.is_dirty()
+
+
+# ---------------- 출력 탭 ----------------
+def test_print_tab_floor_checks_follow_floor_count(app):
+    tab = app.print_tab
+    assert sorted(tab._floor_vars) == [1, 2] and tab.draft.plan_floors == {1, 2}
+    set_floors(app, 3)
+    assert sorted(tab._floor_vars) == [1, 2, 3] and all(v.get() for v in tab._floor_vars.values())
+    tab._floor_vars[3].set(False)
+    set_floors(app, 4)                                                    # 일부만 골랐으면 새 층은 고르지 않음
+    assert tab.draft.plan_floors == {1, 2}
+    labels = [w.cget("text") for w in tab.floor_frame.winfo_children() if w.winfo_class() == "Checkbutton"]
+    assert labels == ["B1F", "B2F", "B3F", "B4F"]
+
+
+def test_print_tab_input_becomes_options(app):
+    set_floors(app, 3)
+    tab = app.print_tab
+    tab._floor_vars[1].set(False)
+    for k, v in (("plan_cut_h", "1.5"), ("profile_offsets", "3"), ("section_stations", "0+050, 120"),
+                 ("section_interval", "40")):
+        tab._vars[k].set(v)
+    tab._vars["profile_track_l"].set(True)
+    tab._vars["section_continuous"].set(True)
+    tab._vars["ifc"].set(False)
+    cfg = TkAdapter.collect_entries(app.entries)
+    opt = TkAdapter.collect_output(app.entries, cfg)
+    assert (opt.plan_floors, opt.plan_cut_h, opt.ifc) == ([2, 3], 1.5, False)
+    d = cfg.platform.track_spacing / 2.0
+    assert opt.profile_offsets == pytest.approx([0.0, d, 3.0])
+    assert opt.section_stations == [50.0, 120.0] and opt.section_interval == 40.0
+    assert "평면: B2F, B1F" in tab.info_var.get()
+
+
+def test_print_tab_disables_options_of_unchecked_outputs(app):
+    tab = app.print_tab
+    assert str(tab._cont_entries[0].cget("state")) == "disabled"          # 연속 단면 꺼짐
+    tab._vars["section_continuous"].set(True)
+    assert str(tab._cont_entries[0].cget("state")) == "normal"
+    tab._vars["plan"].set(False)
+    assert all(str(w.cget("state")) == "disabled" for w in tab._groups["plan"] + tab._floor_checks)
+    tab._vars["section"].set(False)
+    assert str(tab._cont_entries[0].cget("state")) == "disabled"
+
+
+def test_generate_uses_print_options(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, directory=str(tmp_path))
+    for k in ("dxf3d", "ifc", "profile"):
+        app.print_tab._vars[k].set(False)
+    app.print_tab._vars["section_stations"].set("10, 20")
+    app.on_generate()
+    assert sorted(os.listdir(tmp_path)) == ["정거장단면도.dxf", "정거장평면도.dxf"] and d.calls[-1][0] == "info"
+
+
+def test_generate_rejects_bad_print_options_before_asking_folder(app, monkeypatch, tmp_path):
+    d = patch_dialogs(monkeypatch, directory=str(tmp_path / "out"))
+    app.print_tab._vars["section_stations"].set("99999")
+    app.on_generate()
+    assert d.calls[-1][0] == "error" and "내공 범위" in d.calls[-1][2] and not (tmp_path / "out").exists()
+
+
+def test_project_file_keeps_print_options(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    tab = app.print_tab
+    tab._floor_vars[2].set(False)
+    tab._vars["profile_offsets"].set("1.25")
+    tab._vars["section_continuous"].set(True)
+    tab._vars["dxf3d"].set(False)
+    path = str(tmp_path / "o.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save()
+    app.on_new()
+    assert tab.draft.plan_floors == {1, 2} and tab._vars["dxf3d"].get() is True
+    app.on_open(path)
+    assert tab.draft.plan_floors == {1, 3} and not tab._floor_vars[2].get() and tab._floor_vars[3].get()
+    assert tab._vars["profile_offsets"].get() == "1.25" and tab._vars["dxf3d"].get() is False
+    assert str(tab._cont_entries[0].cget("state")) == "normal" and not app.is_dirty()

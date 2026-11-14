@@ -150,13 +150,15 @@ class PlatformEngine:
                                                hatch_layer="SEC_HATCH", label=label if k == 0 else None))
         return items
 
-    def profile_items(self):
-        """종단면도: 선형 중심(t=0)에서는 잘리지 않고 측면에 보이는 승강장 (좌/우 동일 형상은 한 번만)"""
+    def profile_items(self, t_cut=0.0):
+        """종단면도(t = t_cut 절단): 절단면을 지나는 승강장 부재는 단면(해치), 나머지는 측면에 보이는 윤곽
+        (보이는 것 중 좌/우 동일 형상은 한 번만)"""
         items, seen = [], set()
         for package in self.platform_packages:
             for pl in package.platforms:
                 s0, s1, t0, t1, z0, z1 = self.platform_corners(pl)
-                if PM.cut_by_centerline(pl):
+                if PM.cut_by_centerline(pl, t_cut):
+                    items.append(PM.profile_view(self.cfg, pl, "PROF_CONCRETE", hatch_layer="PROF_HATCH"))
                     continue
                 key = tuple(round(v, 4) for v in (s0, s1, z0, z1, pl.shape.thickness))
                 if key in seen:
@@ -170,9 +172,11 @@ class PlatformEngine:
                 items.append(PM.profile_view(self.cfg, pl, "PROF_BEYOND", label=label))
         return items
 
-    def plan_items(self, cut_h):
-        """평면도: 절단 높이 아래에 보이는 승강장 슬래브 윤곽 (지지벽체는 슬래브에 가려짐)"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도(최하층): 절단 높이 아래에 보이는 승강장 슬래브 윤곽 (지지벽체는 슬래브에 가려짐)"""
         items = []
+        if floor != 1:
+            return items
         for package in self.platform_packages:
             for pl in package.platforms:
                 if pl.part != PlatformPart.SLAB:

@@ -206,18 +206,18 @@ class ColumnEngine:
                     beyond[key] = (s_lo, ViewItem.rect(col.name, "SEC_BEYOND", col.pos_y - ht, col.pos_y + ht, z_bot, z_top))
         return cut + [it for k, (_, it) in beyond.items() if k not in cut_keys]
 
-    def profile_items(self):
-        """종단면도(선형 중심 t=0 절단): 중심선을 지나는 기둥(해치) + 측면에 보이는 기둥(동일 형상은 한 번만)"""
+    def profile_items(self, t_cut=0.0):
+        """종단면도(t = t_cut 절단, 기본 선형 중심): 절단면을 지나는 기둥(해치) + 측면에 보이는 기둥(동일 형상은 한 번만)"""
         cut, beyond, cut_keys = [], {}, set()
         for package in self.column_packages:
             for col in package.columns:
                 z_bot, z_top = col.pos_z, col.pos_z + col.shape.height
                 hs, ht = col.shape.half_s, col.shape.half_t
                 if isinstance(col.shape, CircleColumn):
-                    hs_cut = self._chord(col, col.pos_y)       # t=0 평면이 원을 자르는 현의 반폭
+                    hs_cut = self._chord(col, col.pos_y - t_cut)   # 절단면이 원을 자르는 현의 반폭
                 else:
                     hs_cut = hs
-                if CommonHelper.cut_by_t(col.pos_y - ht, col.pos_y + ht) and hs_cut > 0:
+                if CommonHelper.cut_by_t(col.pos_y - ht, col.pos_y + ht, t_cut) and hs_cut > 0:
                     key = tuple(round(v, 3) for v in (col.pos_x - hs_cut, col.pos_x + hs_cut, z_bot, z_top))
                     cut_keys.add(key)
                     cut.append(ViewItem.rect(col.name, "PROF_CONCRETE", col.pos_x - hs_cut, col.pos_x + hs_cut,
@@ -227,8 +227,8 @@ class ColumnEngine:
                     beyond.setdefault(key, ViewItem.rect(col.name, "PROF_BEYOND", col.pos_x - hs, col.pos_x + hs, z_bot, z_top))
         return cut + [it for k, it in beyond.items() if k not in cut_keys]
 
-    def plan_items(self, cut_h):
-        """평면도: 바닥 슬래브 상면 + cut_h 높이에서 절단되는 기둥 단면 (원기둥은 원, 사각기둥은 사각형)"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도: FL=0 + cut_h 높이에서 절단되는 기둥 단면 (원기둥은 원, 사각기둥은 사각형, 층은 높이로 정해짐)"""
         items = []
         for package in self.column_packages:
             for col in package.columns:

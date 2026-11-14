@@ -164,14 +164,14 @@ class SlabEngine:
                                                hatch_layer="SEC_HATCH", label=label))
         return items
 
-    def profile_items(self):
-        """종단면도(선형 중심 t=0 절단): 중심선을 자르는 슬래브 (중심선이 오프닝을 지나면 그 s 구간은 비움)"""
+    def profile_items(self, t_cut=0.0):
+        """종단면도(t = t_cut 절단, 기본 선형 중심): 절단면을 지나는 슬래브 (절단면이 오프닝을 지나면 그 s 구간은 비움)"""
         items = []
         for package in self.slab_packages:
             for sl in package.slabs:
-                if not PM.cut_by_centerline(sl):
+                if not PM.cut_by_centerline(sl, t_cut):
                     continue
-                holes = [op.s_range for op in sl.openings if op.t_range[0] - 1e-9 <= 0.0 < op.t_range[1] - 1e-9]
+                holes = [op.s_range for op in sl.openings if op.t_range[0] - 1e-9 <= t_cut < op.t_range[1] - 1e-9]
                 if not holes:
                     items.append(PM.profile_view(self.cfg, sl, "PROF_CONCRETE", hatch_layer="PROF_HATCH"))
                     continue

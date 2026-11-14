@@ -7,6 +7,7 @@ from gui.entrance_draft import EntranceDrafts
 from gui.escalator_draft import EscalatorDrafts
 from gui.opening_draft import OpeningDrafts
 from gui.passage_draft import PassageDrafts
+from gui.print_draft import PrintDraft
 from gui.stair_draft import StairDrafts
 from platforms.platform_params import PlatformParameters
 from platforms.platform_type import PlatformType
@@ -87,6 +88,14 @@ class TkAdapter:
                                    stairs=stairs, escalators=escalators, passages=passages, entrances=entrances)
         cfg.validate()
         return cfg
+
+    @staticmethod
+    def collect_output(entries, cfg: StationProjectConfig):
+        """출력 탭 옵션 → OutputOptions (설정 cfg 의 층수·정거장 범위로 검증)"""
+        draft = entries.get("print_draft") or PrintDraft()
+        opt = draft.to_options(cfg.platform.track_spacing)
+        opt.validate(cfg)
+        return opt
 
     @staticmethod
     def _collect_alignment(entries):

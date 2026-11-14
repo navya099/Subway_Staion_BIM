@@ -152,17 +152,17 @@ class WallEngine:
                                                    hatch_layer="SEC_HATCH", merge=True))
         return items
 
-    def profile_items(self):
-        """종단면도(선형 중심 t=0 절단): 중심선을 자르는 마감벽"""
+    def profile_items(self, t_cut=0.0):
+        """종단면도(t = t_cut 절단, 기본 선형 중심): 절단면을 지나는 벽 (중심이면 마감벽, 측벽 위치면 측벽 전체)"""
         items = []
         for package in self.wall_packages:
             for w in package.walls:
-                if PM.cut_by_centerline(w):
+                if PM.cut_by_centerline(w, t_cut):
                     items.append(PM.profile_view(self.cfg, w, "PROF_CONCRETE", hatch_layer="PROF_HATCH", merge=True))
         return items
 
-    def plan_items(self, cut_h):
-        """평면도: 바닥 슬래브 상면 + cut_h 높이에서 절단되는 벽체의 바깥/안쪽 윤곽"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도: 본체 바닥 슬래브 상면(FL=0) + cut_h 높이에서 절단되는 벽체의 바깥/안쪽 윤곽 (층은 높이로 정해짐)"""
         cut = []
         for package in self.wall_packages:
             for w in package.walls:

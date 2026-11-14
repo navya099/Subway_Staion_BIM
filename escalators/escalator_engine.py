@@ -96,14 +96,14 @@ class EscalatorEngine:
                     items.append(ViewItem.rect(part.name, "SEC_ESCALATOR", t0, t1, zb, zt, label=label))
         return items
 
-    def profile_items(self):
-        """종단면도: 트러스·스텝·한쪽 난간/핸드레일 윤곽 (중심선이 지나면 절단, 아니면 측면에 보이는 윤곽)"""
+    def profile_items(self, t_cut=0.0):
+        """종단면도(t = t_cut 절단): 트러스·스텝·한쪽 난간/핸드레일 윤곽 (절단면이 지나면 절단, 아니면 측면에 보이는 윤곽)"""
         items = []
         for esc in self.all_escalators():
             for part in esc.parts:
-                if part.side < 0:                                # 측면에서 보면 좌/우가 겹침 → 한쪽만
+                cut = CommonHelper.cut_by_t(*part.t_range, t_cut)
+                if part.side < 0 and not cut:                    # 측면에서 보면 좌/우가 겹침 → 보이는 것은 한쪽만
                     continue
-                cut = CommonHelper.cut_by_t(*part.t_range)
                 pts = part.shape.profile_points()
                 label = None
                 if part.kind == EscalatorPartKind.TRUSS:
@@ -113,11 +113,11 @@ class EscalatorEngine:
                                       u0=min(p[0] for p in pts), u1=max(p[0] for p in pts), pts=pts, label=label))
         return items
 
-    def plan_items(self, cut_h):
-        """평면도(최하층 절단): 최하층에서 오르는 에스컬레이터의 트러스 외곽, 스텝 폭, 난간, 이름(오르는 방향)"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도(floor 층 절단): 그 층에서 오르는 에스컬레이터의 트러스 외곽, 스텝 폭, 난간, 이름(오르는 방향)"""
         items = []
         for esc in self.all_escalators():
-            if esc.lower_floor != 1:
+            if esc.lower_floor != floor:
                 continue
             s0, s1 = esc.s_range
             t0, t1 = esc.t_range

@@ -131,6 +131,9 @@ class StationBIMApp:
         if hasattr(self, 'passage_tab'):
             self.passage_tab.update_floor_ui()
             self.passage_tab.refresh_info()
+        if hasattr(self, 'print_tab'):
+            self.print_tab.update_floor_ui()
+            self.print_tab.refresh_info()
 
     def _on_floors_changed(self, event=None):
         """🌟 층수가 변경될 때 메인 앱을 통해 ColumnTab의 UI 갱신을 트리거"""
@@ -146,14 +149,17 @@ class StationBIMApp:
             self.escalator_tab.update_floor_ui()
         if hasattr(self, 'passage_tab'):
             self.passage_tab.update_floor_ui()
+        if hasattr(self, 'print_tab'):
+            self.print_tab.update_floor_ui()
 
     def on_generate(self):
         try:
             cfg = TkAdapter.collect_entries(self.entries)
+            opt = TkAdapter.collect_output(self.entries, cfg)       # 폴더를 고르기 전에 출력 옵션도 검사
             out_dir = filedialog.askdirectory(title="성과물 저장 폴더 선택")
             if not out_dir:
                 return
-            paths = BIMEngine.build(cfg, out_dir)
+            paths = BIMEngine.build(cfg, out_dir, opt)
         except Exception as e:
             traceback.print_exc()
             messagebox.showerror('에러', f"{type(e).__name__}: {e}")
@@ -206,6 +212,7 @@ class StationBIMApp:
         st.column_floors = copy.deepcopy(self.column_tab.drafts.floors)      # 화면이 초안을 계속 고치므로 복사본
         for name in LIST_DRAFTS:
             setattr(st, name, copy.deepcopy(self.entries[name].items))
+        st.print_draft = copy.deepcopy(self.print_tab.draft)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -244,6 +251,10 @@ class StationBIMApp:
             if n and hasattr(tab.drafts, "ensure_floors"):
                 tab.drafts.ensure_floors(n)
             tab.render()
+        pd = self.print_tab.draft                               # 초안 객체는 그대로 두고 내용만 교체 (entries 가 참조)
+        pd.__dict__.update(copy.deepcopy(st.print_draft).__dict__)
+        pd.ensure_floors(self.print_tab._read_floor_count() or 1, 0)
+        self.print_tab.render()
         if st.alignment is not None:
             try:
                 a = st.alignment.load()

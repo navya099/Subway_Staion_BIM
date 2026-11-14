@@ -101,12 +101,12 @@ class StairEngine:
                                                hatch_layer="SEC_HATCH", label=label))
         return items
 
-    def profile_items(self):
-        """종단면도: 중심선(t=0)이 계단을 지나면 단면(해치), 아니면 측면에 보이는 윤곽"""
+    def profile_items(self, t_cut=0.0):
+        """종단면도(t = t_cut 절단): 절단면이 계단을 지나면 단면(해치), 아니면 측면에 보이는 윤곽"""
         items = []
         for stair in self.all_stairs():
             for i, part in enumerate(stair.parts):
-                cut = CommonHelper.cut_by_t(*part.t_range)
+                cut = CommonHelper.cut_by_t(*part.t_range, t_cut)
                 pts = part.shape.profile_points()
                 label = None
                 if i == 0:
@@ -117,11 +117,11 @@ class StairEngine:
                                       hatch_layer="PROF_HATCH" if cut else None, label=label))
         return items
 
-    def plan_items(self, cut_h):
-        """평면도(최하층 절단): 최하층에서 오르는 계단의 디딤판·계단참 윤곽과 이름(오르는 방향 표시)"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도(floor 층 절단): 그 층에서 오르는 계단의 디딤판·계단참 윤곽과 이름(오르는 방향 표시)"""
         items = []
         for stair in self.all_stairs():
-            if stair.lower_floor != 1:
+            if stair.lower_floor != floor:
                 continue
             t0, t1 = stair.t_range
             s0, s1 = stair.s_range

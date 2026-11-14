@@ -60,10 +60,10 @@ def section_rect(cfg, m, sta: float):
     return t0, t1, z_at(cfg, m, sta)
 
 
-def cut_by_centerline(m) -> bool:
-    """종단면(선형 중심 t=0)이 부재를 자르는가"""
+def cut_by_centerline(m, t_cut: float = 0.0) -> bool:
+    """종단면(선형 중심에서 t_cut 떨어진 연직면, 기본 선형 중심)이 부재를 자르는가"""
     t0, t1 = t_range(m)
-    return CommonHelper.cut_by_t(t0, t1)
+    return CommonHelper.cut_by_t(t0, t1, t_cut)
 
 
 def profile_view(cfg, m, layer: str, **kw) -> ViewItem:

@@ -82,11 +82,11 @@ class PassageEngine:
                                           pts=poly, hatch_layer="SEC_HATCH", label=label))
         return items
 
-    def plan_items(self, cut_h):
-        """평면도(최하층 절단): 최하층에 붙은 통로의 벽 평면 (정거장 로컬 (s, t) 다각형)"""
+    def plan_items(self, cut_h, floor=1):
+        """평면도(floor 층 절단): 그 층에 붙은 통로의 벽 평면 (정거장 로컬 (s, t) 다각형)"""
         items = []
         for ps in self.all_passages():
-            if ps.floor != 1:
+            if ps.floor != floor:
                 continue
             v0, v1 = ps.vertices[0], ps.vertices[1]
             s_lab, t_lab = self.cfg.to_station((v0.x + v1.x) / 2.0, (v0.y + v1.y) / 2.0)

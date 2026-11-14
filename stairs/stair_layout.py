@@ -114,33 +114,25 @@ def base_level(cfg, spec, name: str, what: str = "계단") -> tuple[float, bool]
     return st.floor_level(spec.lower_floor), False
 
 
-def layout_stair(cfg, spec, name: str) -> StairLayout:
-    """계단 1개의 배치 (spec 의 기본 범위 검사는 stair_check.check_stair_spec 이 먼저 한다)"""
-    st = cfg.station
-    k, d, g, w = spec.lower_floor, spec.direction, spec.tread, spec.waist_t
-    z_base, on_platform = base_level(cfg, spec, name)
-    z_top = st.floor_level(k + 1)
+def stair_part_strips(spec, counts: list, r: float, e_base: float, floor_fn, s_at, curve_factor,
+                      top_extra: float = 0.0) -> list:
+    """계단 런·계단참 띠 (정거장·출입구 공통 핵심 기하). 진행 좌표 u: 첫 챌판 = 0.
+    counts: 런별 챌판 수, r: 단높이, e_base: 시작면 표고(첫 챌판 아래), floor_fn(u): 첫 런이 놓이는 바닥 표고(그 아래는 잘라냄),
+    s_at(u): 진행 좌표 → 부재 s 좌표, curve_factor(sa, sb, t_center): 띠 체적 보정,
+    top_extra: 마지막 바닥 높이 디딤판 뒤로 같은 높이·같은 하면 띠를 더 늘이는 길이 (출입구 상부 평탄부, 정거장은 0).
 
-    def s_at(u):
-        return spec.s_start + d * u
-
-    def elev(u, z_rel):
-        return cfg.lv(s_at(u)) - st.offset + z_rel
-
-    e_base = elev(0.0, z_base)
-    # 위층 도착: 마지막 챌판(u = run) 위 디딤판 1개(u = run ~ run + g)가 위층 바닥 높이이고, 그 끝에서 슬래브와 맞닿는다.
-    # 맞닿는 점(run + g)의 슬래브 상면과 같은 높이가 되도록 표고차를 그 점에서 잰다
-    n, r, counts, run = plan_risers(z_top - z_base, spec, lambda run: elev(run + g, z_top) - e_base)
+    구조 상면선(디딤판 안쪽 모서리를 잇는 선 / 계단참 상면)에서 연직으로 band 만큼 아래가 하면이다 (실무 도면 기준:
+    경사 슬래브와 계단참 슬래브의 상·하면이 같은 s 에서 꺾임). 런 i 의 안쪽 모서리 선은 (u_i0, e_i0) 를 지나는 기울기 r/g 직선"""
+    g, w = spec.tread, spec.waist_t
     slope = r / g
     band = w * math.sqrt(1.0 + slope * slope)          # 구조 띠의 연직 두께 = 허리 두께 / cos(경사각) (계단참도 같은 연직 두께)
-    t0, t1 = spec.t_lo, spec.t_hi
     tc = spec.t_center
 
     def to_strip(ua, ub, zba, zbb, zt):
         sa, sb = s_at(ua), s_at(ub)
         if sa > sb:
             sa, sb, zba, zbb = sb, sa, zbb, zba
-        return StairStrip(sa, sb, zba, zbb, zt, curve_factor=PM.curve_factor(cfg, sa, sb, tc))
+        return StairStrip(sa, sb, zba, zbb, zt, curve_factor=curve_factor(sa, sb, tc))
 
     def strips_over(ua, ub, zt, bottom, kinks=()):
         """[ua, ub] 구간 상면 zt 의 띠. 하면 bottom(u) 이 꺾이는 점(kinks)과 시작면과 만나는 점에서 나눔"""
@@ -151,8 +143,6 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
                 out.append(to_strip(a, b, bottom(a), bottom(b), zt))
         return out
 
-    # 구조 상면선(디딤판 안쪽 모서리를 잇는 선 / 계단참 상면)에서 연직으로 band 만큼 아래가 하면이다 (실무 도면 기준:
-    # 경사 슬래브와 계단참 슬래브의 상·하면이 같은 s 에서 꺾임). 런 i 의 안쪽 모서리 선은 (u_i0, e_i0) 를 지나는 기울기 slope 직선
     parts, u, j0 = [], 0.0, 0
     for i, c in enumerate(counts):
         u_start, e_start = u, e_base + j0 * r
@@ -162,10 +152,10 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
 
         if i == 0:                                       # 첫 런은 시작면(바닥 또는 승강장 상면) 위에 놓임: 그 아래는 잘라냄
             def floor_gap(x, cn=corner):
-                return cn(x) - band - elev(x, z_base)
+                return cn(x) - band - floor_fn(x)
 
             def bottom(x, cn=corner):
-                return max(elev(x, z_base), cn(x) - band)
+                return max(floor_fn(x), cn(x) - band)
         else:
             floor_gap = None
 
@@ -194,9 +184,33 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
             parts.append(PartLayout(StairPartKind.LANDING, sorted(land, key=lambda s: s.s0),
                                     surfaces=[(u, u + spec.landing_len, top)]))
             u += spec.landing_len
-        else:                                            # 위층 도착: 바닥 높이 디딤판 1개까지 계단에 포함 (그 끝에서 슬래브와 맞닿음)
-            strips += strips_over(u, knee, top, lower)
+        else:                                            # 위층 도착: 바닥 높이 디딤판 1개(+ top_extra)까지 계단에 포함
+            strips += strips_over(u, knee + top_extra, top, lower, [knee])
             parts.append(PartLayout(StairPartKind.FLIGHT, sorted(strips, key=lambda s: s.s0), n_risers=c, surfaces=surfaces))
+    return parts
+
+
+def layout_stair(cfg, spec, name: str) -> StairLayout:
+    """계단 1개의 배치 (spec 의 기본 범위 검사는 stair_check.check_stair_spec 이 먼저 한다)"""
+    st = cfg.station
+    k, d, g = spec.lower_floor, spec.direction, spec.tread
+    z_base, on_platform = base_level(cfg, spec, name)
+    z_top = st.floor_level(k + 1)
+
+    def s_at(u):
+        return spec.s_start + d * u
+
+    def elev(u, z_rel):
+        return cfg.lv(s_at(u)) - st.offset + z_rel
+
+    e_base = elev(0.0, z_base)
+    # 위층 도착: 마지막 챌판(u = run) 위 디딤판 1개(u = run ~ run + g)가 위층 바닥 높이이고, 그 끝에서 슬래브와 맞닿는다.
+    # 맞닿는 점(run + g)의 슬래브 상면과 같은 높이가 되도록 표고차를 그 점에서 잰다
+    n, r, counts, run = plan_risers(z_top - z_base, spec, lambda run: elev(run + g, z_top) - e_base)
+    tc = spec.t_center
+    t0, t1 = spec.t_lo, spec.t_hi
+    parts = stair_part_strips(spec, counts, r, e_base, lambda x: elev(x, z_base), s_at,
+                              lambda sa, sb, t: PM.curve_factor(cfg, sa, sb, t))
     length = run + g                                     # 첫 챌판 ~ 위층 슬래브와 맞닿는 점
 
     # 자동 오프닝: 위층 슬래브(번호 k) 하면까지의 유효 높이가 headroom 보다 낮아지는 첫 걷는 면부터 슬래브와 맞닿는 점까지

@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_eight_tabs_fit_in_window_width(app):
-    """탭 8개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_nine_tabs_fit_in_window_width(app):
+    """탭 9개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 8
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 9
 
 
 # ---------------- 계단 탭 ----------------
@@ -1047,3 +1047,70 @@ def test_generate_with_path_passages_end_to_end(app, tmp_path):
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
     assert len(f.by_type("IfcElementAssembly")) == 2
     assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == ["OPEN_EX1_WALL_B1F_R", "OPEN_EX2_WALL_B1F_L"]
+
+
+# ---------------- 출입구 탭 ----------------
+from gui.entrance_draft import SIDE_RIGHT
+
+
+def add_entrance(app, side=None, **fields):
+    """출입구 탭에서 '+ 출입구 추가' 후 콤보박스·입력칸에 값을 넣음 (실제 입력과 같은 경로). 마지막 인덱스 반환"""
+    tab = app.entrance_tab
+    tab.add_entrance()
+    app.root.update()
+    i = len(tab.drafts.items) - 1
+    if side is not None:
+        tab._combos[(i, "side")].set(side)
+        tab._combos[(i, "side")].event_generate("<<ComboboxSelected>>")
+    for k, v in fields.items():
+        tab._vars[(i, k)].set(v)
+    app.root.update()
+    return i
+
+
+def test_entrance_tab_defaults_to_last_passage(app):
+    assert app.entrance_tab.drafts.items == []
+    assert TkAdapter.collect_entries(app.entries).entrances == []
+    add_passage(app, name="P1")
+    add_passage(app, name="P2")
+    add_entrance(app)
+    assert app.entrance_tab.drafts.items[0].passage == "P2"
+
+
+def test_entrance_input_becomes_spec(app):
+    add_passage(app)
+    zp = TkAdapter.collect_entries(app.entries).passage_layouts()[0].vertices[-1].z
+    i = add_entrance(app, side=SIDE_RIGHT, name="A", ground_el=f"{zp + 12:.3f}", tread="0.28", stair_offset="-2",
+                     stair_width="4.6")
+    app.entrance_tab._vars[(i, "escalator")].set(False)
+    (sp,) = TkAdapter.collect_entries(app.entries).entrances
+    assert (sp.name, sp.passage, sp.escalator_side, sp.tread, sp.stair_offset, sp.escalator) ==         ("A", "EX1", -1, 0.28, -2.0, False)
+    assert sp.ground_el == pytest.approx(zp + 12, abs=1e-3)
+
+
+def test_entrance_preview_and_bad_input(app):
+    i = add_entrance(app)
+    (var, _), = app.entrance_tab._info_vars
+    assert "내공 폭 5.26m" in var.get()
+    app.entrance_tab._vars[(i, "escalator")].set(False)
+    assert "내공 폭 1.75m" in var.get()
+    app.entrance_tab._vars[(i, "wall_t")].set("x")
+    assert "확인" in var.get()
+    with pytest.raises(ValueError, match="출입구 1: 벽·슬래브 두께"):
+        TkAdapter.collect_entries(app.entries)
+    app.entrance_tab.remove_entrance(0); app.root.update()
+    assert app.entrance_tab.drafts.items == [] and app.entrance_tab.count_var.get() == ""
+
+
+def test_generate_with_entrance_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "134.45")
+    add_passage(app, floor=3, vertices=[("184.45", "10", ""), ("184.45", "25", "0"), ("204.45", "25", "0")])
+    zp = TkAdapter.collect_entries(app.entries).passage_layouts()[0].vertices[-1].z
+    add_entrance(app, ground_el=f"{zp + 15:.3f}")
+    cfg = TkAdapter.collect_entries(app.entries)
+    paths = BIMEngine.build(cfg, tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    asm = [a for a in f.by_type("IfcElementAssembly") if a.ObjectType == "ENTRANCE"]
+    assert [a.Name for a in asm] == ["EN1"]
+    assert len(f.by_type("IfcStair")) == 1 and len(f.by_type("IfcTransportElement")) == 1

@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from engine.bim_engine import BIMEngine
 from gui.column_tab import ColumnTab
+from gui.entrance_tab import EntranceTab
 from gui.escalator_tab import EscalatorTab
 from gui.opening_tab import OpeningTab
 from gui.passage_tab import PassageTab
@@ -74,9 +75,15 @@ class StationBIMApp:
         self.passage_tab = PassageTab(tab_passage, self.entries)
         self.passage_tab.build()
 
-        # 탭 8: 출력 설정
+        # 탭 8: 출입구
+        tab_entrance = ttk.Frame(notebook)
+        notebook.add(tab_entrance, text=" 8. 출입구 ")
+        self.entrance_tab = EntranceTab(tab_entrance, self.entries)
+        self.entrance_tab.build()
+
+        # 탭 9: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text=" 8. 출력 ")
+        notebook.add(tab_print, text=" 9. 출력 ")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 

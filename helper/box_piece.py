@@ -120,24 +120,27 @@ class BoxPiece:
     def cut_by_plane(self, px: float, py: float, nx: float, ny: float):
         """연직 평면(점 (px, py), 수평 법선 (nx, ny))과의 단면 다각형 → [(w, z)] 또는 None.
         w = 평면 위 수평 좌표 (법선을 +90° 돌린 방향, 즉 (−ny, nx) 방향 거리)"""
-        r0, r1 = self.rings()
-        n = len(r0)
-        edges = [(r0[i], r0[(i + 1) % n]) for i in range(n)] + [(r1[i], r1[(i + 1) % n]) for i in range(n)] + \
-                [(r0[i], r1[i]) for i in range(n)]
-        pts = []
-        for p, q in edges:
+        return cut_faces_by_plane(self.faces(), px, py, nx, ny)
+
+
+def cut_faces_by_plane(faces, px: float, py: float, nx: float, ny: float):
+    """볼록 다면체(면 목록)를 연직 평면으로 자른 단면 다각형 [(w, z)] 또는 None (w 는 BoxPiece.cut_by_plane 과 같음)"""
+    pts = []
+    for f in faces:
+        for i in range(len(f)):
+            p, q = f[i], f[(i + 1) % len(f)]
             dp = (p[0] - px) * nx + (p[1] - py) * ny
             dq = (q[0] - px) * nx + (q[1] - py) * ny
             if abs(dp) < 1e-12:
                 pts.append(p)
             if dp * dq < 0:
                 t = dp / (dp - dq)
-                pts.append(tuple(p[i] + (q[i] - p[i]) * t for i in range(3)))
-        wz = [(-(p[0] - px) * ny + (p[1] - py) * nx, p[2]) for p in pts]
-        hull = _convex_hull(wz)
-        if len(hull) < 3 or abs(polygon_area(hull)) < 1e-9:
-            return None
-        return hull
+                pts.append(tuple(p[k] + (q[k] - p[k]) * t for k in range(3)))
+    wz = [(-(p[0] - px) * ny + (p[1] - py) * nx, p[2]) for p in pts]
+    hull = _convex_hull(wz)
+    if len(hull) < 3 or abs(polygon_area(hull)) < 1e-9:
+        return None
+    return hull
 
 
 def _outward(*poly, ref):

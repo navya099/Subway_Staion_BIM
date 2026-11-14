@@ -7,6 +7,7 @@ from config.alignment_config import AlignmentConfig
 from config.alignment_io import describe, file_kind, load_alignment
 from config.alignment_landxml import LandXMLOptions, scan_landxml
 from gui.column_draft import level_name
+from gui.project_file import embed_alignment
 from gui.landxml_options_dialog import LandXMLOptionsDialog
 from gui.xyz_options_dialog import XYZOptionsDialog
 from config.station_config import StationParameters
@@ -22,6 +23,7 @@ class AlignmentSource:
     alignment: Alignment | None = None
     path: str = ""
     warnings: tuple = ()
+    embedded: object = None            # 프로젝트 저장용으로 포함한 원본 (gui.project_file.EmbeddedAlignment)
 
 
 class StationTab:
@@ -260,11 +262,26 @@ class StationTab:
         except ValueError as e:
             messagebox.showerror("선형 파일 오류", str(e))
             return
-        self.source.alignment, self.source.path = a, path
+        try:
+            embedded = embed_alignment(path, options)
+        except OSError as e:
+            messagebox.showerror("선형 파일 오류", f"{path}: 프로젝트에 포함할 수 없습니다 ({e.strerror})")
+            return
+        self.set_alignment(a, path, embedded, adjust_start=True)
+
+    def set_alignment(self, a, path, embedded, adjust_start=False, note=""):
+        """선형 파일을 적용 (불러오기 · 프로젝트 열기 공통). adjust_start: 정거장 시작 측점이 선형 밖이면 선형 시작으로 맞춤"""
+        self.source.alignment, self.source.path, self.source.embedded = a, path, embedded
         self.source.warnings = tuple(getattr(a, "warnings", ()))
         self._set_coord_state("disabled")
         self.reset_btn.configure(state="normal")
-        note = ""
+        if adjust_start:
+            note += self._fit_start_station(a)
+        for w in self.source.warnings[:3]:
+            note += f"\n⚠ {w}"
+        self.align_status.set(f"선형: {path.replace(chr(92), '/').rsplit('/', 1)[-1]} ({describe(a)}). BP/EP 입력은 사용하지 않습니다.{note}")
+
+    def _fit_start_station(self, a) -> str:
         try:
             cur, length = float(self.entries["start_station"].get()), float(self.entries["length"].get())
         except ValueError:
@@ -272,10 +289,8 @@ class StationTab:
         if cur is None or cur < a.start_station - 1e-6 or cur + length > a.end_station + 1e-6:
             self.entries["start_station"].delete(0, "end")
             self.entries["start_station"].insert(0, str(a.start_station))
-            note = f"\n정거장 시작 측점을 선형 시작({a.start_station:g})에 맞췄습니다."
-        for w in self.source.warnings[:3]:
-            note += f"\n⚠ {w}"
-        self.align_status.set(f"선형: {path.replace(chr(92), '/').rsplit('/', 1)[-1]} ({describe(a)}). BP/EP 입력은 사용하지 않습니다.{note}")
+            return f"\n정거장 시작 측점을 선형 시작({a.start_station:g})에 맞췄습니다."
+        return ""
 
     def _ask_xyz_options(self, path):
         """좌표 목록 파일의 열 순서 / 시작 측점 / 평활 반폭을 묻는 대화상자 (취소하면 None)"""
@@ -286,7 +301,7 @@ class StationTab:
         return LandXMLOptionsDialog(self.parent.winfo_toplevel(), path, infos).result
 
     def reset_alignment(self):
-        self.source.alignment, self.source.path, self.source.warnings = None, "", ()
+        self.source.alignment, self.source.path, self.source.warnings, self.source.embedded = None, "", (), None
         self._set_coord_state("normal")
         self.reset_btn.configure(state="disabled")
         self.align_status.set("선형: 위의 BP/EP 좌표 (직선)")

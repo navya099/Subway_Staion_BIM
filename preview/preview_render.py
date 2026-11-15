@@ -61,10 +61,13 @@ def draw_doc_2d(ax, doc):
     """DXF 문서의 모델스페이스를 Axes 에 그림 (ezdxf drawing, CAD 와 같은 어두운 배경)"""
     from ezdxf.addons.drawing import Frontend, RenderContext
     from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+    fig = ax.figure
+    size = fig.get_size_inches().copy()                # ezdxf 가 그림 크기를 도면 비율로 바꾸므로 창 크기로 되돌림
     ax.clear()
     ax.set_axis_off()
     use_preview_font(doc)
     Frontend(RenderContext(doc), MatplotlibBackend(ax)).draw_layout(doc.modelspace(), finalize=True)
+    fig.set_size_inches(size, forward=False)
     ax.set_aspect("equal", adjustable="datalim")
 
 

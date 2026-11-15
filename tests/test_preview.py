@@ -163,3 +163,94 @@ def test_choices_and_parsing():
         R.parse_cut_h("99", cfg, 1)
     assert "FIN_FRAME" not in R.layers_of(R.default_groups())
     assert R.layer_rgb("STRUCT_SLAB") != R.layer_rgb("STRUCT_WALL")
+
+
+# ===================================================== 위치 선택 (preview.pick, gui.pick_fill)
+from gui import pick_fill as PF
+from gui.passage_draft import MODE_WORLD, MODE_STATION, VertexDraft
+from gui.room_draft import RoomDraft
+from preview import pick as PK
+
+
+def test_snap_priority_points_lines_grid():
+    cfg = make_cfg(user_example())
+    p = cfg.station
+    hw = p.width / 2
+    tg = PK.snap_targets(cfg, 1, columns=[(1, 50.0, 0.0), (2, 70.0, 0.0)])
+    assert (50.0, 0.0, "기둥 중심") in tg.points and not any(s == 70.0 for s, _, _ in tg.points)
+    sn = PK.Snapper(tg, grid=0.5, base=p.start_station)
+    assert sn.snap(50.2, 0.1, tol=0.5) == (50.0, 0.0, "기둥 중심")            # 점 우선
+    s, t, lab = sn.snap(30.33, hw - 0.2, tol=0.5)                             # t 는 내공면, s 는 격자 (절대 STA 기준)
+    assert t == hw and "내공면" in lab and "격자" in lab
+    assert (p.start_station + s) % 0.5 == pytest.approx(0, abs=1e-9) or (p.start_station + s) % 0.5 == pytest.approx(0.5)
+    s, t, lab = sn.snap(0.2, hw + 0.1, tol=0.5)
+    assert (s, t, lab) == (0.0, hw, "내공 모서리")
+    wt = p.wall_ts[0]
+    assert sn.snap(100.0, -hw - wt + 0.05, tol=0.2)[1] == -hw - wt            # 통로 접합점: 외벽 바깥면
+    sn.members, sn.grid = False, None
+    assert sn.snap(50.2, 0.1, tol=0.5) == (50.2, 0.1, "")
+
+
+def test_parse_input_absolute_and_relative():
+    base = 1000.0
+    assert PK.parse_input("1+134.5, 3.2", base, None) == pytest.approx((134.5, 3.2))
+    assert PK.parse_input("1050 -2", base, None) == pytest.approx((50.0, -2.0))
+    assert PK.parse_input("@5,0", base, (10.0, 1.0)) == pytest.approx((15.0, 1.0))
+    with pytest.raises(ValueError, match="첫 점"):
+        PK.parse_input("@5,0", base, None)
+    with pytest.raises(ValueError, match="STA, offset"):
+        PK.parse_input("1050", base, None)
+
+
+def test_pick_session_kinds():
+    got = []
+    r = PK.PickSession(PK.PickRequest(PK.RECT, 1, "실", got.append))
+    assert "첫 모서리" in r.prompt() and r.rubber(1, 1) == []
+    assert r.add(0, 0) is False and "반대쪽" in r.prompt()
+    assert r.rubber(4, 2) == [[(0, 0), (4, 0), (4, 2), (0, 2), (0, 0)]]
+    with pytest.raises(ValueError, match="모두 달라야"):
+        r.add(5, 0)
+    assert r.add(5, 3) is True
+    r.finish()
+    assert got == [[(0, 0), (5, 3)]]
+    pth = PK.PickSession(PK.PickRequest(PK.PATH, 1, "통로", got.append))
+    pth.add(0, 0)
+    assert pth.add(0, 0) is False and len(pth.points) == 1                   # 같은 자리 무시
+    assert not pth.can_finish()
+    pth.add(0, 10)
+    pth.add(5, 10)
+    pth.undo()
+    assert pth.points == [(0, 0), (0, 10)] and pth.add(8, 10) is False
+    pth.finish()
+    assert got[-1] == [(0, 0), (0, 10), (8, 10)]
+    pt = PK.PickSession(PK.PickRequest(PK.POINT, 1, "계단", got.append))
+    assert pt.add(3, 4) is True
+
+
+def test_fill_values():
+    base = 1000.0
+    assert PF.rect_fields([(20, 5), (10, -3)], base) == {"sta0": "1010", "sta1": "1020", "t0": "-3", "t1": "5"}
+    assert PF.opening_fields([(20, 5), (10.25, -3)], base) == {"sta_start": "1010.25", "length": "9.75",
+                                                                 "t_center": "1", "width": "8"}
+    assert PF.point_fields([(12.3456, -0.0001)], base, "sta_wp") == {"sta_wp": "1012.346", "t_center": "0"}
+    room = RoomDraft(sta0="1010", sta1="1020", t0="2", t1="8")
+    assert PF.door_fields(room, (15.2, 1.9), base) == {"side": "−t 변 (오른쪽)", "center": "1015.2"}
+    assert PF.door_fields(room, (19.9, 4.0), base) == {"side": "+s 변 (종점 쪽)", "center": "4"}
+    assert PF.door_fields(room, (30.0, 8.5), base)["center"] == "1020"      # 변 범위로 잘라 넣음
+    old = [VertexDraft("1", "2", ""), VertexDraft("1", "9", "0.5")]
+    vs = PF.path_vertices([(5, 9), (5, 20), (15, 20)], MODE_STATION, base, None, old)
+    assert [(v.x, v.y, v.z) for v in vs] == [("1005", "9", ""), ("1005", "20", "0.5"), ("1015", "20", "0")]
+    vs = PF.path_vertices([(5, 9)], MODE_WORLD, base, lambda s, t: (s * 2, t * 3), [])
+    assert (vs[0].x, vs[0].y, vs[0].z) == ("10", "27", "")
+    assert PF.opening_floor({0}, 3) == 1 and PF.opening_floor({2, 3}, 3) == 3 and PF.opening_floor({3}, 3) == 3
+    assert PF.num(-0.0004) == "0" and PF.num(2.5) == "2.5"
+
+
+def test_ortho_snap_locks_axis():
+    sn = PK.Snapper(PK.SnapTargets(t_lines=[(15.0, "선")]), grid=0.1, base=0.0)
+    s, t, lab = PK.ortho_snap(sn, (80.0, 9.8), 80.37, 19.93, tol=0.2)      # t 를 더 많이 움직임 → s 고정
+    assert (s, t) == (80.0, pytest.approx(19.9)) and lab.startswith("직교 t")
+    s, t, lab = PK.ortho_snap(sn, (80.0, 19.9), 95.04, 20.3, tol=0.2)      # s 방향 → t 고정
+    assert (s, t) == (pytest.approx(95.0), 19.9) and lab.startswith("직교 s")
+    s, t, lab = PK.ortho_snap(sn, (80.0, 9.8), 80.4, 15.1, tol=0.2)        # 움직이는 축은 부재 선 스냅
+    assert (s, t) == (80.0, 15.0) and "선" in lab

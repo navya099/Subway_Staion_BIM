@@ -13,6 +13,7 @@ from matplotlib.figure import Figure
 
 from config.output_config import PLAN_CUT_H
 from engine.cad_engine import StationCADEngine
+from preview import pick as P
 from preview import preview_render as R
 
 FONT = ("Malgun Gothic", 9)
@@ -33,6 +34,7 @@ class _View:
         tb = NavigationToolbar2Tk(self.canvas, self.frame, pack_toolbar=False)
         tb.update()
         tb.pack(side="bottom", fill="x")
+        self.toolbar = tb
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.key = None            # 마지막으로 그린 보기 (같으면 확대 상태 유지)
         self.stale = True          # 모델이 바뀌어 다시 그려야 함
@@ -70,11 +72,17 @@ class PreviewWindow:
         self.cfg = None
         self.engine = None
         self.mesh = None
+        self.pick = None           # 진행 중인 위치 선택 (PickSession)
+        self.last_error = None     # 마지막 갱신 오류
+        self.snapper = None
+        self._pick_artists = []
         self.top = tk.Toplevel(master)
         self.top.title("미리보기")
         self.top.geometry("1200x800")
         self.top.protocol("WM_DELETE_WINDOW", self.close)
         self.top.bind("<F5>", lambda e: (self.refresh(), "break")[1])   # break: 메인 창의 bind_all F5 와 중복 실행 방지
+        self.top.bind("<Escape>", lambda e: self.cancel_pick())
+        self.top.bind("<F8>", lambda e: self.toggle_ortho())
 
         head = tk.Frame(self.top, bg="#ECEFF1")
         head.pack(fill="x")
@@ -120,6 +128,34 @@ class PreviewWindow:
         self.plan_cut.bind("<Return>", lambda e: self.draw_plan())
         self._label(bar, "m")
         self._button(bar, "그리기", self.draw_plan)
+        tk.Frame(bar, width=16).pack(side="left")
+        v = tk.BooleanVar(value=True)
+        self._vars["grid_on"] = v
+        tk.Checkbutton(bar, text="격자 스냅", variable=v, font=FONT).pack(side="left")
+        self.grid_step = tk.Entry(bar, width=5, font=FONT)
+        self.grid_step.insert(0, "0.1")
+        self.grid_step.pack(side="left")
+        self._label(bar, "m")
+        v = tk.BooleanVar(value=True)
+        self._vars["member_snap"] = v
+        tk.Checkbutton(bar, text="부재 스냅", variable=v, font=FONT).pack(side="left", padx=(6, 0))
+        v = tk.BooleanVar(value=True)
+        self._vars["ortho"] = v
+        tk.Checkbutton(bar, text="직교 (F8)", variable=v, font=FONT).pack(side="left", padx=(6, 0))
+
+        # 명령줄 (그림 아래): 선택 중 좌표 직접 입력
+        cmd = tk.Frame(self.plan.frame, bg="#ECEFF1")
+        cmd.pack(side="bottom", fill="x", before=self.plan.canvas.get_tk_widget())
+        tk.Label(cmd, text="명령:", font=FONT, bg="#ECEFF1").pack(side="left", padx=(6, 2))
+        self.command = tk.Entry(cmd, width=28, font=FONT)
+        self.command.pack(side="left", pady=3)
+        self.command.bind("<Return>", lambda e: self.on_command())
+        self.cursor_label = tk.Label(cmd, text="", font=FONT, bg="#ECEFF1", fg="#37474F", anchor="w")
+        self.cursor_label.pack(side="left", fill="x", expand=True, padx=8)
+        tk.Label(cmd, text="STA,offset | @ds,dt | Enter = 경로 끝 | U = 한 점 취소 | F8 = 직교 | Esc = 취소", font=FONT,
+                 bg="#ECEFF1", fg="#78909C").pack(side="right", padx=6)
+        self.plan.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        self.plan.canvas.mpl_connect("button_press_event", self._on_click)
 
     def _build_profile_bar(self):
         bar = self.profile.bar
@@ -200,8 +236,10 @@ class PreviewWindow:
         self._say(f"{where}: {e}", error=True)
 
     # ------------------------------------------------------------ 갱신
-    def refresh(self) -> bool:
-        """입력으로 모델을 다시 만들고 지금 탭을 다시 그림. 실패하면 False (이전 그림 유지)"""
+    def refresh(self, popup=True) -> bool:
+        """입력으로 모델을 다시 만들고 지금 탭을 다시 그림. 실패하면 False (이전 모델·그림 유지, last_error 에 오류).
+        popup = 오류를 메시지 창으로도 알림"""
+        self.last_error = None
         self._say("모델 생성 중…")
         self.top.config(cursor="watch")
         self.top.update_idletasks()
@@ -211,7 +249,9 @@ class PreviewWindow:
         except Exception as e:
             self.top.config(cursor="")
             self._fail("입력 오류", e)
-            messagebox.showerror("미리보기", f"{type(e).__name__}: {e}", parent=self.top)
+            self.last_error = e
+            if popup:
+                messagebox.showerror("미리보기", f"{type(e).__name__}: {e}", parent=self.top)
             return False
         self.cfg, self.engine, self.mesh = cfg, engine, None
         self._update_choices()
@@ -273,8 +313,9 @@ class PreviewWindow:
         except Exception as e:
             self._fail("평면", e)
             return
+        self._pick_artists = []                         # 다시 그리면 겹쳐 그린 선택 표시도 지워짐
         self.plan.draw_2d(doc, ("plan", n))
-        self._say(f"평면 {self.plan_floor.get()} (FL+{h:g}m)")
+        self._say(self.pick.prompt() if self.pick else f"평면 {self.plan_floor.get()} (FL+{h:g}m)")
 
     def draw_profile(self):
         if not self._ready():
@@ -368,3 +409,235 @@ class PreviewWindow:
         self.view3d.key, self.view3d.stale = ("3d",), False
         self.view3d.canvas.draw_idle()
         self._say(f"3D 면 {n:,}개" + ("" if n else " — 보이는 부재가 없습니다 (표시 묶음·범위 확인)"))
+
+    # ------------------------------------------------------------ 위치 선택 (CAD 명령 방식)
+    def start_pick(self, request: P.PickRequest) -> bool:
+        """입력 탭의 [선택] 버튼: 평면을 그 층으로 바꾸고 점을 받음. 모델을 만들 수 없으면 False"""
+        self.cancel_pick(quiet=True)
+        if str(self.nb.select()) != str(self.plan.frame):
+            self.nb.select(0)                            # 평면 탭으로 (3D 탭에서 갱신하면 3D 를 다시 만들어 느림)
+        stale_note = ""
+        if not self.refresh(popup=self.engine is None):  # 입력 탭의 최신 값으로 평면을 그림
+            if self.engine is None:
+                return False
+            # 지금 입력에 오류가 있어도(예: 막 추가한 부재가 기둥과 겹침) 직전 모델 평면에서 위치를 고를 수 있게
+            stale_note = f"  ※ 입력 오류로 직전 모델에서 선택: {self.last_error}"
+        names = [n for n, k in R.floor_choices(self.cfg) if k == request.floor]
+        if names:
+            self.plan_floor.set(names[0])
+        request.to_world = self.cfg.to_world
+        self.pick = P.PickSession(request)
+        self.draw_plan()
+        self.lift()
+        self.plan.canvas.get_tk_widget().focus_set()
+        self._say(self.pick.prompt() + stale_note, error=bool(stale_note))
+        return True
+
+    def cancel_pick(self, quiet=False):
+        if self.pick is None:
+            return
+        self.pick = None
+        self._clear_pick_artists()
+        self.plan.canvas.draw_idle()
+        if not quiet:
+            self._say("선택 취소")
+
+    def _snapper(self) -> P.Snapper:
+        floor = dict(R.floor_choices(self.cfg)).get(self.plan_floor.get(), 1)
+        key = (id(self.engine), floor)
+        if self.snapper is None or self.snapper[0] != key:
+            sp = self.cfg.station
+            no = {sp.level_name(n): n for n in range(1, sp.floors + 1)}
+            cols = [(no[pk.level], c.pos_x, c.pos_y) for pk in self.engine.columns.column_packages for c in pk.columns]
+            self.snapper = (key, P.Snapper(P.snap_targets(self.cfg, floor, cols), base=sp.start_station))
+        sn = self.snapper[1]
+        try:
+            g = float(self.grid_step.get())
+        except ValueError:
+            g = 0.0
+        sn.grid = g if (self._vars["grid_on"].get() and g > 0) else None
+        sn.members = bool(self._vars["member_snap"].get())
+        return sn
+
+    @property
+    def _world(self) -> bool:
+        return not self.cfg.align.is_straight            # 평면도 auto: 곡선 선형이면 WCS
+
+    def to_st(self, x, y, fast=False) -> tuple:
+        """평면도 좌표 → 정거장 로컬 (s, t). fast = 곡선에서 0.5m 중심선 표본 근사 (마우스 이동용, to_station 은 수십 ms)"""
+        if not self._world:
+            return x, y
+        if not fast:
+            return self.cfg.to_station(x, y)
+        import numpy as np
+        if getattr(self, "_fast", None) is None or self._fast[0] is not self.cfg:
+            a, p = self.cfg.align, self.cfg.station
+            lo = max(a.start_station, p.start_station - 300.0) - p.start_station
+            hi = min(a.end_station, p.start_station + p.length + 300.0) - p.start_station
+            ss = np.arange(lo, hi + 1e-9, 0.5)
+            self._fast = (self.cfg, ss, np.array([self.cfg.to_world(v, 0.0) for v in ss]),
+                          np.array([self.cfg.theta_at(v) for v in ss]))
+        _, ss, c, th = self._fast
+        d = c - np.array([x, y])
+        k = int(np.argmin((d ** 2).sum(axis=1)))
+        dx, dy = x - c[k, 0], y - c[k, 1]
+        ct, st = np.cos(th[k]), np.sin(th[k])
+        return float(ss[k] + dx * ct + dy * st), float(-dx * st + dy * ct)
+
+    def to_xy(self, s, t) -> tuple:
+        return self.cfg.to_world(s, t) if self._world else (s, t)
+
+    def _tol(self, pixels=10) -> float:
+        """화면 pixels 에 해당하는 도면 길이 (부재 스냅 허용 거리)"""
+        x0, x1 = self.plan.ax.get_xlim()
+        w = max(self.plan.ax.bbox.width, 100.0)          # 그림 영역 폭 (픽셀)
+        return abs(x1 - x0) / w * pixels
+
+    def snap_event(self, x, y, fast=False) -> tuple:
+        """평면 좌표 → 스냅한 (s, t, 설명). 경로 선택 중 직교 모드면 직전 점에서 s/t 축 방향으로만"""
+        s, t = self.to_st(x, y, fast)
+        sn = self._snapper()
+        if (self._vars["ortho"].get() and self.pick is not None and self.pick.kind == P.PATH
+                and self.pick.last is not None):                     # 직교는 경로만 (사각형은 대각 두 점)
+            return P.ortho_snap(sn, self.pick.last, s, t, self._tol())
+        return sn.snap(s, t, self._tol())
+
+    def toggle_ortho(self):
+        v = self._vars["ortho"]
+        v.set(not v.get())
+        self._say(f"직교 모드 {'켬' if v.get() else '끔'} (F8)")
+
+    def _clear_pick_artists(self):
+        for a in self._pick_artists:
+            try:
+                a.remove()
+            except (ValueError, AttributeError, NotImplementedError):
+                pass
+        self._pick_artists = []
+
+    def _line_xy(self, pts):
+        """정거장 로컬 꺾은선 → 평면 좌표 (곡선이면 변을 2m 간격으로 나눠 선형을 따라 휨)"""
+        if not self._world:
+            return [p[0] for p in pts], [p[1] for p in pts]
+        xs, ys = [], []
+        for (s0, t0), (s1, t1) in zip(pts, pts[1:]):
+            n = max(1, int(abs(s1 - s0) / 2.0))
+            for k in range(n):
+                x, y = self.to_xy(s0 + (s1 - s0) * k / n, t0 + (t1 - t0) * k / n)
+                xs.append(x)
+                ys.append(y)
+        x, y = self.to_xy(*pts[-1])
+        return xs + [x], ys + [y]
+
+    def _draw_pick(self, cursor=None, label=""):
+        """고른 점·고무줄·커서 표시 (평면 그림 위에 덧그림)"""
+        self._clear_pick_artists()
+        ax = self.plan.ax
+        if self.pick is not None:
+            for s, t in self.pick.points:
+                x, y = self.to_xy(s, t)
+                self._pick_artists += ax.plot([x], [y], "o", color="#FF5252", markersize=6)
+            if cursor is not None:
+                for line in self.pick.rubber(*cursor):
+                    xs, ys = self._line_xy(line)
+                    self._pick_artists += ax.plot(xs, ys, "-", color="#FF5252", linewidth=1.2)
+        if cursor is not None:
+            x, y = self.to_xy(*cursor)
+            self._pick_artists += ax.plot([x], [y], "+", color="#FFEB3B", markersize=14, markeredgewidth=1.5)
+            if label and label != "격자":
+                self._pick_artists.append(ax.annotate(label, (x, y), xytext=(10, 10), textcoords="offset points",
+                                                      color="#FFEB3B", fontsize=8, fontname="Malgun Gothic"))
+        self.plan.canvas.draw_idle()
+
+    def _cursor_text(self, s, t, label):
+        base = self.cfg.station.start_station
+        text = f"STA {P.fmt_sta(base + s)}   offset {t:+.3f}"
+        if self.pick is not None and self.pick.last is not None:
+            ls, lt = self.pick.last
+            text += f"   (@{s - ls:.3f}, {t - lt:.3f})"
+        return text + (f"   [{label}]" if label else "")
+
+    def _on_motion(self, ev):
+        if self.cfg is None or ev.inaxes is not self.plan.ax or ev.xdata is None:
+            return
+        try:
+            s, t, label = self.snap_event(ev.xdata, ev.ydata, fast=True)
+        except ValueError:                               # 곡선 선형에서 선형 범위 밖
+            return
+        self.cursor_label.config(text=self._cursor_text(s, t, label))
+        if self.pick is not None:
+            self._draw_pick((s, t), label)
+
+    def _on_click(self, ev):
+        if self.pick is None or ev.inaxes is not self.plan.ax or ev.xdata is None:
+            return
+        if self.plan.toolbar.mode:                       # 이동·확대 도구를 쓰는 중이면 선택하지 않음
+            return
+        if ev.button == 3:
+            self.finish_pick()
+            return
+        if ev.button != 1:
+            return
+        try:
+            s, t, _ = self.snap_event(ev.xdata, ev.ydata)
+        except ValueError as e:
+            self._say(f"선택: {e}", error=True)
+            return
+        self.add_pick_point(s, t)
+
+    def add_pick_point(self, s, t):
+        """선택에 점 추가 (클릭·명령줄 공통). 필요한 점이 다 모이면 끝냄"""
+        if self.pick is None:
+            return
+        try:
+            done = self.pick.add(s, t)
+        except ValueError as e:
+            self._say(f"선택: {e}", error=True)
+            return
+        if done:
+            self.finish_pick()
+        else:
+            self._draw_pick((s, t))
+            self._say(self.pick.prompt())
+
+    def on_command(self):
+        """명령줄 Enter: 좌표 입력 / 빈 줄 = 경로 끝 / U = 한 점 취소"""
+        text = self.command.get().strip()
+        self.command.delete(0, "end")
+        if self.pick is None:
+            if text:
+                self._say("먼저 입력 탭의 [선택] 버튼으로 선택을 시작하세요", error=True)
+            return
+        if not text:
+            self.finish_pick()
+            return
+        if text.upper() == "U":
+            self.pick.undo()
+            self._draw_pick()
+            self._say(self.pick.prompt())
+            return
+        try:
+            s, t = P.parse_input(text, self.cfg.station.start_station, self.pick.last)
+        except ValueError as e:
+            self._say(f"선택: {e}", error=True)
+            return
+        self.add_pick_point(s, t)
+
+    def finish_pick(self):
+        """선택 끝: 입력 탭에 값을 넣고 모델을 다시 만들어 결과를 보여 줌"""
+        if self.pick is None:
+            return
+        if not self.pick.can_finish():
+            self._say(f"선택: {self.pick.prompt()} — 점이 더 필요합니다", error=True)
+            return
+        sess, self.pick = self.pick, None
+        self._clear_pick_artists()
+        try:
+            sess.finish()
+        except Exception as e:
+            self._fail("선택 반영", e)
+            return
+        if self.refresh(popup=False):
+            self._say(f"[{sess.request.title}] 반영했습니다")
+        else:
+            self._say(f"[{sess.request.title}] 반영했지만 모델 오류: {self.last_error}", error=True)

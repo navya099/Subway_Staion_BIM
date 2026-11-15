@@ -1675,3 +1675,137 @@ def test_preview_errors_keep_previous_model(app, monkeypatch):
     pv.draw_plan()
     assert "내공 높이" in pv.status.cget("text")
     pv.close()
+
+
+# ===================================================== 미리보기에서 위치 선택
+class _Ev:
+    def __init__(self, ax, x, y, button=1):
+        self.inaxes, self.xdata, self.ydata, self.button = ax, x, y, button
+
+
+def test_pick_room_rect_and_door_from_preview(app, monkeypatch):
+    from gui import pick_buttons as PB
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    rt = app.room_tab
+    rt.add_room()
+    base = float(app.entries["start_station"].get())
+    PB.pick_room_rect(rt, 0)
+    pv = app.preview
+    assert pv.pick is not None and pv.nb.index(pv.nb.select()) == 0 and "첫 모서리" in pv.status.cget("text")
+    # 마우스 이동: 커서 좌표·스냅 표시
+    pv._on_motion(_Ev(pv.plan.ax, 30.04, 4.03))
+    assert "STA" in pv.cursor_label.cget("text") and "격자" in pv.cursor_label.cget("text")
+    pv._on_click(_Ev(pv.plan.ax, 30.04, 4.03))                # 격자 0.1 → (30.0, 4.0)
+    assert pv.pick.points == [(pytest.approx(30.0), pytest.approx(4.0))]
+    pv.command.insert(0, "@12, 5")                            # 명령줄 상대 좌표로 반대쪽 모서리
+    pv.on_command()
+    assert pv.pick is None
+    it = rt.drafts.items[0]
+    assert (float(it.sta0), float(it.sta1), float(it.t0), float(it.t1)) == pytest.approx((base + 30, base + 42, 4, 9))
+    assert rt._vars[(0, "sta1")].get() == it.sta1
+    assert any(r.s0 == pytest.approx(30.0) and r.t1 == pytest.approx(9.0) for r in pv.cfg.rooms)   # 반영 후 모델 갱신
+    # 문: 가까운 변(+t)에 붙음
+    rt.add_door(0)
+    PB.pick_door(rt, 0, 0)
+    pv.add_pick_point(35.0, 8.8)
+    d = rt.drafts.items[0].doors[0]
+    assert d.side == "+t 변 (왼쪽)" and float(d.center) == pytest.approx(base + 35.0)
+    assert rt._combos[(0, "door", 0, "side")].get() == d.side
+    app.preview.close()
+
+
+def test_pick_path_and_cancel(app, monkeypatch):
+    from gui import pick_buttons as PB
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    pt = app.passage_tab
+    pt.add_passage()
+    base = float(app.entries["start_station"].get())
+    PB.pick_path(pt, 0, "출구통로")
+    pv = app.preview
+    p = pv.cfg.station
+    face = p.width / 2 + p.wall_ts[0]
+    pv._on_click(_Ev(pv.plan.ax, 80.0, face + 0.04))           # 부재 스냅: 외벽 바깥면
+    assert pv.pick.points[0][1] == pytest.approx(face)
+    pv.add_pick_point(80.0, face + 10.0)
+    pv.add_pick_point(95.0, face + 10.0)
+    pv._on_click(_Ev(pv.plan.ax, 0, 0, button=3))             # 오른쪽 클릭 = 끝
+    vs = pt.drafts.items[0].vertices
+    got = [float(c) for v in vs for c in (v.x, v.y)]
+    assert got == pytest.approx([base + 80, face, base + 80, face + 10, base + 95, face + 10])
+    assert vs[0].z == "" and vs[2].z == "0"
+    assert len(pv.engine.passages.passage_packages) == 1
+    # 취소
+    PB.pick_path(pt, 0, "출구통로")
+    pv.add_pick_point(10.0, face)
+    pv.cancel_pick()
+    assert pv.pick is None and "취소" in pv.status.cget("text") and len(pt.drafts.items[0].vertices) == 3
+    pv.close()
+
+
+def test_pick_point_tabs_fill_entries(app, monkeypatch):
+    from gui import pick_buttons as PB
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    base = float(app.entries["start_station"].get())
+    st = app.stair_tab
+    st.add_stair()
+    PB.pick_point(st, 0, "계단", 1, "sta_start")
+    app.preview.command.insert(0, f"{base + 12:.2f}, 6.5")
+    app.preview.on_command()
+    assert float(st.drafts.items[0].sta_start) == pytest.approx(base + 12) and st.drafts.items[0].t_center == "6.5"
+    assert len(app.preview.engine.stairs.stair_packages) == 1
+    ot = app.opening_tab
+    ot.add_opening()
+    PB.pick_opening_rect(ot, 0)
+    assert app.preview.pick is not None, app.preview.status.cget('text')
+    app.preview.add_pick_point(100.0, -1.0)
+    app.preview.add_pick_point(104.0, 2.0)
+    o = ot.drafts.items[0]
+    assert (float(o.sta_start), o.length, o.t_center, o.width) == (pytest.approx(base + 100), "4", "0.5", "3")
+    app.preview.close()
+
+
+def test_pick_on_curved_alignment_uses_world_plan(app, monkeypatch):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gui.preview_window import PreviewWindow
+    from preview.pick import POINT, PickRequest
+    from test_curved import curved_cfg
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    pv = PreviewWindow(app.root, curved_cfg)
+    got = []
+    assert pv.start_pick(PickRequest(POINT, 1, "점", got.append))
+    cfg = pv.cfg
+    assert pv._world
+    x, y = cfg.to_world(57.0, 4.3)
+    fs, ft = pv.to_st(x, y, fast=True)
+    assert (fs, ft) == (pytest.approx(57.0, abs=0.02), pytest.approx(4.3, abs=0.02))
+    pv._on_click(_Ev(pv.plan.ax, x, y))
+    assert got and got[0][0] == (pytest.approx(57.0, abs=1e-6), pytest.approx(4.3, abs=1e-6))
+    pv.close()
+
+
+def test_pick_passage_by_clicks_with_ortho_builds_valid_passage(app, monkeypatch):
+    """클릭만으로 통로 경로: 첫 점 = 외벽 바깥면 스냅, 직교 모드로 첫 구간이 본체에 직각 → 모델 생성 성공"""
+    from gui import pick_buttons as PB
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    pt = app.passage_tab
+    pt.add_passage()
+    PB.pick_path(pt, 0, "출구통로")
+    pv = app.preview
+    p = pv.cfg.station
+    face = p.width / 2 + p.wall_ts[pt.drafts.items[0].floor - 1]
+    ax = pv.plan.ax
+    assert pv._vars["ortho"].get()
+    pv._on_click(_Ev(ax, 80.03, face + 0.05))
+    pv._on_motion(_Ev(ax, 80.6, face + 12.04))                # 손이 조금 비뚤어도
+    assert "직교 t" in pv.cursor_label.cget("text")
+    pv._on_click(_Ev(ax, 80.6, face + 12.04))
+    pv._on_click(_Ev(ax, 96.02, face + 12.5))
+    pv._on_click(_Ev(ax, 0, 0, button=3))
+    assert pv.pick is None and pv.last_error is None, pv.last_error
+    pts = [(float(v.x) - p.start_station, float(v.y)) for v in pt.drafts.items[0].vertices]
+    assert pts == [(pytest.approx(80.0), pytest.approx(face)), (pytest.approx(80.0), pytest.approx(face + 12.0)),
+                   (pytest.approx(96.0), pytest.approx(face + 12.0))]
+    assert len(pv.engine.passages.passage_packages) == 1
+    pv.toggle_ortho()
+    assert not pv._vars["ortho"].get() and "끔" in pv.status.cget("text")
+    pv.close()

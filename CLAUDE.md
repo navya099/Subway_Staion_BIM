@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 780개 통과** (GUI 111개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 790개 통과** (GUI 116개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -61,10 +61,10 @@ ventilations/               환기구: spec(연속박스 단면·그릴 입력),
 entrances/                  출입구: spec(입력·구역 폭), layout(지표 EL 기준 자동 계산: 박스·계단·에스컬레이터 띠, EntranceFrame), check(검증), data/engine
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, build_*_doc = 저장 없는 DXF 문서), bim_engine.py(BIMEngine.build)
-preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기)
+preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~13, 제목은 짧게 '1.선형' …, 창 폭 600),
-                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창)
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
 tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
@@ -168,6 +168,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 같은 보기(평면은 같은 층, 종단·횡단은 항상)를 다시 그리면 **확대/이동 상태 유지** → 입력 수정 후 F5 로 같은 자리 확인. 휠 = 커서 기준 확대, 도구 막대 = 이동·확대·그림 저장.
   - 3D = 3D DXF 문서의 3DFACE(`mesh_from_doc`: 꼭짓점마다 (x, y, z, s, h), 정수 원점 기준 상대 좌표, s = 1m 중심선 표본 최근접 + 접선 투영 근사, h = 그 s 의 FL 기준 높이). 표시 묶음(구조체·계단ESCEV·통로출입구환기구·칸막이문·바닥벽 마감·천장판·천장틀 — 천장판·천장틀은 기본 끔), **보이는 층(그 층 천장 하면 위를 잘라냄)·STA 범위**는 면을 경계에서 잘라 남김(Sutherland–Hodgman, 긴 벽도 구간만큼만), 경계면 위의 면은 버림. 한 Poly3DCollection 에 모든 면(레이어별로 나누면 깊이 정렬이 틀림) + 6m 넘는 사각 면은 나눠 그림 + 법선 음영. matplotlib 화가 알고리즘이라 앞뒤가 가끔 틀릴 수 있음(미리보기 한계).
   - 갱신 실패(입력 오류·검증 오류) = 상태줄 빨간 글자 + 메시지, 이전 모델·그림 유지. 3D 자료는 3D 탭을 처음 그릴 때 만듦(마감 켠 큰 모델 약 2초).
+  - ezdxf `finalize` 가 그림(Figure) 크기를 도면 비율로 바꿔 버리므로 `draw_doc_2d` 가 원래 크기로 되돌림 (안 하면 다시 그릴 때 확대 상태가 깨짐).
+- **미리보기에서 위치 선택(CAD 명령 방식)**: 입력 탭의 [선택] 버튼(주황) → `entries['pick']`(= `StationBIMApp.request_pick`) → 미리보기 창 `start_pick(PickRequest)`: 평면 탭·그 층으로 바꾸고(입력으로 갱신, 지금 입력이 오류면 직전 모델로 선택 + 경고) 점을 받음. 끝나면 `on_done(점 목록)` 이 탭 입력칸 변수에 값을 넣고 미리보기를 다시 갱신(확대 유지).
+  - 종류(`preview/pick.py`): POINT(1점) / RECT(대각 2점, s·t 모두 달라야) / PATH(여러 점, Enter·오른쪽 클릭·빈 명령 = 끝). 점은 정거장 로컬 (s, t). 왼쪽 클릭 = 점(이동·확대 도구 사용 중엔 무시), Esc = 취소, 명령줄 `U` = 한 점 취소.
+  - 명령줄: `STA, offset`(절대, `0+134.5, 3.2`) / `@ds, dt`(직전 점 기준). 커서 줄에 STA·offset·직전 점 기준 상대값·스냅 종류 표시, 평면에 고른 점·고무줄·커서·스냅 이름.
+  - 스냅(`Snapper`): 부재 점(내공 모서리·그 층 기둥 중심·실 모서리·오프닝 모서리) → 부재 선(축별: 내공 시점/종점 s, 내공면·외벽 바깥면(통로 접합점)·선형 중심 t) → 격자(절대 STA 기준, 기본 0.1m). 허용 거리 = 화면 10px(`ax.bbox.width` 기준). 평면 조작 줄에서 켜고 끔.
+  - **직교 모드(F8, 기본 켬, 경로 선택만)**: 직전 점에서 커서가 더 많이 움직인 축(s 또는 t) 방향으로만 — 고정 축은 직전 값, 움직이는 축만 스냅(`ortho_snap`). 출구통로·환기구 첫 구간(본체에 직각) 을 클릭으로 만들 수 있게 함 (사용자 작동 테스트에서 없으면 불가능했음).
+  - 곡선 선형은 평면이 WCS 라 클릭은 `to_station`(정확, 약 30ms), 마우스 이동은 0.5m 중심선 표본 근사(`to_st(fast=True)`).
+  - 탭 연결(`gui/pick_buttons.py`, 값 계산은 `gui/pick_fill.py`): 실 '영역 선택'(RECT → 시작/끝 STA·t), 문 '선택'(POINT → 가장 가까운 실 변 + 중심, 변 범위로 자름), 오프닝 '영역 선택'(RECT → 시작 STA·길이·t 중심·폭, 평면 층 = 가장 낮은 슬래브 위층), 계단 '위치 선택'(첫 단 STA·t), ESC(하부 WP), EV(승강로 중심, 최하 정지층), 출구통로·환기구 '경로 선택'(PATH → 꼭짓점 표 교체, 높이는 같은 순번 값 유지·새 점은 첫 점 비움/나머지 0, 절대 좌표 방식이면 to_world 로 X·Y).
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
 
 ## 5. 테스트 작성 규약
@@ -191,7 +199,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 마감 다음 후보: 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 걸레받이·몰딩, 계단·에스컬레이터 마감, 마감 물량표.
 - 실 다음 후보: 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
-- 미리보기 다음 후보: UI 고도화 때 메인 창 안에 내장, 3D 를 OpenGL(pyvista 등)로 바꿔 깊이 정확·빠른 회전, 입력 중인 부재 강조, 평면에서 클릭해 측점 고르기.
+- 미리보기 다음 후보: UI 고도화 때 메인 창 안에 내장, 3D 를 OpenGL(pyvista 등)로 바꿔 깊이 정확·빠른 회전, 입력 중인 부재 강조, 횡단·종단에서도 위치 선택(높이), 평면에서 부재를 클릭해 해당 탭 항목 열기, 끌어서 옮기기(그립 편집).
 
 - 계단 2단계 후보: U자(꺾임) 계단, 계단 위 난간.
 - 엘리베이터 2단계 후보: 지상까지 가는 외부 엘리베이터(출입구 연계), 유리 승강로, 일부 층 미정지(정지층 선택), 승강장 문(landing door) 패널, 기계실형, 실무 제원 반영.

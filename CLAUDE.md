@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 744개 통과** (GUI 106개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 769개 통과** (GUI 109개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -51,6 +51,7 @@ config/                     모델·선형
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
+finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), check(마감표 검증), engine
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
 stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
@@ -61,9 +62,9 @@ entrances/                  출입구: spec(입력·구역 폭), layout(지표 E
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
-gui/                        station_tab / platform_tab / column_tab / room_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~12, 제목은 짧게 '1.선형' …, 창 폭 560),
-                            column_draft·room_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
+gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~13, 제목은 짧게 '1.선형' …, 창 폭 600),
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -87,6 +88,15 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **문(3단계)**: `RoomSpec.doors` = `DoorSpec`(실의 변 `+s/-s/+t/-t`, 중심 — ±s 변이면 t·±t 변이면 s(GUI 는 STA), 폭 0.9·높이 2.1, 종류 여닫이·양개 여닫이·미닫이·방화문 → IFC OperationType). 그 변의 벽 조각(칸막이벽·두께 있는 구획분리 벽)에서 벽 평면 (접선, z) 으로 개구부를 빼고(`_cut_doors`, 문 위 인방 조각 유지) 닫힌 문짝(두께 0.05, 벽 중심) 생성. 벽 조각 하나의 접선 범위 안이어야 함(다른 문·승강장 끝 높이 변화에 걸치면 오류), 실 변의 끝 벽 반 두께 안쪽, 문 높이 < 벽 높이, 본체 벽 변·가상 경계선 변 불가.
     - IFC: 개구부 IfcOpeningElement(DOOR) → 벽 IfcRelVoidsElement, 문짝 **IfcDoor**(OverallWidth/Height, OperationType, 방화문 재질 Steel) → IfcRelFillsElement, 층 storey. 3D DXF STRUCT_DOOR, 횡단 SEC_DOOR·종단 PROF_DOOR(윤곽), 평면 PLAN_DOOR = 실 안쪽으로 연 문짝 + 호(여닫이, 양개는 반폭 둘), 미닫이는 실 쪽 벽면의 문짝. 평면도 칸막이벽은 절단 높이를 지나는 조각만(문 위 인방은 안 보여 문 자리가 비어 보임).
   - `decompose.subtract_rects` 는 구멍을 영역 안으로 잘라 쓴다(영역 밖 구멍이 엉뚱한 조각을 만들던 문제 수정).
+- **건축 마감(1단계)**: `FinishSettings(enabled, table)` = 용도별 마감표(`FinishType`: 바닥 `ffl`(구조 바닥 → 마감면)·`floor_t`(마감재)·`floor_fill`(mortar 채움 | void 빈 공간=액세스 플로어)·재질, 벽 `wall_t`(0 = 면처리, 형상 없음)·재질, 천장 `ceiling`·`ceiling_h`(마감면 → 천장판 하면)·`board_t`·재질·`frame`(M/T)·`bar_spacing`·`carrier_spacing`·바/캐링 단면). 실은 용도 이름의 종류를 쓰고(없으면 '기본') `RoomSpec.finish` 로 덮어씀. 기본 마감표(`default_finishes`)는 예시값 — 기계·전기·공조실 콘크리트 면처리 + 천장 없음, 통신실 액세스 플로어 FL+0.45. **모델 기본은 끔(`enabled=False`, 기존 출력·golden 유지), GUI 는 켬.**
+  - 배치(`layout_room_finishes`, 정거장 로컬 사각 조각 → 선형 각기둥 `RoomPiece`): 기준 바닥 = 층 FL, 최하층은 승강장 슬래브 위(t 범위)만 + 기준 = 승강장 상면(선로부 바닥·벽 마감 없음, 천장 높이 기준도 승강장 상면).
+    - 바닥: 실 영역 ∩ 기준 바닥 − (칸막이벽·사각 기둥·승강로·그 층 계단/에스컬레이터 평면·아래 슬래브 오프닝). 마감재 + (mortar 면) 채움.
+    - 벽: 실 경계(같은 실 조각 사이 제외) 중 본체 벽 내공면·칸막이벽/구획분리 벽 면에만 (가상선 없음), 높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리 비움. 모서리는 t 방향 조각에서 s 방향 조각을 뺌, 벽·기둥·승강로 평면과 겹침 제거.
+    - 기둥 둘레(실 안, 사각 = 4조각, 원 = 외접 16각형 BoxPiece 연귀 고리), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움).
+    - 천장: 실 영역 − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝). 천장판 + 천장틀(t 방향 바를 s 의 bar_spacing 원점 격자에, s 방향 캐링 채널을 t 의 carrier_spacing 격자에, 판 위로 바 → 캐링). 천장판 + 틀이 위 슬래브 하면을 넘으면 오류.
+  - IFC: 실마다 IfcCovering(FLOORING 마감재·채움 / CLADDING 벽·기둥·승강로 / CEILING 천장판) + IfcMember(천장틀), IfcRelCoversSpaces → IfcSpace, 층 storey. IfcSpace 에 속성 세트 `SSBIM_SpaceFinish`(종류·재질·마감 높이·천장 높이·천장틀). 곡선 선형의 얇은 마감 층은 면을 중심점 4분할 삼각형으로 내보냄(비틀린 사각 면의 분할 방향 차이로 IFC 체적이 어긋나는 것 방지).
+  - 3D DXF FIN_FLOOR / FIN_WALL / FIN_CEILING / FIN_FRAME, 횡단 SEC_FINISH·종단 PROF_FINISH(윤곽), 평면 PLAN_FINISH(절단 높이를 지나는 벽·기둥 마감, 원기둥 둘레는 기둥 중심 기준 회전으로 로컬 좌표 — to_station 반복은 매우 느림).
+  - 알려진 단순화: 원기둥은 바닥·천장에서 빼지 않음(겹침), 다른 실 바깥 모서리의 벽 마감 끝에 작은 틈(마감 두께 정사각형)이 생길 수 있음, 천장 행거·액세스 플로어 받침 미모델링.
 - **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
 - **직선 계단(1단계)**: `StairSpec`(시작 층 k → k+1, 첫 단 STA + 오르는 방향 ±s, t 중심·폭, 단높이 상한·단너비·런 높이 상한·계단참 길이·슬래브 두께·머리 높이).
   - 단수 = 올림(실제 표고차 / 단높이 상한), 실제 단높이 = 표고차 / 단수 (종단구배 반영, 모든 단 동일). 디딤판·계단참 상면은 수평(절대 표고).
@@ -171,7 +181,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
 - 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
-- 실 다음 후보: 실별 마감(벽·천장틀·천장·바닥) 연결, 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
+- 마감 다음 후보: 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 걸레받이·몰딩, 계단·에스컬레이터 마감, 마감 물량표.
+- 실 다음 후보: 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 
 - 계단 2단계 후보: U자(꺾임) 계단, 계단 위 난간.

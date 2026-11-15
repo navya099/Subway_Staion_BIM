@@ -44,6 +44,13 @@ LAYER_DEFINITIONS = {
     "PROF_PARTITION": {"color": 52},     # 종단면도 칸막이벽
     "PLAN_PARTITION": {"color": 52},     # 평면도 칸막이벽
     "PLAN_ROOM": {"color": 3},
+    "FIN_FLOOR": {"color": 33},          # 바닥 마감재·채움
+    "FIN_WALL": {"color": 43},           # 벽·기둥·승강로 마감
+    "FIN_CEILING": {"color": 151},       # 천장판
+    "FIN_FRAME": {"color": 8},           # 천장틀 (M/T바, 캐링 채널)
+    "SEC_FINISH": {"color": 43},         # 횡단면도 마감
+    "PROF_FINISH": {"color": 43},        # 종단면도 마감
+    "PLAN_FINISH": {"color": 43},        # 평면도 벽·기둥 마감
     "STRUCT_DOOR": {"color": 6},         # 문짝
     "PLAN_DOOR": {"color": 6},           # 평면도 문 기호 (열린 문짝 + 호)
     "SEC_DOOR": {"color": 6},            # 횡단면도 문짝

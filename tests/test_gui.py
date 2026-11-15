@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_twelve_tabs_fit_in_window_width(app):
-    """탭 12개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_thirteen_tabs_fit_in_window_width(app):
+    """탭 13개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 12
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 13
 
 
 # ---------------- 계단 탭 ----------------
@@ -1566,3 +1566,50 @@ def test_room_doors_in_gui(app, monkeypatch, tmp_path):
     assert tab._combos[(0, "door", 1, "side")].get() == "+s 변 (종점 쪽)" and tab._vars[(0, "door", 0, "width")].get() == "1.8"
     tab.remove_door(0, 0); app.root.update()
     assert len(tab.drafts.items[0].doors) == 1
+
+
+# ---------------- 마감 탭 ----------------
+def test_finish_tab_defaults_edit_and_room_override(app):
+    tab = app.finish_tab
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.finish_settings.enabled and cfg.finish_settings.table["통신실"].ffl == 0.45
+    i = next(k for k, it in enumerate(tab.drafts.items) if it.name == "역무실")
+    tab._vars[(i, "ffl")].set("0.15")
+    tab._vars[(i, "frame")].set("T바")
+    tab._vars[(i, "ceiling")].set(False)
+    tab._vars["enabled"].set(False)
+    fs = TkAdapter.collect_entries(app.entries).finish_settings
+    off = fs.table["역무실"]
+    assert (fs.enabled, off.ffl, off.frame, off.ceiling) == (False, 0.15, "T", False)
+    tab.add_type(); app.root.update()
+    set_floors(app, 3)
+    app.room_tab.add_room(); app.root.update()
+    combo = app.room_tab._combos[(0, "finish")]
+    assert "마감1" in combo.cget("values") and combo.get() == "(용도 기준)"
+    combo.set("화장실")
+    combo.event_generate("<<ComboboxSelected>>")
+    assert TkAdapter.collect_entries(app.entries).rooms[0].finish == "화장실"
+
+
+def test_finish_bad_input_and_project_round_trip(app, monkeypatch, tmp_path):
+    tab = app.finish_tab
+    tab._vars[(0, "wall_t")].set("x")
+    with pytest.raises(ValueError, match=r"마감 1\(대합실\): 벽 마감 두께"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[(0, "wall_t")].set("0.08")
+    tab.remove_type(len(tab.drafts.items) - 1); app.root.update()                  # '기본' 삭제
+    path = str(tmp_path / "f.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[(0, "wall_t")].get() == "0.05" and tab.drafts.items[-1].name == "기본"
+    app.on_open(path)
+    assert tab._vars[(0, "wall_t")].get() == "0.08" and "기본" not in tab.drafts.names() and not app.is_dirty()
+
+
+def test_generate_with_finishes_end_to_end(app, tmp_path):
+    set_floors(app, 3)
+    app.room_tab.add_room(); app.root.update()
+    paths = BIMEngine.build(TkAdapter.collect_entries(app.entries), tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert {c.PredefinedType for c in f.by_type("IfcCovering")} >= {"FLOORING", "CLADDING", "CEILING"}
+    assert f.by_type("IfcRelCoversSpaces") and f.by_type("IfcMember")

@@ -18,10 +18,11 @@ from slabs.slab_shape_type import SlabKind
 from entrances.entrance_engine import EntranceEngine
 from escalators.escalator_engine import EscalatorEngine
 from escalators.escalator_type import EscalatorPartKind
-from helper.strip_member import Strip, StripShape, part_faces
+from helper.strip_member import Strip, StripShape, _fan, part_faces
 from passages.passage_engine import PassageEngine
 from passages.passage_type import PassagePartKind
 from rooms.room_engine import RoomEngine
+from finishes.finish_engine import KINDS as FINISH_KINDS, FinishEngine
 from elevators.elevator_engine import ElevatorEngine
 from elevators.elevator_type import ElevatorPartKind
 from ventilations.vent_engine import VentEngine
@@ -573,6 +574,7 @@ class IFCExporter:
         cfg = self.config
         by_level: dict = {}
         wall_ents: dict = {}
+        self._space_ents = {}
         for r in room_engine.rooms:
             items = [self._face_set(PM.sweep_quads(PM.rings(cfg, p))) for p in r.pieces]   # 바깥 방향 면
             space = self.file.create_entity(
@@ -581,6 +583,7 @@ class IFCExporter:
                 ObjectType=r.use, ObjectPlacement=self._placement(),
                 Representation=self._product_shape(items, "Tessellation"), CompositionType="ELEMENT", PredefinedType="INTERNAL")
             by_level.setdefault(r.level, ([], []))[0].append(space)
+            self._space_ents[r.name] = space
         for pw in room_engine.partitions:
             items = [self._face_set(PM.sweep_quads(PM.rings(cfg, p))) for p in pw.pieces]
             wall = self.file.create_entity(
@@ -634,6 +637,55 @@ class IFCExporter:
             if walls:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=self.storeys[level], RelatedElements=walls)
+
+    def _finish_faces(self, p):
+        """마감 조각 면: 직선은 사각 면, 곡선은 비틀린 사각 면을 중심점 4분할 삼각형으로 (얇은 층이라 삼각형 분할 방향에 따른
+        체적 차이가 상대적으로 커지는 것을 막음)"""
+        quads = PM.sweep_quads(PM.rings(self.config, p))
+        if self.config.align.is_straight:
+            return quads
+        return [tri for q in quads for tri in _fan(q)]
+
+    def export_finishes(self, finish_engine: FinishEngine):
+        """마감: 실마다 바닥 마감재·채움(IfcCovering FLOORING), 벽·기둥·승강로 마감(CLADDING), 천장판(CEILING),
+        천장틀(IfcMember). 마감은 IfcRelCoversSpaces 로 그 실(IfcSpace)에 연결하고, 모든 부재는 층 storey 에 포함.
+        IfcSpace 에는 마감 속성 세트(SSBIM_SpaceFinish: 마감 종류·재질·마감 높이·천장 높이)를 붙인다"""
+        f = self.file
+        spaces = getattr(self, "_space_ents", {})
+        by_level: dict = {}
+        for rf in finish_engine.rooms:
+            covers = []
+            for e in rf.elements:
+                entity, predefined, label, _ = FINISH_KINDS[e.code]
+                items = [self._face_set(self._finish_faces(p)) for p in e.pieces] + [self._face_set(b.faces()) for b in e.boxes]
+                el = f.create_entity(
+                    entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                    Description=f"{rf.room} {label}", ObjectType=e.type_name, ObjectPlacement=self._placement(),
+                    Representation=self._product_shape(items, "Tessellation"), PredefinedType=predefined)
+                if e.material:
+                    self._assign_material(el, e.material)
+                by_level.setdefault(rf.level, []).append(el)
+                if entity == "IfcCovering":
+                    covers.append(el)
+            space = spaces.get(rf.room)
+            if space is None:
+                continue
+            if covers:
+                f.create_entity("IfcRelCoversSpaces", GlobalId=ifcopenshell.guid.new(), RelatingSpace=space, RelatedCoverings=covers)
+            ft = rf.finish
+            vals = [("FinishType", "IfcLabel", ft.name), ("FloorMaterial", "IfcLabel", ft.floor_material),
+                    ("FloorFinishLevel", "IfcLengthMeasure", float(ft.ffl)), ("WallMaterial", "IfcLabel", ft.wall_material),
+                    ("WallFinishThickness", "IfcLengthMeasure", float(ft.wall_t)),
+                    ("CeilingMaterial", "IfcLabel", ft.ceiling_material if ft.ceiling else "없음"),
+                    ("CeilingHeight", "IfcLengthMeasure", float(ft.ceiling_h if ft.ceiling else 0.0)),
+                    ("CeilingFrame", "IfcLabel", f"{ft.frame}바" if ft.ceiling else "없음")]
+            props = [f.create_entity("IfcPropertySingleValue", Name=n, NominalValue=f.create_entity(t, v)) for n, t, v in vals]
+            pset = f.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(), Name="SSBIM_SpaceFinish", HasProperties=props)
+            f.create_entity("IfcRelDefinesByProperties", GlobalId=ifcopenshell.guid.new(), RelatedObjects=[space],
+                            RelatingPropertyDefinition=pset)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
 
     _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
                     VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),

@@ -9,6 +9,7 @@ from gui.column_tab import ColumnTab
 from gui.elevator_tab import ElevatorTab
 from gui.entrance_tab import EntranceTab
 from gui.escalator_tab import EscalatorTab
+from gui.finish_tab import FinishTab
 from gui.opening_tab import OpeningTab
 from gui.passage_tab import PassageTab
 from gui.platform_tab import PlatformTab
@@ -33,7 +34,7 @@ class StationBIMApp:
         self.floor_col_frame = None
         self.entries = {}
         self.root = root
-        self.root.geometry("560x1024")
+        self.root.geometry("600x1024")
         self.root.resizable(False, True)
         self.project_path = None
         self.recent = RecentProjects(recent_file)
@@ -50,7 +51,7 @@ class StationBIMApp:
             self._watch()
 
     def _build_ui(self):
-        # 전체 메인 탭 노트북 생성 (탭 12개가 창 폭 560 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
+        # 전체 메인 탭 노트북 생성 (탭 13개가 창 폭 600 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
         ttk.Style(self.root).configure("TNotebook.Tab", padding=(1, 2), font=("Malgun Gothic", 8))
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -81,51 +82,58 @@ class StationBIMApp:
         self.room_tab = RoomTab(tab_room, self.entries)
         self.room_tab.build()
 
-        # 탭 5: 슬래브 오프닝
+        # 탭 5: 마감 (용도별 마감표)
+        tab_finish = ttk.Frame(notebook)
+        notebook.add(tab_finish, text="5.마감")
+        self.finish_tab = FinishTab(tab_finish, self.entries, on_names_changed=lambda: self.room_tab.render())
+        self.finish_tab.build()
+        self.room_tab.render()                           # 마감 종류 목록이 생겼으니 실 탭 덮어쓰기 콤보 갱신
+
+        # 탭 6: 슬래브 오프닝
         tab_opening = ttk.Frame(notebook)
-        notebook.add(tab_opening, text="5.오프닝")
+        notebook.add(tab_opening, text="6.오프닝")
         self.opening_tab = OpeningTab(tab_opening, self.entries)
         self.opening_tab.build()
 
-        # 탭 6: 계단
+        # 탭 7: 계단
         tab_stair = ttk.Frame(notebook)
-        notebook.add(tab_stair, text="6.계단")
+        notebook.add(tab_stair, text="7.계단")
         self.stair_tab = StairTab(tab_stair, self.entries)
         self.stair_tab.build()
 
-        # 탭 7: 에스컬레이터
+        # 탭 8: 에스컬레이터
         tab_esc = ttk.Frame(notebook)
-        notebook.add(tab_esc, text="7.ESC")
+        notebook.add(tab_esc, text="8.ESC")
         self.escalator_tab = EscalatorTab(tab_esc, self.entries)
         self.escalator_tab.build()
 
-        # 탭 8: 엘리베이터
+        # 탭 9: 엘리베이터
         tab_ev = ttk.Frame(notebook)
-        notebook.add(tab_ev, text="8.EV")
+        notebook.add(tab_ev, text="9.EV")
         self.elevator_tab = ElevatorTab(tab_ev, self.entries)
         self.elevator_tab.build()
 
-        # 탭 9: 출구통로
+        # 탭 10: 출구통로
         tab_passage = ttk.Frame(notebook)
-        notebook.add(tab_passage, text="9.통로")
+        notebook.add(tab_passage, text="10.통로")
         self.passage_tab = PassageTab(tab_passage, self.entries)
         self.passage_tab.build()
 
-        # 탭 10: 출입구
+        # 탭 11: 출입구
         tab_entrance = ttk.Frame(notebook)
-        notebook.add(tab_entrance, text="10.출입구")
+        notebook.add(tab_entrance, text="11.출입구")
         self.entrance_tab = EntranceTab(tab_entrance, self.entries)
         self.entrance_tab.build()
 
-        # 탭 11: 환기구
+        # 탭 12: 환기구
         tab_vent = ttk.Frame(notebook)
-        notebook.add(tab_vent, text="11.환기구")
+        notebook.add(tab_vent, text="12.환기구")
         self.vent_tab = VentTab(tab_vent, self.entries)
         self.vent_tab.build()
 
-        # 탭 12: 출력 설정
+        # 탭 13: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text="12.출력")
+        notebook.add(tab_print, text="13.출력")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -252,6 +260,8 @@ class StationBIMApp:
             setattr(st, name, copy.deepcopy(self.entries[name].items))
         st.print_draft = copy.deepcopy(self.print_tab.draft)
         st.room_settings = copy.deepcopy(self.room_tab.drafts.settings)
+        st.finish_enabled = bool(self.finish_tab.drafts.enabled)
+        st.finish_drafts = copy.deepcopy(self.finish_tab.drafts.items)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -291,6 +301,9 @@ class StationBIMApp:
                 tab.drafts.ensure_floors(n)
             tab.render()
         self.room_tab.drafts.settings = copy.deepcopy(st.room_settings)
+        self.finish_tab.drafts.enabled = bool(st.finish_enabled)
+        self.finish_tab.drafts.items[:] = copy.deepcopy(st.finish_drafts)
+        self.finish_tab.render()
         self.room_tab.render()
         pd = self.print_tab.draft                               # 초안 객체는 그대로 두고 내용만 교체 (entries 가 참조)
         pd.__dict__.update(copy.deepcopy(st.print_draft).__dict__)

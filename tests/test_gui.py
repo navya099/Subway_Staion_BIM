@@ -1539,3 +1539,30 @@ def test_room_boundary_combo_and_project_round_trip(app, monkeypatch, tmp_path):
     app.on_save(); app.on_new(); app.on_open(path)
     assert tab._combos[(0, "boundary")].get() == "구획분리" and tab._vars[(0, "sep_t")].get() == "0.1"
     assert str(tab._sep_entries[0].cget("state")) == "normal"
+
+
+def test_room_doors_in_gui(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "100")
+    tab = app.room_tab
+    tab.add_room(); app.root.update()
+    for k, v in (("sta0", "110"), ("sta1", "130"), ("t0", "4"), ("t1", "9")):
+        tab._vars[(0, k)].set(v)
+    tab.add_door(0); app.root.update()
+    assert tab._vars[(0, "door", 0, "center")].get() == "120"                        # 실 가운데 STA 로 시작
+    tab._combos[(0, "door", 0, "kind")].set("양개 여닫이")
+    tab._combos[(0, "door", 0, "kind")].event_generate("<<ComboboxSelected>>")
+    tab._vars[(0, "door", 0, "width")].set("1.8")
+    tab.add_door(0); app.root.update()
+    tab._combos[(0, "door", 1, "side")].set("+s 변 (종점 쪽)")
+    tab._combos[(0, "door", 1, "side")].event_generate("<<ComboboxSelected>>"); app.root.update()
+    assert tab._door_center_labels[(0, 1)].cget("text") == "중심 t"
+    tab._vars[(0, "door", 1, "center")].set("6.5")
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert [(d.side, d.center, d.width, d.kind) for d in cfg.rooms[0].doors] == [("-t", 20.0, 1.8, "양개 여닫이"), ("+s", 6.5, 0.9, "여닫이")]
+    path = str(tmp_path / "d.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new(); app.on_open(path)
+    assert tab._combos[(0, "door", 1, "side")].get() == "+s 변 (종점 쪽)" and tab._vars[(0, "door", 0, "width")].get() == "1.8"
+    tab.remove_door(0, 0); app.root.update()
+    assert len(tab.drafts.items[0].doors) == 1

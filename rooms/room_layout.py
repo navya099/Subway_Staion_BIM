@@ -49,11 +49,30 @@ class SeparationLineLayout:
 
 
 @dataclass
+class DoorLayout:
+    """문 1개: 벽 개구부 + 닫힌 문짝 (모두 정거장 로컬 상자, FL 기준 높이)"""
+    name: str
+    room: str                    # 문을 정의한 실 이름
+    floor: int
+    side: str                    # 실의 변 (문짝 열림 방향 = 실 안쪽)
+    wall: str                    # 개구부가 난 벽 (PartitionLayout.name)
+    kind: str
+    opening: tuple               # (s0, s1, t0, t1, z0, z1) 벽 두께 전체
+    leaf: tuple                  # (s0, s1, t0, t1, z0, z1) 문짝 (두께 LEAF_T, 벽 중심)
+    width: float = 0.9
+    height: float = 2.1
+
+
+LEAF_T = 0.05                    # 문짝 두께 (m)
+
+
+@dataclass
 class FloorRoomsLayout:
     floor: int
     rooms: list                  # RoomLayout (입력 실 + 기본 실)
     partitions: list             # PartitionLayout (칸막이벽 + 구획분리 벽)
     separations: list = field(default_factory=list)     # SeparationLineLayout (가상 경계선)
+    doors: list = field(default_factory=list)           # DoorLayout
 
 
 def _merge(intervals):
@@ -180,7 +199,78 @@ def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsL
                                               with_heights(r), kind, th))
     seps = [SeparationLineLayout(f"SL_{level}_{k}", floor, "s" if abs(r[2] - r[3]) < _EPS else "t", r, z0)
             for k, r in enumerate(vlines, start=1)]
-    return FloorRoomsLayout(floor, rooms, partitions, seps)
+    doors = _cut_doors(cfg, specs, names, partitions, seps)
+    return FloorRoomsLayout(floor, rooms, partitions, seps, doors)
+
+
+def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list) -> list:
+    """실마다 문: 그 변의 벽 조각에서 개구부를 빼고(벽 평면 (접선, z) 에서 decompose), 문짝을 만든다.
+    문은 벽 조각 하나의 접선 범위 안에 있어야 하고(승강장 끝 등에서 바닥 높이가 바뀌는 곳에 걸치면 오류),
+    문 위로 벽이 남아야 한다 (문 높이 < 벽 높이)"""
+    st = cfg.station
+    L, hw = st.length, st.width / 2.0
+    margin = cfg.room_settings.partition_t / 2.0
+    out = []
+    for rname, sp in zip(names, specs):
+        for k, d in enumerate(sp.doors, start=1):
+            dname = d.name.strip() or f"{rname}_D{k}"
+            where = f"문 {dname}"
+            if d.side in ("+s", "-s"):
+                line, wall_axis, lo, hi = (sp.s1 if d.side == "+s" else sp.s0), "t", sp.t0, sp.t1
+                on_station = line < _EPS or line > L - _EPS
+            else:
+                line, wall_axis, lo, hi = (sp.t1 if d.side == "+t" else sp.t0), "s", sp.s0, sp.s1
+                on_station = abs(abs(line) - hw) < _EPS
+            a, b = d.center - d.width / 2.0, d.center + d.width / 2.0
+            if on_station:
+                raise ValueError(f"{where}: 실 {rname} 의 {d.side} 변은 본체 벽입니다 (본체 벽 출입은 출구통로·환기구로)")
+            if a < lo + margin - _EPS or b > hi - margin + _EPS:
+                raise ValueError(f"{where}: 문 범위 {a:.3f} ~ {b:.3f} 이(가) 실 {rname} 의 {d.side} 변"
+                                 f"({lo + margin:.3f} ~ {hi - margin:.3f}, 끝 벽 반 두께 제외)을 벗어납니다")
+
+            def on_line(lo_, hi_):
+                return lo_ - _EPS <= line <= hi_ + _EPS
+            hit = None
+            for pw in partitions:
+                if pw.axis != wall_axis:
+                    continue
+                for i, pc in enumerate(pw.pieces):
+                    s0, s1, t0, t1, z0, z1 = pc
+                    across, tan = ((s0, s1), (t0, t1)) if wall_axis == "t" else ((t0, t1), (s0, s1))
+                    if on_line(*across) and tan[0] - _EPS <= a and b <= tan[1] + _EPS and z0 < z1:
+                        hit = (pw, i, pc, across, tan)
+                        break
+                if hit:
+                    break
+            if hit is None:
+                for sl in seps:
+                    s0, s1, t0, t1 = sl.rect
+                    across, tan = ((s0, s1), (t0, t1)) if wall_axis == "t" else ((t0, t1), (s0, s1))
+                    if sl.axis == wall_axis and on_line(*across) and min(tan[1], b) - max(tan[0], a) > _EPS:
+                        raise ValueError(f"{where}: 실 {rname} 의 {d.side} 변은 두께 없는 구획분리 경계선입니다 (문을 둘 벽이 없음)")
+                raise ValueError(f"{where}: 실 {rname} 의 {d.side} 변 문 자리({a:.3f} ~ {b:.3f})에 벽이 없거나, "
+                                 "다른 문·바닥 높이가 바뀌는 곳(승강장 끝)에 걸칩니다")
+            pw, i, (s0, s1, t0, t1, z0, z1), across, tan = hit
+            if z0 + d.height > z1 - _EPS:
+                raise ValueError(f"{where}: 문 높이({d.height:g}m)가 벽 높이({z1 - z0:.3f}m) 이상입니다")
+            hole = (a, b, z0, z0 + d.height)
+            new = []
+            for u0, u1, w0, w1 in decompose.subtract_rects((tan[0], tan[1], z0, z1), [hole]):
+                new.append((across[0], across[1], u0, u1, w0, w1) if wall_axis == "t" else (u0, u1, across[0], across[1], w0, w1))
+            pw.pieces[i:i + 1] = new
+            mid, h = line, LEAF_T / 2.0
+            if wall_axis == "t":
+                opening = (across[0], across[1], a, b, z0, z0 + d.height)
+                leaf = (mid - h, mid + h, a, b, z0, z0 + d.height)
+            else:
+                opening = (a, b, across[0], across[1], z0, z0 + d.height)
+                leaf = (a, b, mid - h, mid + h, z0, z0 + d.height)
+            out.append(DoorLayout(dname, rname, sp.floor, d.side, pw.name, d.kind, opening, leaf, d.width, d.height))
+    names_ = [d.name for d in out]
+    dup = sorted({n for n in names_ if names_.count(n) > 1})
+    if dup:
+        raise ValueError(f"문 이름이 중복됩니다: {', '.join(dup)}")
+    return out
 
 
 def resolve_room_names(cfg, specs: list) -> list[str]:

@@ -24,7 +24,7 @@ from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
 from gui.opening_draft import OpeningDraft, OpeningDrafts
 from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
-from gui.room_draft import RoomDraft, RoomDrafts, RoomSettingsDraft
+from gui.room_draft import DoorDraft, RoomDraft, RoomDrafts, RoomSettingsDraft
 from gui.stair_draft import StairDraft, StairDrafts
 from gui.vent_draft import VentDraft, VentDrafts
 
@@ -35,7 +35,7 @@ FILETYPES = [("정거장 BIM 프로젝트", "*" + SUFFIX), ("모든 파일", "*.
 
 # 목록 필드의 원소 형식 (dataclass 필드 형식이 그냥 list 라서 따로 둠)
 _NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft, (PassageDraft, "vertices"): VertexDraft,
-           (VentDraft, "vertices"): VertexDraft}
+           (VentDraft, "vertices"): VertexDraft, (RoomDraft, "doors"): DoorDraft}
 # 목록형 탭: 상태 필드 이름 → (초안 묶음, 원소 형식)
 LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": (StairDrafts, StairDraft),
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),

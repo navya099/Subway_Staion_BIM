@@ -1,6 +1,6 @@
 from openings.decompose import overlap_area
 from rooms.room_layout import layout_floor_rooms, resolve_room_names
-from rooms.room_spec import BOUNDARIES, SEPARATION, RoomSettings, RoomSpec
+from rooms.room_spec import BOUNDARIES, DOOR_KINDS, DOOR_SIDES, SEPARATION, DoorSpec, RoomSettings, RoomSpec
 
 _EPS = 1e-6
 
@@ -28,6 +28,16 @@ def check_room_specs(cfg, specs: list, names: list):
             raise ValueError(f"실 {name}: 경계 종류는 {' / '.join(BOUNDARIES)} 중 하나여야 합니다 ({sp.boundary!r})")
         if sp.boundary == SEPARATION and not sp.sep_t >= 0:
             raise ValueError(f"실 {name}: 구획분리 두께는 0 이상이어야 합니다 ({sp.sep_t}, 0 = 가상 경계선)")
+        for k, d in enumerate(sp.doors, start=1):
+            w = f"실 {name} 문 {k}"
+            if not isinstance(d, DoorSpec):
+                raise ValueError(f"{w}: 형식이 올바르지 않습니다 ({d!r})")
+            if d.side not in DOOR_SIDES:
+                raise ValueError(f"{w}: 변은 {', '.join(DOOR_SIDES)} 중 하나여야 합니다 ({d.side!r})")
+            if d.kind not in DOOR_KINDS:
+                raise ValueError(f"{w}: 문 종류는 {', '.join(DOOR_KINDS)} 중 하나여야 합니다 ({d.kind!r})")
+            if not (d.width > 0 and d.height > 0):
+                raise ValueError(f"{w}: 문 폭·높이는 0보다 커야 합니다 ({d.width}, {d.height})")
         if not (sp.s1 - sp.s0 > rs.partition_t + _EPS and sp.t1 - sp.t0 > rs.partition_t + _EPS):
             raise ValueError(f"실 {name}: 크기({sp.s1 - sp.s0:g} x {sp.t1 - sp.t0:g}m)가 칸막이벽 두께보다 커야 합니다 "
                              "(시작 < 끝 인지 확인)")

@@ -572,6 +572,7 @@ class IFCExporter:
         Axis 곡선)로 그 층 storey 에 포함. 형상 = 조각마다 닫힌 면 집합(세계 좌표)"""
         cfg = self.config
         by_level: dict = {}
+        wall_ents: dict = {}
         for r in room_engine.rooms:
             items = [self._face_set(PM.sweep_quads(PM.rings(cfg, p))) for p in r.pieces]   # 바깥 방향 면
             space = self.file.create_entity(
@@ -590,6 +591,26 @@ class IFCExporter:
             if pw.material:
                 self._assign_material(wall, pw.material)
             by_level.setdefault(pw.level, ([], []))[1].append(wall)
+            wall_ents[pw.name] = wall
+        for d in room_engine.doors:                       # 문: 벽 개구부(Voids) + 닫힌 문짝 IfcDoor(Fills)
+            op = self.file.create_entity(
+                "IfcOpeningElement", GlobalId=ifcopenshell.guid.new(), Name=f"OPEN_{d.name}", Description="실 출입문 개구부",
+                ObjectType="DOOR", ObjectPlacement=self._placement(),
+                Representation=self._product_shape([self._face_set(PM.sweep_quads(PM.rings(cfg, d.opening)))], "Tessellation"),
+                PredefinedType="OPENING")
+            self.file.create_entity("IfcRelVoidsElement", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingBuildingElement=wall_ents[d.wall], RelatedOpeningElement=op)
+            door = self.file.create_entity(
+                "IfcDoor", GlobalId=ifcopenshell.guid.compress(uuid.UUID(d.guid).hex), Name=d.name,
+                Description=f"{d.room} 출입문 ({d.kind})", ObjectType=d.type_name, ObjectPlacement=self._placement(),
+                Representation=self._product_shape([self._face_set(PM.sweep_quads(PM.rings(cfg, d.leaf)))], "Tessellation"),
+                OverallHeight=float(d.height), OverallWidth=float(d.width), PredefinedType="DOOR",
+                OperationType=d.operation)
+            if d.material:
+                self._assign_material(door, d.material)
+            self.file.create_entity("IfcRelFillsElement", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingOpeningElement=op, RelatedBuildingElement=door)
+            by_level.setdefault(d.level, ([], []))[1].append(door)
         for sl in room_engine.separations:                 # 두께 없는 구획분리 = IfcVirtualElement (바닥 높이의 선)
             s0, s1, t0, t1 = sl.rect
             ss = cfg.sample_s(s0, s1) if s1 - s0 > 1e-9 else [s0, s0]

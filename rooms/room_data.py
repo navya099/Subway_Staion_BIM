@@ -81,3 +81,27 @@ class SeparationLineData(CommonBIMData):
     axis: str = "s"
     rect: tuple = (0.0, 0.0, 0.0, 0.0)
     z_rel: float = 0.0
+
+
+@dataclass
+class DoorData(CommonBIMData):
+    """문 1개. IFC: IfcOpeningElement(벽 개구부, IfcRelVoidsElement → 벽) + IfcDoor(닫힌 문짝, IfcRelFillsElement → 개구부)
+    Attributes:
+        room / wall: 문을 정의한 실 이름 / 개구부가 난 벽 이름
+        floor, side: 층 번호, 실의 변 (열림 방향 = 실 안쪽)
+        kind / operation: 문 종류 (여닫이·양개 여닫이·미닫이·방화문) / IFC OperationType
+        width / height: 개구부 폭 / 높이
+        opening / leaf: RoomPiece (개구부 상자 = 벽 두께 전체, 문짝 = 두께 0.05)
+        wall_t: 벽 두께
+    """
+    room: str = ""
+    wall: str = ""
+    floor: int = 1
+    side: str = "+t"
+    kind: str = "여닫이"
+    operation: str = "SINGLE_SWING_LEFT"
+    width: float = 0.9
+    height: float = 2.1
+    wall_t: float = 0.2
+    opening: object = None
+    leaf: object = None

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 731개 통과** (GUI 105개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 744개 통과** (GUI 106개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -84,6 +84,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **구획분리(2단계)**: 실마다 경계 종류 `boundary` = `partition`(칸막이벽, 공통 두께) | `separation`(구획분리, 두께 `sep_t`: 0 = 두께 없는 가상 경계선, > 0 = 얇은 실제 벽). 예) 대합실 PAID 구역을 구획분리로 넣고 그 층 기본 실을 복도로 → 나머지가 복도.
     - 선(같은 s 또는 같은 t)마다 구간별로 종류를 정함: 칸막이벽이 우선, 구획분리끼리는 두꺼운 쪽. 같은 종류·두께로 이어지는 구간은 합침. 벽(두께 > 0)은 칸막이벽과 같은 모서리 규칙, 가상선은 `SeparationLineLayout`(층 FL 높이의 선).
     - 이름 `PW_`(칸막이벽) / `SW_`(구획분리 벽) / `SL_`(가상선). 구획분리 벽 = IfcWall(PARTITIONING, Description "구획분리벽", 재질 Separation_Panel), 가상선 = **IfcVirtualElement**(Axis/Curve3D 폴리선, 층 storey). 3D DXF STRUCT_SEPARATION, 평면 PLAN_SEPARATION(벽 윤곽 / 2점 선). 가상선은 오프닝·계단 검사 제외(공간만 나눔).
+  - **문(3단계)**: `RoomSpec.doors` = `DoorSpec`(실의 변 `+s/-s/+t/-t`, 중심 — ±s 변이면 t·±t 변이면 s(GUI 는 STA), 폭 0.9·높이 2.1, 종류 여닫이·양개 여닫이·미닫이·방화문 → IFC OperationType). 그 변의 벽 조각(칸막이벽·두께 있는 구획분리 벽)에서 벽 평면 (접선, z) 으로 개구부를 빼고(`_cut_doors`, 문 위 인방 조각 유지) 닫힌 문짝(두께 0.05, 벽 중심) 생성. 벽 조각 하나의 접선 범위 안이어야 함(다른 문·승강장 끝 높이 변화에 걸치면 오류), 실 변의 끝 벽 반 두께 안쪽, 문 높이 < 벽 높이, 본체 벽 변·가상 경계선 변 불가.
+    - IFC: 개구부 IfcOpeningElement(DOOR) → 벽 IfcRelVoidsElement, 문짝 **IfcDoor**(OverallWidth/Height, OperationType, 방화문 재질 Steel) → IfcRelFillsElement, 층 storey. 3D DXF STRUCT_DOOR, 횡단 SEC_DOOR·종단 PROF_DOOR(윤곽), 평면 PLAN_DOOR = 실 안쪽으로 연 문짝 + 호(여닫이, 양개는 반폭 둘), 미닫이는 실 쪽 벽면의 문짝. 평면도 칸막이벽은 절단 높이를 지나는 조각만(문 위 인방은 안 보여 문 자리가 비어 보임).
   - `decompose.subtract_rects` 는 구멍을 영역 안으로 잘라 쓴다(영역 밖 구멍이 엉뚱한 조각을 만들던 문제 수정).
 - **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
 - **직선 계단(1단계)**: `StairSpec`(시작 층 k → k+1, 첫 단 STA + 오르는 방향 ±s, t 중심·폭, 단높이 상한·단너비·런 높이 상한·계단참 길이·슬래브 두께·머리 높이).
@@ -169,7 +171,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
 - 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
-- 실 다음 후보: 칸막이벽 문(개구부), 실별 마감(벽·천장틀·천장·바닥) 연결, 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
+- 실 다음 후보: 실별 마감(벽·천장틀·천장·바닥) 연결, 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 
 - 계단 2단계 후보: U자(꺾임) 계단, 계단 위 난간.

@@ -293,3 +293,96 @@ def test_connected_groups():
     from rooms.room_layout import connected_groups
     rects = [(0, 10, 0, 5), (10, 20, 0, 5), (30, 40, 0, 5), (0, 10, 5, 9), (20, 30, 5, 9)]   # 꼭짓점만 닿는 것은 따로
     assert connected_groups(rects) == [[(0, 10, 0, 5), (10, 20, 0, 5), (0, 10, 5, 9)], [(20, 30, 5, 9)], [(30, 40, 0, 5)]]
+
+
+# ===================================================== 문 (실 경계 벽 개구부 + 닫힌 문짝)
+from rooms.room_spec import DoorSpec
+
+
+def door_cfg(*doors, room=None, **kw):
+    room = room or RoomSpec(3, "기계실", 10, 30, 4, 9, name="기계실", doors=list(doors))
+    return cfg_with(room, **kw)
+
+
+def test_door_cuts_wall_and_keeps_lintel():
+    fl = floor_layout(door_cfg(DoorSpec("-t", 20.0, 1.8, 2.4, "양개 여닫이")), 3)
+    (d,) = fl.doors
+    assert (d.name, d.wall, d.side) == ("기계실_D1", "PW_B1F_S1", "-t")
+    assert d.opening == pytest.approx((19.1, 20.9, 3.9, 4.1, 12.0, 14.4))
+    assert d.leaf == pytest.approx((19.1, 20.9, 3.975, 4.025, 12.0, 14.4))
+    pw = next(p for p in fl.partitions if p.name == "PW_B1F_S1")
+    area = sum((p[1] - p[0]) * (p[5] - p[4]) for p in pw.pieces)
+    assert area == pytest.approx(20.2 * 5.6 - 1.8 * 2.4)                    # 벽 면 − 개구부
+    lintel = [p for p in pw.pieces if p[4] > 12.0]
+    assert lintel == [pytest.approx((19.1, 20.9, 3.9, 4.1, 14.4, 17.6))]
+
+
+def test_door_on_shared_wall_and_s_side():
+    rooms = [RoomSpec(3, "기계실", 10, 25, 4, 9), RoomSpec(3, "역무실", 25, 35, 4, 9, doors=[DoorSpec("-s", 6.5, 1.0, 2.1, "미닫이")])]
+    fl = floor_layout(cfg_with(*rooms), 3)
+    (d,) = fl.doors
+    assert d.opening[:4] == pytest.approx((24.9, 25.1, 6.0, 7.0)) and d.kind == "미닫이"
+
+
+@pytest.mark.parametrize("door,room,msg", [
+    (DoorSpec("+t", 20.0), None, "본체 벽"),                                              # t=9 은 본체 벽
+    (DoorSpec("-t", 10.2), None, "벗어납니다"),                                           # 끝 벽 반 두께 안쪽
+    (DoorSpec("-t", 20.0, height=5.6), None, "벽 높이"),
+    (DoorSpec("-t", 20.0, kind="회전문"), None, "문 종류"),
+    (DoorSpec("x", 20.0), None, "변은"),
+    (DoorSpec("-t", 20.0, width=0.0), None, "0보다"),
+    (DoorSpec("+s", 0.0), RoomSpec(3, "대합실", 40, 70, -9, 9, boundary=SEPARATION), "두께 없는 구획분리 경계선"),
+])
+def test_invalid_doors(door, room, msg):
+    if room is not None:
+        room.doors = [door]
+    with pytest.raises(ValueError, match=msg):
+        StationCADEngine(door_cfg(door, room=room))
+
+
+def test_overlapping_doors_and_platform_edge_rejected():
+    with pytest.raises(ValueError, match="다른 문"):
+        StationCADEngine(door_cfg(DoorSpec("-t", 20.0), DoorSpec("-t", 20.5)))
+    room = RoomSpec(1, "역무실", 5, 25, -9, 9, doors=[DoorSpec("+s", 3.9)])         # 승강장 끝(t 3.9)에 걸침
+    with pytest.raises(ValueError, match="승강장 끝"):
+        StationCADEngine(cfg_with(room))
+
+
+def test_door_ifc_plan_and_volumes(tmp_path):
+    rooms = [RoomSpec(3, "기계실", 10, 30, 4, 9, doors=[DoorSpec("-t", 20.0, 1.8, 2.4, "양개 여닫이")]),
+             RoomSpec(3, "통신실", 25, 40, -9, -4, doors=[DoorSpec("+t", 30.0), DoorSpec("+s", -6.5, kind="방화문")])]
+    eng = StationCADEngine(cfg_with(*rooms))
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "d.ifc"))
+    doors = f.by_type("IfcDoor")
+    assert sorted(d.OperationType for d in doors) == ["DOUBLE_DOOR_SINGLE_SWING", "SINGLE_SWING_LEFT", "SINGLE_SWING_LEFT"]
+    big = next(d for d in doors if d.OverallWidth == 1.8)
+    assert big.OverallHeight == 2.4 and ifcopenshell.util.element.get_container(big).Name == "B1F"
+    fill = big.FillsVoids[0].RelatingOpeningElement
+    wall = fill.VoidsElements[0].RelatingBuildingElement
+    assert wall.is_a("IfcWall") and wall.PredefinedType == "PARTITIONING"
+    assert ifc_world_volume(big) == pytest.approx(1.8 * 2.4 * 0.05, rel=1e-7)
+    fire = next(d for d in doors if "방화문" in d.Description)
+    assert ifcopenshell.util.element.get_material(fire).Name == "Steel"
+    for pw in eng.rooms.partitions:                                                 # 개구부를 뺀 벽 체적 = 메쉬 = IFC
+        mesh = sum(PM.mesh_volume(PM.sweep_quads(PM.rings(eng.cfg, p))) for p in pw.pieces)
+        assert mesh == pytest.approx(pw.volume, rel=1e-7)
+    plan = eng.rooms.plan_items(14.0, floor=3)
+    assert len([it for it in plan if it.layer == "PLAN_DOOR"]) == 4                 # 양개 2 + 여닫이 2
+    walls = [it for it in plan if it.layer == "PLAN_PARTITION"]
+    assert not any(it.vb0 > 3.8 and it.vt0 < 4.2 and it.u0 >= 19.0 and it.u1 <= 21.0 for it in walls)   # 문 위 인방은 평면에 없음
+    msp = ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace()
+    assert len(msp.query('3DFACE[layer=="STRUCT_DOOR"]')) == 18
+    assert [it.layer for it in eng.rooms.section_items(20.0) if it.layer == "SEC_DOOR"] == ["SEC_DOOR"]
+
+
+def test_door_drafts():
+    from gui.room_draft import DoorDraft
+    d = RoomDraft(floor=3, sta0="110", sta1="130", t0="4", t1="9",
+                  doors=[DoorDraft(side="−t 변 (오른쪽)", center="120", width="1.8", kind="양개 여닫이"),
+                         DoorDraft(side="+s 변 (종점 쪽)", center="6.5")])
+    sp = d.to_spec("실 1", 100.0)
+    assert [(x.side, x.center, x.width, x.kind) for x in sp.doors] == [("-t", 20.0, 1.8, "양개 여닫이"), ("+s", 6.5, 0.9, "여닫이")]
+    assert "문 2개" in preview(d, 100.0, 3)
+    d.doors[0].height = "0"
+    with pytest.raises(ValueError, match="실 1 문 1: 문 높이"):
+        d.to_spec("실 1", 100.0)

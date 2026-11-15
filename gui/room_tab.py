@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.column_draft import level_name
-from gui.room_draft import B_SEPARATION, BOUNDARY_LABELS, RoomDraft, RoomDrafts, preview
+from gui.room_draft import (B_SEPARATION, BOUNDARY_LABELS, DOOR_KIND_LABELS, DOOR_SIDE_LABELS, DoorDraft, RoomDraft,
+                            RoomDrafts, door_center_label, preview)
 from rooms.room_spec import ROOM_USES, RoomSettings
 
 FONT = ("Malgun Gothic", 9)
@@ -132,6 +133,34 @@ class RoomTab:
         self.drafts.items[idx].use = use
         self.refresh_info()
 
+    def add_door(self, idx):
+        it = self.drafts.items[idx]
+        mid = (self._float_text(it.sta0) + self._float_text(it.sta1)) / 2.0
+        it.doors.append(DoorDraft(center=f"{mid:g}"))
+        self.render()
+
+    def remove_door(self, idx, k):
+        del self.drafts.items[idx].doors[k]
+        self.render()
+
+    def set_door_side(self, idx, k, label: str):
+        self.drafts.items[idx].doors[k].side = label
+        lab = self._door_center_labels.get((idx, k))
+        if lab is not None:
+            lab.configure(text=door_center_label(label))
+        self.refresh_info()
+
+    def set_door_kind(self, idx, k, label: str):
+        self.drafts.items[idx].doors[k].kind = label
+        self.refresh_info()
+
+    @staticmethod
+    def _float_text(text, default=0.0):
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return default
+
     def set_boundary(self, idx, label: str):
         self.drafts.items[idx].boundary = label
         self._sync_sep(idx)
@@ -155,6 +184,7 @@ class RoomTab:
             del self._vars[k]
         self._info_vars.clear()
         self._sep_entries = {}
+        self._door_center_labels = {}
         for k in [k for k in self._combos if k[0] != "default"]:
             del self._combos[k]
         if "partition_t" in self._vars and self._vars["partition_t"].get() != self.drafts.settings.partition_t:
@@ -234,6 +264,33 @@ class RoomTab:
             self._entry(grid, it, a1, (i, a1), ENTRY_W + 2).grid(row=r, column=1, padx=(2, 12), pady=1)
             tk.Label(grid, text=l2, font=FONT).grid(row=r, column=2, sticky="w")
             self._entry(grid, it, a2, (i, a2), ENTRY_W + 2).grid(row=r, column=3, padx=(2, 0), pady=1)
+        doors = tk.Frame(box)
+        doors.pack(fill="x", pady=(4, 0))
+        for k, d in enumerate(it.doors):
+            dr = tk.Frame(doors)
+            dr.pack(fill="x", pady=1)
+            tk.Label(dr, text=f"문{k + 1}", font=FONT).pack(side="left")
+            sc = ttk.Combobox(dr, values=list(DOOR_SIDE_LABELS), state="readonly", width=12, font=FONT)
+            sc.set(d.side if d.side in DOOR_SIDE_LABELS else list(DOOR_SIDE_LABELS)[0])
+            sc.bind("<<ComboboxSelected>>", lambda e, c=sc, ii=i, kk=k: self.set_door_side(ii, kk, c.get()))
+            sc.pack(side="left", padx=(2, 4))
+            self._combos[(i, "door", k, "side")] = sc
+            lab = tk.Label(dr, text=door_center_label(d.side), font=FONT)
+            lab.pack(side="left")
+            self._door_center_labels[(i, k)] = lab
+            self._entry(dr, d, "center", (i, "door", k, "center"), 7).pack(side="left", padx=(2, 4))
+            tk.Label(dr, text="폭", font=FONT).pack(side="left")
+            self._entry(dr, d, "width", (i, "door", k, "width"), 4).pack(side="left", padx=(2, 2))
+            tk.Label(dr, text="높이", font=FONT).pack(side="left")
+            self._entry(dr, d, "height", (i, "door", k, "height"), 4).pack(side="left", padx=(2, 4))
+            kc = ttk.Combobox(dr, values=DOOR_KIND_LABELS, state="readonly", width=9, font=FONT)
+            kc.set(d.kind if d.kind in DOOR_KIND_LABELS else DOOR_KIND_LABELS[0])
+            kc.bind("<<ComboboxSelected>>", lambda e, c=kc, ii=i, kk=k: self.set_door_kind(ii, kk, c.get()))
+            kc.pack(side="left")
+            self._combos[(i, "door", k, "kind")] = kc
+            tk.Button(dr, text="−", font=FONT, width=2, command=lambda ii=i, kk=k: self.remove_door(ii, kk)).pack(side="right")
+        tk.Button(box, text="+ 문", font=FONT, command=lambda ii=i: self.add_door(ii)).pack(anchor="w", pady=(2, 0))
+
         info = tk.StringVar(value="")
         self._info_vars.append((info, it))
         tk.Label(box, textvariable=info, font=FONT, fg="#1565C0", anchor="w", justify="left").pack(fill="x", pady=(2, 0))

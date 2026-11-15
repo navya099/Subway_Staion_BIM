@@ -4,9 +4,31 @@ import dataclasses
 ROOM_USES = ["대합실", "승강장층", "복도", "역무실", "기계실", "전기실", "통신실", "공조실", "화장실", "창고", "통로", "기타"]
 PLATFORM_USE = "승강장층"
 CONCOURSE_USE = "대합실"
+DOOR_SIDES = ("+s", "-s", "+t", "-t")     # 문이 있는 실의 변: 종점 쪽 / 시점 쪽 / 왼쪽 / 오른쪽
+# 문 종류 → IFC IfcDoor.OperationType
+DOOR_KINDS = {"여닫이": "SINGLE_SWING_LEFT", "양개 여닫이": "DOUBLE_DOOR_SINGLE_SWING", "미닫이": "SLIDING_TO_LEFT",
+              "방화문": "SINGLE_SWING_LEFT"}
 PARTITION = "partition"      # 실 경계 = 칸막이벽 (공통 두께)
 SEPARATION = "separation"    # 실 경계 = 구획분리 (두께 0 = 가상 경계선, > 0 = 얇은 실제 벽)
 BOUNDARIES = (PARTITION, SEPARATION)
+
+
+@dataclasses.dataclass
+class DoorSpec:
+    """실 경계 벽(칸막이벽·두께 있는 구획분리 벽)에 내는 문 1개.
+    Attributes:
+        side: 실의 어느 변 '+s' | '-s' | '+t' | '-t'
+        center: 문 중심 위치 — ±s 변이면 t, ±t 변이면 s (정거장 로컬)
+        width / height: 문 폭 / 높이 (개구부 크기, 바닥은 그 벽의 바닥)
+        kind: DOOR_KINDS 의 하나 (여닫이 · 양개 여닫이 · 미닫이 · 방화문)
+        name: 비우면 실 이름 + _D + 번호
+    """
+    side: str = "+t"
+    center: float = 0.0
+    width: float = 0.9
+    height: float = 2.1
+    kind: str = "여닫이"
+    name: str = ""
 
 
 @dataclasses.dataclass
@@ -20,6 +42,7 @@ class RoomSpec:
         name: 비우면 용도 + 층 안 일련번호 (예: 역무실1)
         boundary: 경계 종류 — PARTITION(칸막이벽, 공통 두께) | SEPARATION(구획분리)
         sep_t: 구획분리 두께 (m). 0 = 두께 없는 가상 경계선(공간만 나눔), > 0 = 얇은 실제 벽
+        doors: 이 실의 변에 내는 문 (DoorSpec). 그 변에 벽이 있어야 함 (본체 벽·가상 경계선은 불가)
     경계 중 본체 벽(내공면)이 아닌 변에는 칸막이벽/구획분리가 중심선에 맞춰 자동으로 선다.
     같은 선에서 겹치면 칸막이벽이 우선 (구획분리끼리는 두꺼운 쪽).
     """
@@ -32,6 +55,7 @@ class RoomSpec:
     name: str = ""
     boundary: str = PARTITION
     sep_t: float = 0.0
+    doors: list = dataclasses.field(default_factory=list)        # list[DoorSpec]
 
     @property
     def rect(self) -> tuple:

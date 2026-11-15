@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 769개 통과** (GUI 109개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 780개 통과** (GUI 111개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -60,11 +60,12 @@ passages/                   출구통로: spec(경로 꼭짓점 입력), layout(
 ventilations/               환기구: spec(연속박스 단면·그릴 입력), layout(수직구·칸별 오프닝·그릴 조각), check(검증·간섭), data/engine
 entrances/                  출입구: spec(입력·구역 폭), layout(지표 EL 기준 자동 계산: 박스·계단·에스컬레이터 띠, EntranceFrame), check(검증), data/engine
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
-engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
+engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, build_*_doc = 저장 없는 DXF 문서), bim_engine.py(BIMEngine.build)
+preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~13, 제목은 짧게 '1.선형' …, 창 폭 600),
-                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -161,6 +162,12 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 종단면도: 절단 축 = 선형 중심 / 왼쪽·오른쪽 선로 중심(±선로 간격/2) 체크 + 직접 offset(쉼표, 왼쪽 +). 본체 외곽 안이어야 함. 여러 축은 한 파일에 아래로 배치, 제목에 `AXIS: C.L.±x`(중심 1개면 예전 제목).
   - 단면도: 측점(절대 STA, `134.45` 또는 `0+134.45`, 쉼표) + 연속 단면(간격, 시작·끝 STA — 비우면 내공 시점·종점, 최대 500개). 정렬·1mm 중복 제거, 내공 범위 밖이면 오류. 둘 다 없으면 내공 1/4·1/2·3/4.
   - 끈 성과물의 세부 입력은 검사하지 않음. 옵션은 폴더를 고르기 전에 검사하고(`TkAdapter.collect_output`), 프로젝트 파일에 `print_draft` 로 저장.
+- **미리보기(F5, `gui/preview_window.py`)**: 파일 저장 없이 현재 입력으로 모델을 만들어 별도 창에서 평면·종단·횡단·3D 를 봄. 메인 창 '미리보기 (F5)' 버튼·보기 메뉴·F5 = 창을 열거나 갱신.
+  - 2D 는 도면 출력과 **같은 DXF 문서**(`StationCADEngine.build_plan_doc/build_profile_doc/build_section_doc`, `generate_*_dxf` = build + 저장)를 ezdxf drawing(matplotlib)으로 그림 — 미리보기 = 출력 도면. 미리보기 문서만 Standard 글꼴을 `malgun.ttf` 로(한글 실 이름).
+  - 평면 = 층 1개 + 절단 높이, 종단 = 축 선택(선형 중심·좌우 선로) 또는 offset 직접, 횡단 = STA 입력·슬라이더·◀▶(간격). 첫 값은 출력 탭(절단 높이·첫 단면 측점)에서.
+  - 같은 보기(평면은 같은 층, 종단·횡단은 항상)를 다시 그리면 **확대/이동 상태 유지** → 입력 수정 후 F5 로 같은 자리 확인. 휠 = 커서 기준 확대, 도구 막대 = 이동·확대·그림 저장.
+  - 3D = 3D DXF 문서의 3DFACE(`mesh_from_doc`: 꼭짓점마다 (x, y, z, s, h), 정수 원점 기준 상대 좌표, s = 1m 중심선 표본 최근접 + 접선 투영 근사, h = 그 s 의 FL 기준 높이). 표시 묶음(구조체·계단ESCEV·통로출입구환기구·칸막이문·바닥벽 마감·천장판·천장틀 — 천장판·천장틀은 기본 끔), **보이는 층(그 층 천장 하면 위를 잘라냄)·STA 범위**는 면을 경계에서 잘라 남김(Sutherland–Hodgman, 긴 벽도 구간만큼만), 경계면 위의 면은 버림. 한 Poly3DCollection 에 모든 면(레이어별로 나누면 깊이 정렬이 틀림) + 6m 넘는 사각 면은 나눠 그림 + 법선 음영. matplotlib 화가 알고리즘이라 앞뒤가 가끔 틀릴 수 있음(미리보기 한계).
+  - 갱신 실패(입력 오류·검증 오류) = 상태줄 빨간 글자 + 메시지, 이전 모델·그림 유지. 3D 자료는 3D 탭을 처음 그릴 때 만듦(마감 켠 큰 모델 약 2초).
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
 
 ## 5. 테스트 작성 규약
@@ -184,6 +191,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 마감 다음 후보: 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 걸레받이·몰딩, 계단·에스컬레이터 마감, 마감 물량표.
 - 실 다음 후보: 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
+- 미리보기 다음 후보: UI 고도화 때 메인 창 안에 내장, 3D 를 OpenGL(pyvista 등)로 바꿔 깊이 정확·빠른 회전, 입력 중인 부재 강조, 평면에서 클릭해 측점 고르기.
 
 - 계단 2단계 후보: U자(꺾임) 계단, 계단 위 난간.
 - 엘리베이터 2단계 후보: 지상까지 가는 외부 엘리베이터(출입구 연계), 유리 승강로, 일부 층 미정지(정지층 선택), 승강장 문(landing door) 패널, 기계실형, 실무 제원 반영.

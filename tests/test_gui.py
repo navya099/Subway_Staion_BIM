@@ -1613,3 +1613,65 @@ def test_generate_with_finishes_end_to_end(app, tmp_path):
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
     assert {c.PredefinedType for c in f.by_type("IfcCovering")} >= {"FLOORING", "CLADDING", "CEILING"}
     assert f.by_type("IfcRelCoversSpaces") and f.by_type("IfcMember")
+
+
+# ===================================================== 미리보기 창
+class _Box:
+    def __init__(self):
+        self.calls = []
+
+    def showerror(self, title, msg, **kw):
+        self.calls.append(("error", msg))
+
+
+def test_preview_window_draws_all_views_and_keeps_zoom(app, monkeypatch):
+    box = _Box()
+    monkeypatch.setattr("gui.preview_window.messagebox", box)
+    app.on_preview()
+    pv = app.preview
+    assert pv.alive and pv.engine is not None and not box.calls
+    assert pv.plan_floor["values"] and pv.profile_axis.get() == "선형 중심 (C.L.)"
+    pv.draw_plan()
+    assert not pv.plan.stale and pv.plan.key == ("plan", 1) and "평면" in pv.status.cget("text")
+    pv.plan.ax.set_xlim(10, 30)
+    pv.plan.ax.set_ylim(-5, 5)
+    app.on_preview()                                   # F5: 다시 만들어도 같은 보기면 확대 상태 유지
+    assert app.preview is pv
+    pv.draw_plan()
+    x0, x1 = pv.plan.ax.get_xlim()                    # 같은 자리 (가로세로 비율 맞춤으로 폭은 조정될 수 있음)
+    y0, y1 = pv.plan.ax.get_ylim()
+    assert (x0 + x1) / 2 == pytest.approx(20) and (y0 + y1) / 2 == pytest.approx(0, abs=1e-6) and x1 - x0 < 100
+    pv.profile_axis.set("2.2")
+    pv.draw_profile()
+    assert "C.L.+2.2" in pv.status.cget("text")
+    p = pv.cfg.station
+    pv.section_sta.delete(0, "end"); pv.section_sta.insert(0, f"{p.start_station + 30:.2f}")
+    pv.draw_section()
+    pv.step_section(1)
+    assert R_s(pv) == pytest.approx(35.0)
+    pv.d3_floor.set(pv.d3_floor["values"][1])
+    pv.d3_from.insert(0, f"{p.start_station:.2f}"); pv.d3_to.insert(0, f"{p.start_station + 20:.2f}")
+    pv.draw_3d(keep_view=False)
+    assert pv.mesh is not None and "3D 면" in pv.status.cget("text")
+    pv.close()
+    assert not pv.alive
+
+
+def R_s(pv):
+    from preview.preview_render import parse_section_s
+    return parse_section_s(pv.section_sta.get(), pv.cfg)
+
+
+def test_preview_errors_keep_previous_model(app, monkeypatch):
+    box = _Box()
+    monkeypatch.setattr("gui.preview_window.messagebox", box)
+    app.on_preview()
+    pv = app.preview
+    eng = pv.engine
+    set_entry(app, "length", "abc")
+    assert pv.refresh() is False and pv.engine is eng and box.calls
+    assert pv.status.cget("fg") == "#C62828"
+    pv.plan_cut.delete(0, "end"); pv.plan_cut.insert(0, "99")
+    pv.draw_plan()
+    assert "내공 높이" in pv.status.cget("text")
+    pv.close()

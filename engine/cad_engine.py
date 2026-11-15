@@ -60,6 +60,12 @@ class StationCADEngine:
 
     # --- [1. 3D 메쉬 생성 엔진] ---
     def generate_3d_dxf(self, filename="output/정거장3d모델.dxf") -> str:
+        doc = self.build_3d_doc()
+        self._save(doc, filename)
+        return os.path.abspath(filename)
+
+    def build_3d_doc(self) -> ezdxf.document.Drawing:
+        """3D 모델 DXF 문서 (저장 안 함 — 미리보기도 이 문서를 그림)"""
         doc, msp = self._init_doc()
 
         # 선형은 Alignment 인터페이스로만 접근: 중심선은 선형 전 구간, 부재 배치는 world(s, t) 변환
@@ -93,9 +99,7 @@ class StationCADEngine:
                 engine.add_finish_mesh(msp)
             if hasattr(engine, 'add_entrance_mesh'):
                 engine.add_entrance_mesh(msp)
-
-        self._save(doc, filename)
-        return os.path.abspath(filename)
+        return doc
 
     # --- [2D 공통] ---
     PLAN_CUT_H = PLAN_CUT_H   # 평면도 절단 높이 기본값 (각 층 바닥 슬래브 상면 기준, m)
@@ -116,6 +120,12 @@ class StationCADEngine:
 
     # --- [2. 2D 횡단면도 생성 엔진] --- (측점 sta 의 절단면을 BIM 객체에서 직접 추출)
     def generate_section_dxf(self, sta_list: list[float], filename="output/정거장단면도.dxf") -> str:
+        doc = self.build_section_doc(sta_list)
+        self._save(doc, filename)
+        return os.path.abspath(filename)
+
+    def build_section_doc(self, sta_list: list[float]) -> ezdxf.document.Drawing:
+        """횡단면도 DXF 문서 (sta_list = 정거장 로컬 거리 s 목록, 가로로 늘어놓음)"""
         doc, msp = self._init_doc()
         p = self.cfg.station
         half_w = p.width / 2.0 + p.max_wall_t                    # 가장 바깥 외곽 기준 (내공 + 가장 두꺼운 벽)
@@ -138,9 +148,7 @@ class StationCADEngine:
 
             # 부재 단면: 각 엔진(벽체·슬래브·승강장·기둥)이 자기 객체의 절단면을 제공
             draw_view_items(msp, self._collect('section_items', sta), du=x_offset)
-
-        self._save(doc, filename)
-        return os.path.abspath(filename)
+        return doc
 
     # --- [3. 2D 평면도 생성 엔진] --- (층별 절단 높이 FL+cut_h 기준)
     def generate_plan_dxf(self, filename="output/정거장평면도.dxf", mode="auto", floors=None, cut_h=None) -> str:
@@ -148,6 +156,12 @@ class StationCADEngine:
         'world' = WCS 실제 평면도 (곡선을 따라 휜 모양), 'auto' = 직선 선형은 전개, 곡선 선형은 WCS.
         floors: 출력할 층 번호 목록 (1 = 최하층, 기본 [1]). 여러 층이면 아래층부터 위로 세로로 늘어놓음
         (첫 층만 실제 좌표, 나머지는 위로 평행 이동). cut_h: 각 층 바닥(FL) 기준 절단 높이 (기본 PLAN_CUT_H)"""
+        doc = self.build_plan_doc(mode, floors, cut_h)
+        self._save(doc, filename)
+        return os.path.abspath(filename)
+
+    def build_plan_doc(self, mode="auto", floors=None, cut_h=None) -> ezdxf.document.Drawing:
+        """평면도 DXF 문서 (인자는 generate_plan_dxf 와 같음)"""
         if mode not in ("auto", "developed", "world"):
             raise ValueError(f"평면도 mode 는 auto / developed / world 중 하나여야 합니다 ({mode!r})")
         p = self.cfg.station
@@ -181,9 +195,7 @@ class StationCADEngine:
             level = f" {p.level_name(n)}" if p.floors > 1 else ""
             msp.add_text(f"STATION PLAN VIEW{level} (CUT LEVEL: FL+{cut_h:.1f}m, CLEAR L={p.length}m, W={p.width}m, STA {self._fmt_sta(0.0)} ~ {self._fmt_sta(p.length)}){suffix}",
                          dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((title_at[0], title_at[1] + dv))
-
-        self._save(doc, filename)
-        return os.path.abspath(filename)
+        return doc
 
     def _plan_frame(self, msp, xy, world_mode, half_w, dv):
         """평면도 바탕: 중심선 + 측점선(선형에 직교) + 측점 글자. dv = 세로 평행 이동량"""
@@ -230,6 +242,12 @@ class StationCADEngine:
     def generate_profile_dxf(self, filename="output/정거장종단면도.dxf", offsets=None) -> str:
         """종단면도. offsets: 절단 축 목록 = 선형 중심에서의 직교 거리 t (m, 진행방향 왼쪽 +, 기본 [0]).
         여러 축이면 입력 순서대로 아래로 늘어놓음 (첫 축만 실제 표고, 나머지는 아래로 평행 이동)"""
+        doc = self.build_profile_doc(offsets)
+        self._save(doc, filename)
+        return os.path.abspath(filename)
+
+    def build_profile_doc(self, offsets=None) -> ezdxf.document.Drawing:
+        """종단면도 DXF 문서 (offsets 는 generate_profile_dxf 와 같음)"""
         doc, msp = self._init_doc()
         p = self.cfg.station
         start_lv = self.cfg.lv(0)
@@ -245,9 +263,7 @@ class StationCADEngine:
             draw_view_items(msp, self._collect('profile_items', t), dv=dv)
             axis = "" if t == 0 and len(offsets) == 1 else f", AXIS: C.L.{t:+.3f}m" if t else ", AXIS: C.L."
             msp.add_text(f"STATION PROFILE VIEW ({label}: {self.cfg.grade_permil(0.0):.2f}‰{axis})", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0 + dv))
-
-        self._save(doc, filename)
-        return os.path.abspath(filename)
+        return doc
 
     def generate_ifc(self, output_path: str = "output/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)

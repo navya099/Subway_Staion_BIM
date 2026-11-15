@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 
 from gui.column_draft import _num, level_name
-from rooms.room_spec import PARTITION, SEPARATION, RoomSettings, RoomSpec
+from rooms.room_spec import DOOR_KINDS, PARTITION, SEPARATION, DoorSpec, RoomSettings, RoomSpec
 
 _SET = RoomSettings()
 
@@ -10,6 +10,35 @@ B_PARTITION = "칸막이벽"
 B_SEPARATION = "구획분리"
 BOUNDARY_LABELS = [B_PARTITION, B_SEPARATION]
 _BOUNDARY = {B_PARTITION: PARTITION, B_SEPARATION: SEPARATION}
+
+# 문이 있는 변: 화면 표기 → 모델 값.  ±t 변(s 방향 벽)은 문 중심을 STA 로, ±s 변(t 방향 벽)은 t 로 입력
+DOOR_SIDE_LABELS = {"−t 변 (오른쪽)": "-t", "+t 변 (왼쪽)": "+t", "−s 변 (시점 쪽)": "-s", "+s 변 (종점 쪽)": "+s"}
+DOOR_KIND_LABELS = list(DOOR_KINDS)
+
+
+def door_center_label(side_label: str) -> str:
+    return "중심 STA" if DOOR_SIDE_LABELS.get(side_label, "+t") in ("+t", "-t") else "중심 t"
+
+
+@dataclass
+class DoorDraft:
+    """문 1개 (입력창 문자열). center: ±t 변이면 절대 STA, ±s 변이면 t"""
+    side: str = "−t 변 (오른쪽)"
+    center: str = "0"
+    width: str = "0.9"
+    height: str = "2.1"
+    kind: str = "여닫이"
+
+    def to_spec(self, where: str, start_station: float) -> DoorSpec:
+        if self.side not in DOOR_SIDE_LABELS:
+            raise ValueError(f"{where}: 문 변이 올바르지 않습니다 ('{self.side}')")
+        if self.kind not in DOOR_KINDS:
+            raise ValueError(f"{where}: 문 종류가 올바르지 않습니다 ('{self.kind}')")
+        side = DOOR_SIDE_LABELS[self.side]
+        c = _num(self.center, where, door_center_label(self.side))
+        return DoorSpec(side=side, center=c - start_station if side in ("+t", "-t") else c,
+                        width=_num(self.width, where, "문 폭", positive=True),
+                        height=_num(self.height, where, "문 높이", positive=True), kind=self.kind)
 
 
 @dataclass
@@ -25,6 +54,7 @@ class RoomDraft:
     t1: str = "9"
     boundary: str = B_PARTITION          # 경계 종류: 칸막이벽 / 구획분리
     sep_t: str = "0"                     # 구획분리 두께 (0 = 가상 경계선)
+    doors: list = field(default_factory=list)     # DoorDraft
 
     def to_spec(self, where: str, start_station: float) -> RoomSpec:
         if not str(self.use).strip():
@@ -33,7 +63,8 @@ class RoomDraft:
             raise ValueError(f"{where}: 경계 종류가 올바르지 않습니다 ('{self.boundary}')")
         kind = _BOUNDARY[self.boundary]
         sep_t = _num(self.sep_t, where, "구획분리 두께", nonneg=True) if kind == SEPARATION else 0.0
-        return RoomSpec(floor=self.floor, use=str(self.use).strip(), boundary=kind, sep_t=sep_t,
+        doors = [d.to_spec(f"{where} 문 {k}", start_station) for k, d in enumerate(self.doors, start=1)]
+        return RoomSpec(floor=self.floor, use=str(self.use).strip(), boundary=kind, sep_t=sep_t, doors=doors,
                         s0=_num(self.sta0, where, "시작 STA") - start_station, s1=_num(self.sta1, where, "끝 STA") - start_station,
                         t0=_num(self.t0, where, "t 시작"), t1=_num(self.t1, where, "t 끝"), name=self.name.strip())
 
@@ -89,4 +120,5 @@ def preview(it: RoomDraft, start_station: float, floor_count: int) -> str:
     if ds <= 0 or dt <= 0:
         return "→ 시작 < 끝 이어야 합니다"
     edge = "칸막이벽" if sp.boundary == PARTITION else ("구획분리 가상 경계선" if sp.sep_t == 0 else f"구획분리 벽 {sp.sep_t:g}m")
-    return f"→ {level_name(floor_count, sp.floor)} {sp.use}: {ds:g} x {dt:g} m = {sp.area:.1f} m² (경계: {edge}, 중심선 기준)"
+    doors = f", 문 {len(sp.doors)}개" if sp.doors else ""
+    return f"→ {level_name(floor_count, sp.floor)} {sp.use}: {ds:g} x {dt:g} m = {sp.area:.1f} m² (경계: {edge}, 중심선 기준){doors}"

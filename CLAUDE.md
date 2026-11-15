@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 703개 통과** (GUI 101개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 723개 통과** (GUI 104개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -50,6 +50,7 @@ config/                     모델·선형
   sampled_alignment.py      점열(xyz) 선형 (국소 2차 회귀 평활 + Hermite)
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
+rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
 stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
@@ -60,9 +61,9 @@ entrances/                  출입구: spec(입력·구역 폭), layout(지표 E
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
-gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~11, 제목은 짧게 '1.선형' …, 창 폭 520),
-                            column_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
+gui/                        station_tab / platform_tab / column_tab / room_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~12, 제목은 짧게 '1.선형' …, 창 폭 560),
+                            column_draft·room_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -74,6 +75,13 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 선형: BP/EP 직선, 곡선(원·완화곡선·종곡선), JSON, xyz txt/csv(1m 간격 등), LandXML(축 NE/EN 자동 판정, 단위 변환, 다중 선형 선택). 정거장 구간이 선형 범위 안에 있는지, 곡선 반경이 외곽 폭에 비해 너무 작지 않은지 `validate()` 가 검사.
 - 본체: 층별 층고 합산, 층별 외벽 두께, 3종 슬래브 두께(`floor_t`/`mid_t`/`roof_t`).
 - 벽체(층별), 슬래브, 상대식 승강장(ㅠ형 슬래브 + 지지벽체), 중앙 기둥(층별·열별, 원/사각 혼합 패턴, 원은 지름 입력).
+- **실(구획) 1단계**: 마감을 실별로 다르게 적용하기 위한 선행 단계. `RoomSpec`(층, 용도, s 범위 × t 범위 = **칸막이벽 중심선**, 이름) + `RoomSettings`(층별 기본 실 용도 — 없으면 최하층 승강장층·그 위 대합실, 칸막이벽 두께 0.2, 재질 Masonry_Block). 용도는 `ROOM_USES` 목록 또는 직접 입력.
+  - 층마다 내공 영역에서 입력 실을 뺀 나머지 = 기본 실(직사각형 조각들, `decompose.subtract_rects`). 실끼리 겹치면 오류, 내공 밖이면 오류.
+  - 칸막이벽: 입력 실의 변 중 본체 벽(내공면) 위가 아닌 부분, 같은 선은 합쳐 한 번만, 중심선 양쪽 반 두께. s 방향 벽(t 일정)은 끝을 반 두께씩 늘리고 t 방향 벽에서는 s 방향 벽 띠를 뺌(모서리 중복·빈틈 없음). 높이 = 층 FL ~ 위 슬래브 하면, 최하층 승강장 슬래브 위(t 범위)는 승강장 상면부터. 이름 `PW_{층}_S{k}/T{k}`.
+  - 실·칸막이벽 조각 = 선형 각기둥(`helper.prism_member`, 하면이 종단을 따름, 곡선 스윕). 3D DXF 는 칸막이벽만(STRUCT_PARTITION), 횡단 SEC_PARTITION·종단 PROF_PARTITION(해치), 평면 PLAN_PARTITION + 실 이름·면적 글자(PLAN_ROOM, 윤곽 없음 — `ViewItem(pts=[])` = 글자만).
+  - IFC: 실 = `IfcSpace`(INTERNAL, LongName = 용도, 면 집합) → IfcRelAggregates 로 층 storey, 칸막이벽 = `IfcWall`(PARTITIONING, 재질) → 층 storey 포함.
+  - 검증: 형식·층·용도·크기(> 칸막이벽 두께)·내공 범위, 같은 층 실 겹침, 이름 중복, 칸막이벽이 서 있는 슬래브(층−1)의 오프닝 위 금지(계단·에스컬레이터·엘리베이터 자동 오프닝 포함), 그 층에서 오르는 계단·에스컬레이터·그 층을 지나는 엘리베이터 승강로와 겹침 금지. 기둥과는 겹쳐도 허용(벽 속 기둥).
+  - `decompose.subtract_rects` 는 구멍을 영역 안으로 잘라 쓴다(영역 밖 구멍이 엉뚱한 조각을 만들던 문제 수정).
 - **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
 - **직선 계단(1단계)**: `StairSpec`(시작 층 k → k+1, 첫 단 STA + 오르는 방향 ±s, t 중심·폭, 단높이 상한·단너비·런 높이 상한·계단참 길이·슬래브 두께·머리 높이).
   - 단수 = 올림(실제 표고차 / 단높이 상한), 실제 단높이 = 표고차 / 단수 (종단구배 반영, 모든 단 동일). 디딤판·계단참 상면은 수평(절대 표고).
@@ -158,6 +166,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
 - 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
+- 실 2단계 후보: 칸막이벽 문(개구부), 실별 마감(벽·천장틀·천장·바닥) 연결, 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 
 - 계단 2단계 후보: U자(꺾임) 계단, 계단 위 난간.

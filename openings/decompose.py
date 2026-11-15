@@ -9,6 +9,8 @@ TOL = 1e-9
 def subtract_rects(region, holes):
     """region - ∪holes → 조각 목록. 구멍이 없으면 [region]. 같은 폭으로 이어지는 s 띠는 하나로 합친다"""
     S0, S1, T0, T1 = region
+    # 영역과 면적을 가지고 겹치는 구멍만, 영역 안으로 잘라서 씀 (영역 밖 구멍이 엉뚱한 막힘 구간을 만들지 않게)
+    holes = [(max(h[0], S0), min(h[1], S1), max(h[2], T0), min(h[3], T1)) for h in holes]
     holes = [h for h in holes if h[1] - h[0] > TOL and h[3] - h[2] > TOL]
     if not holes:
         return [tuple(region)]

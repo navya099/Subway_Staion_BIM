@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_eleven_tabs_fit_in_window_width(app):
-    """탭 11개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_twelve_tabs_fit_in_window_width(app):
+    """탭 12개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 11
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 12
 
 
 # ---------------- 계단 탭 ----------------
@@ -1466,3 +1466,58 @@ def test_project_file_keeps_elevators(app, monkeypatch, tmp_path):
     assert tab.drafts.items == []
     app.on_open(path)
     assert tab._vars[(0, "overhead")].get() == "4.5" and tab._combos[(0, "car")].get() == "B1F" and not app.is_dirty()
+
+
+# ---------------- 실 탭 ----------------
+def test_room_tab_add_input_and_defaults(app):
+    assert app.room_tab.drafts.items == []
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.rooms == [] and cfg.room_settings.partition_t == 0.2
+    set_floors(app, 3)
+    set_entry(app, "start_station", "100")
+    tab = app.room_tab
+    assert [tab._combos[("default", n)].get() for n in (3, 2, 1)] == ["대합실", "대합실", "승강장층"]
+    tab._combos[("default", 2)].set("기계실")
+    tab.add_room(); app.root.update()
+    for k, v in (("sta0", "110"), ("sta1", "130"), ("t0", "2"), ("t1", "9"), ("name", "OFF")):
+        tab._vars[(0, k)].set(v)
+    tab._combos[(0, "use")].set("역무실")
+    tab._vars["partition_t"].set("0.15")
+    cfg = TkAdapter.collect_entries(app.entries)
+    (sp,) = cfg.rooms
+    assert (sp.floor, sp.use, sp.s0, sp.s1, sp.t0, sp.t1, sp.name) == (3, "역무실", 10.0, 30.0, 2.0, 9.0, "OFF")
+    assert cfg.room_settings.partition_t == 0.15 and cfg.room_settings.default_use(2) == "기계실"
+    (var, _), = tab._info_vars
+    assert "20 x 7 m = 140.0" in var.get()
+
+
+def test_room_typed_use_and_bad_input(app):
+    set_floors(app, 3)
+    tab = app.room_tab
+    tab.add_room(); app.root.update()
+    tab._combos[(0, "use")].set("승무원실")                                   # 직접 입력과 같은 경로 (변수 변경)
+    assert tab.drafts.items[0].use == "승무원실"
+    tab._vars[(0, "t1")].set("abc")
+    with pytest.raises(ValueError, match=r"실 1\(승무원실\): t 끝"):
+        TkAdapter.collect_entries(app.entries)
+
+
+def test_rooms_generate_and_project_round_trip(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "100")
+    tab = app.room_tab
+    tab.add_room(); app.root.update()
+    for k, v in (("sta0", "110"), ("sta1", "130"), ("t0", "2"), ("t1", "9")):
+        tab._vars[(0, k)].set(v)
+    tab._combos[("default", 3)].set("대합실(일반)")
+    paths = BIMEngine.build(TkAdapter.collect_entries(app.entries), tmp_path / "out")
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert {s.LongName for s in f.by_type("IfcSpace")} == {"역무실", "대합실(일반)", "대합실", "승강장층"}
+    path = str(tmp_path / "r.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save()
+    app.on_new()
+    assert tab.drafts.items == [] and sorted(tab._combos) == [("default", 1), ("default", 2)]    # 새 프로젝트 = 2개 층
+    app.on_open(path)
+    assert tab._vars[(0, "sta1")].get() == "130" and tab._combos[("default", 3)].get() == "대합실(일반)"
+    assert not app.is_dirty()

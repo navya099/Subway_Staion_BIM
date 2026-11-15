@@ -13,6 +13,7 @@ from gui.opening_tab import OpeningTab
 from gui.passage_tab import PassageTab
 from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
+from gui.room_tab import RoomTab
 from gui.project_file import FILETYPES, LIST_DRAFTS, SUFFIX, ProjectState, RecentProjects, open_project, save_project
 from gui.stair_tab import StairTab
 from gui.vent_tab import VentTab
@@ -22,7 +23,7 @@ from gui.tk_adapter import TkAdapter
 
 APP_TITLE = "지하철 개착정거장 자동 설계 (BIM Engine)"
 FLOOR_KEYS = ("floor_height_", "wall_t_")       # 층수에 따라 다시 만들어지는 입력칸
-DRAFT_TABS = ("column_tab", "opening_tab", "stair_tab", "escalator_tab", "elevator_tab", "passage_tab", "entrance_tab",
+DRAFT_TABS = ("column_tab", "room_tab", "opening_tab", "stair_tab", "escalator_tab", "elevator_tab", "passage_tab", "entrance_tab",
               "vent_tab")
 
 
@@ -32,7 +33,7 @@ class StationBIMApp:
         self.floor_col_frame = None
         self.entries = {}
         self.root = root
-        self.root.geometry("520x1024")
+        self.root.geometry("560x1024")
         self.root.resizable(False, True)
         self.project_path = None
         self.recent = RecentProjects(recent_file)
@@ -49,7 +50,7 @@ class StationBIMApp:
             self._watch()
 
     def _build_ui(self):
-        # 전체 메인 탭 노트북 생성 (탭 11개가 창 폭 520 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
+        # 전체 메인 탭 노트북 생성 (탭 12개가 창 폭 560 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
         ttk.Style(self.root).configure("TNotebook.Tab", padding=(1, 2), font=("Malgun Gothic", 8))
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -74,51 +75,57 @@ class StationBIMApp:
         # 1번 탭에서 길이/외벽 두께를 바꾼 뒤 기둥 탭으로 오면 예상 기둥 개수를 다시 계산
         notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
-        # 탭 4: 슬래브 오프닝
+        # 탭 4: 실 (구획)
+        tab_room = ttk.Frame(notebook)
+        notebook.add(tab_room, text="4.실")
+        self.room_tab = RoomTab(tab_room, self.entries)
+        self.room_tab.build()
+
+        # 탭 5: 슬래브 오프닝
         tab_opening = ttk.Frame(notebook)
-        notebook.add(tab_opening, text="4.오프닝")
+        notebook.add(tab_opening, text="5.오프닝")
         self.opening_tab = OpeningTab(tab_opening, self.entries)
         self.opening_tab.build()
 
-        # 탭 5: 계단
+        # 탭 6: 계단
         tab_stair = ttk.Frame(notebook)
-        notebook.add(tab_stair, text="5.계단")
+        notebook.add(tab_stair, text="6.계단")
         self.stair_tab = StairTab(tab_stair, self.entries)
         self.stair_tab.build()
 
-        # 탭 6: 에스컬레이터
+        # 탭 7: 에스컬레이터
         tab_esc = ttk.Frame(notebook)
-        notebook.add(tab_esc, text="6.ESC")
+        notebook.add(tab_esc, text="7.ESC")
         self.escalator_tab = EscalatorTab(tab_esc, self.entries)
         self.escalator_tab.build()
 
-        # 탭 7: 엘리베이터
+        # 탭 8: 엘리베이터
         tab_ev = ttk.Frame(notebook)
-        notebook.add(tab_ev, text="7.EV")
+        notebook.add(tab_ev, text="8.EV")
         self.elevator_tab = ElevatorTab(tab_ev, self.entries)
         self.elevator_tab.build()
 
-        # 탭 8: 출구통로
+        # 탭 9: 출구통로
         tab_passage = ttk.Frame(notebook)
-        notebook.add(tab_passage, text="8.통로")
+        notebook.add(tab_passage, text="9.통로")
         self.passage_tab = PassageTab(tab_passage, self.entries)
         self.passage_tab.build()
 
-        # 탭 9: 출입구
+        # 탭 10: 출입구
         tab_entrance = ttk.Frame(notebook)
-        notebook.add(tab_entrance, text="9.출입구")
+        notebook.add(tab_entrance, text="10.출입구")
         self.entrance_tab = EntranceTab(tab_entrance, self.entries)
         self.entrance_tab.build()
 
-        # 탭 10: 환기구
+        # 탭 11: 환기구
         tab_vent = ttk.Frame(notebook)
-        notebook.add(tab_vent, text="10.환기구")
+        notebook.add(tab_vent, text="11.환기구")
         self.vent_tab = VentTab(tab_vent, self.entries)
         self.vent_tab.build()
 
-        # 탭 11: 출력 설정
+        # 탭 12: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text="11.출력")
+        notebook.add(tab_print, text="12.출력")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -135,6 +142,9 @@ class StationBIMApp:
         """1번 탭에서 바꾼 값(내공 길이, 층수, 시작 측점, 층 높이)을 기둥·오프닝·계단·에스컬레이터·통로 탭에 반영"""
         if hasattr(self, 'column_tab'):
             self.column_tab.refresh_counts()
+        if hasattr(self, 'room_tab'):
+            self.room_tab.update_floor_ui()
+            self.room_tab.refresh_info()
         if hasattr(self, 'opening_tab'):
             self.opening_tab.update_floor_ui()
             self.opening_tab.refresh_ranges()
@@ -163,6 +173,8 @@ class StationBIMApp:
             self.station_tab.update_floor_heights()
         if hasattr(self, 'column_tab'):
             self.column_tab.update_column_floor_ui()
+        if hasattr(self, 'room_tab'):
+            self.room_tab.update_floor_ui()
         if hasattr(self, 'opening_tab'):
             self.opening_tab.update_floor_ui()
         if hasattr(self, 'stair_tab'):
@@ -239,6 +251,7 @@ class StationBIMApp:
         for name in LIST_DRAFTS:
             setattr(st, name, copy.deepcopy(self.entries[name].items))
         st.print_draft = copy.deepcopy(self.print_tab.draft)
+        st.room_settings = copy.deepcopy(self.room_tab.drafts.settings)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -277,6 +290,8 @@ class StationBIMApp:
             if n and hasattr(tab.drafts, "ensure_floors"):
                 tab.drafts.ensure_floors(n)
             tab.render()
+        self.room_tab.drafts.settings = copy.deepcopy(st.room_settings)
+        self.room_tab.render()
         pd = self.print_tab.draft                               # 초안 객체는 그대로 두고 내용만 교체 (entries 가 참조)
         pd.__dict__.update(copy.deepcopy(st.print_draft).__dict__)
         pd.ensure_floors(self.print_tab._read_floor_count() or 1, 0)

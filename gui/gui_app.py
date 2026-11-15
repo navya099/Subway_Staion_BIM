@@ -20,6 +20,7 @@ from gui.stair_tab import StairTab
 from gui.vent_tab import VentTab
 from gui.station_tab import StationTab
 from gui.tk_adapter import TkAdapter
+from gui.preview_window import PreviewWindow
 
 
 APP_TITLE = "지하철 개착정거장 자동 설계 (BIM Engine)"
@@ -38,6 +39,7 @@ class StationBIMApp:
         self.root.resizable(False, True)
         self.project_path = None
         self.recent = RecentProjects(recent_file)
+        self.preview = None                          # 미리보기 창 (PreviewWindow)
 
         self._build_ui()
         self._build_menu()
@@ -143,6 +145,8 @@ class StationBIMApp:
 
         tk.Button(btn_frame, text="성과물 출력", font=("Malgun Gothic", 9, "bold"), bg="#3F51B5", fg="white", width=22,
                   command=self.on_generate).pack(side="left", padx=8, pady=8)
+        tk.Button(btn_frame, text="미리보기 (F5)", font=("Malgun Gothic", 9, "bold"), bg="#5C6BC0", fg="white", width=16,
+                  command=self.on_preview).pack(side="left", padx=0, pady=8)
         tk.Button(btn_frame, text="종료", font=("Malgun Gothic", 9, "bold"), bg="#00897B", fg="white", width=22,
                   command=self.on_exit).pack(side="right", padx=8, pady=8)
 
@@ -213,6 +217,15 @@ class StationBIMApp:
         messagebox.showinfo('완료', "생성된 파일:\n" + "\n".join(paths))
 
 
+    def on_preview(self):
+        """미리보기 창을 열거나(이미 열려 있으면 앞으로) 현재 입력으로 갱신"""
+        if self.preview is None or not self.preview.alive:
+            self.preview = PreviewWindow(self.root, lambda: TkAdapter.collect_entries(self.entries),
+                                         print_draft=self.entries.get("print_draft"))
+        else:
+            self.preview.lift()
+        self.preview.refresh()
+
     # ================================================================== 프로젝트 파일
     def _build_menu(self):
         bar = tk.Menu(self.root)
@@ -227,11 +240,14 @@ class StationBIMApp:
         m.add_separator()
         m.add_command(label="종료", command=self.on_exit)
         bar.add_cascade(label="파일", menu=m)
+        v = tk.Menu(bar, tearoff=0)
+        v.add_command(label="미리보기 / 갱신", accelerator="F5", command=self.on_preview)
+        bar.add_cascade(label="보기", menu=v)
         self.root.config(menu=bar)
         self.file_menu = m
         # Ctrl+Shift+S 는 Shift 때문에 keysym 이 대문자 S 로 옴
         for seq, fn in (("<Control-n>", self.on_new), ("<Control-o>", self.on_open), ("<Control-s>", self.on_save),
-                        ("<Control-S>", self.on_save_as)):
+                        ("<Control-S>", self.on_save_as), ("<F5>", self.on_preview)):
             self.root.bind_all(seq, lambda e, f=fn: self._shortcut(f))
         self._refresh_recent_menu()
 

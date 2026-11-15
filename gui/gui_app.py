@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from engine.bim_engine import BIMEngine
 from gui.column_tab import ColumnTab
+from gui.elevator_tab import ElevatorTab
 from gui.entrance_tab import EntranceTab
 from gui.escalator_tab import EscalatorTab
 from gui.opening_tab import OpeningTab
@@ -21,7 +22,8 @@ from gui.tk_adapter import TkAdapter
 
 APP_TITLE = "지하철 개착정거장 자동 설계 (BIM Engine)"
 FLOOR_KEYS = ("floor_height_", "wall_t_")       # 층수에 따라 다시 만들어지는 입력칸
-DRAFT_TABS = ("column_tab", "opening_tab", "stair_tab", "escalator_tab", "passage_tab", "entrance_tab", "vent_tab")
+DRAFT_TABS = ("column_tab", "opening_tab", "stair_tab", "escalator_tab", "elevator_tab", "passage_tab", "entrance_tab",
+              "vent_tab")
 
 
 class StationBIMApp:
@@ -30,7 +32,7 @@ class StationBIMApp:
         self.floor_col_frame = None
         self.entries = {}
         self.root = root
-        self.root.geometry("480x1024")
+        self.root.geometry("520x1024")
         self.root.resizable(False, True)
         self.project_path = None
         self.recent = RecentProjects(recent_file)
@@ -47,7 +49,7 @@ class StationBIMApp:
             self._watch()
 
     def _build_ui(self):
-        # 전체 메인 탭 노트북 생성 (탭 10개가 창 폭 480 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
+        # 전체 메인 탭 노트북 생성 (탭 11개가 창 폭 520 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
         ttk.Style(self.root).configure("TNotebook.Tab", padding=(1, 2), font=("Malgun Gothic", 8))
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -90,27 +92,33 @@ class StationBIMApp:
         self.escalator_tab = EscalatorTab(tab_esc, self.entries)
         self.escalator_tab.build()
 
-        # 탭 7: 출구통로
+        # 탭 7: 엘리베이터
+        tab_ev = ttk.Frame(notebook)
+        notebook.add(tab_ev, text="7.EV")
+        self.elevator_tab = ElevatorTab(tab_ev, self.entries)
+        self.elevator_tab.build()
+
+        # 탭 8: 출구통로
         tab_passage = ttk.Frame(notebook)
-        notebook.add(tab_passage, text="7.통로")
+        notebook.add(tab_passage, text="8.통로")
         self.passage_tab = PassageTab(tab_passage, self.entries)
         self.passage_tab.build()
 
-        # 탭 8: 출입구
+        # 탭 9: 출입구
         tab_entrance = ttk.Frame(notebook)
-        notebook.add(tab_entrance, text="8.출입구")
+        notebook.add(tab_entrance, text="9.출입구")
         self.entrance_tab = EntranceTab(tab_entrance, self.entries)
         self.entrance_tab.build()
 
-        # 탭 9: 환기구
+        # 탭 10: 환기구
         tab_vent = ttk.Frame(notebook)
-        notebook.add(tab_vent, text="9.환기구")
+        notebook.add(tab_vent, text="10.환기구")
         self.vent_tab = VentTab(tab_vent, self.entries)
         self.vent_tab.build()
 
-        # 탭 10: 출력 설정
+        # 탭 11: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text="10.출력")
+        notebook.add(tab_print, text="11.출력")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -136,6 +144,9 @@ class StationBIMApp:
         if hasattr(self, 'escalator_tab'):
             self.escalator_tab.update_floor_ui()
             self.escalator_tab.refresh_info()
+        if hasattr(self, 'elevator_tab'):
+            self.elevator_tab.update_floor_ui()
+            self.elevator_tab.refresh_info()
         if hasattr(self, 'passage_tab'):
             self.passage_tab.update_floor_ui()
             self.passage_tab.refresh_info()
@@ -158,6 +169,8 @@ class StationBIMApp:
             self.stair_tab.update_floor_ui()
         if hasattr(self, 'escalator_tab'):
             self.escalator_tab.update_floor_ui()
+        if hasattr(self, 'elevator_tab'):
+            self.elevator_tab.update_floor_ui()
         if hasattr(self, 'passage_tab'):
             self.passage_tab.update_floor_ui()
         if hasattr(self, 'vent_tab'):

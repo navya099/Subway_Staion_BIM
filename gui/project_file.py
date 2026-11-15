@@ -18,6 +18,7 @@ from config.alignment_io import file_kind, load_alignment
 from config.alignment_landxml import LandXMLOptions
 from config.alignment_text import XYZOptions
 from gui.column_draft import FloorDraft, PatternDraft, RowDraft
+from gui.elevator_draft import ElevatorDraft, ElevatorDrafts
 from gui.entrance_draft import EntranceDraft, EntranceDrafts
 from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
 from gui.opening_draft import OpeningDraft, OpeningDrafts
@@ -37,7 +38,8 @@ _NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft,
 # 목록형 탭: 상태 필드 이름 → (초안 묶음, 원소 형식)
 LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": (StairDrafts, StairDraft),
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),
-               "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft)}
+               "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft),
+               "elevator_drafts": (ElevatorDrafts, ElevatorDraft)}
 
 
 # ====================================================================== 초안 dataclass ↔ JSON
@@ -194,6 +196,7 @@ class ProjectState:
     passage_drafts: list = field(default_factory=list)
     entrance_drafts: list = field(default_factory=list)
     vent_drafts: list = field(default_factory=list)
+    elevator_drafts: list = field(default_factory=list)
     print_draft: PrintDraft = field(default_factory=PrintDraft)     # 출력 탭 옵션
     alignment: Optional[EmbeddedAlignment] = None
 

@@ -100,10 +100,11 @@ class PlatformEngine:
                 if leg.part == PlatformPart.SUPPORT_WALL and decompose.overlap_area(
                         (s0, s1, t0, t1), (*PM.s_range(leg), *PM.t_range(leg))) > 1e-9:
                     raise ValueError(f"승강장 구멍 {name}: 승강장 지지벽체 {leg.name} 과(와) 겹칩니다 "
-                                     "(에스컬레이터 t 위치나 트러스 폭을 확인하세요)")
+                                     "(에스컬레이터·엘리베이터 t 위치나 폭을 확인하세요)")
+            ev = name.endswith("_SHAFT")
             slab.openings.append(OpeningData(
-                name=f"OPEN_{name}_{slab.name}", family_name="승강장 구멍", type_name="에스컬레이터 피트",
-                level=slab.level, kind=OpeningKind.ESCALATOR, slab_name=slab.name,
+                name=f"OPEN_{name}_{slab.name}", family_name="승강장 구멍", type_name="엘리베이터 승강로" if ev else "에스컬레이터 피트",
+                level=slab.level, kind=OpeningKind.ELEVATOR if ev else OpeningKind.ESCALATOR, slab_name=slab.name,
                 s_range=(s0, s1), t_range=(t0, t1), **self._piece_dims(s0, s1, t0, t1)))
         for slab in plats:
             if slab.openings:

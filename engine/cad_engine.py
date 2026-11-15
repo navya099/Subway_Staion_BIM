@@ -11,6 +11,7 @@ from helper.view_item import ViewItem, draw_view_items
 from platforms.platform_engine import PlatformEngine
 from slabs.slab_engine import SlabEngine
 from entrances.entrance_engine import EntranceEngine
+from elevators.elevator_engine import ElevatorEngine
 from escalators.escalator_engine import EscalatorEngine
 from passages.passage_engine import PassageEngine
 from stairs.stair_engine import StairEngine
@@ -30,14 +31,15 @@ class StationCADEngine:
         self.columns = ColumnEngine(config)
         self.stairs = StairEngine(config)
         self.escalators = EscalatorEngine(config)
+        self.elevators = ElevatorEngine(config)
         self.passages = PassageEngine(config)
         self.entrances = EntranceEngine(config)
         self.vents = VentEngine(config)
         self.slabs.check_columns(self.columns)
         self.stairs.check_columns(self.columns)
         self.escalators.check_columns(self.columns)
-        self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs, self.escalators, self.passages,
-                            self.entrances, self.vents]
+        self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs, self.escalators, self.elevators,
+                            self.passages, self.entrances, self.vents]
     @staticmethod
     def _save(doc, filename):
         filename = str(filename)
@@ -79,6 +81,8 @@ class StationCADEngine:
                 engine.add_passage_mesh(msp)
             if hasattr(engine, 'add_vent_mesh'):
                 engine.add_vent_mesh(msp)
+            if hasattr(engine, 'add_elevator_mesh'):
+                engine.add_elevator_mesh(msp)
             if hasattr(engine, 'add_entrance_mesh'):
                 engine.add_entrance_mesh(msp)
 
@@ -247,6 +251,7 @@ class StationCADEngine:
         exporter.export_escalators(self.escalators)
         exporter.export_passages(self.passages)
         exporter.export_vents(self.vents)
+        exporter.export_elevators(self.elevators)
         exporter.export_entrances(self.entrances)
         exporter.save(str(output_path))
         return os.path.abspath(output_path)

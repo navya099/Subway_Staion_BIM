@@ -35,6 +35,10 @@ LAYER_DEFINITIONS = {
     "STRUCT_PASSAGE": {"color": 140},    # 출구통로 (하늘색)
     "PLAN_PASSAGE": {"color": 140},      # 평면도 출구통로 벽
     "STRUCT_ENTRANCE": {"color": 170},   # 출입구 (박스·계단·에스컬레이터)
+    "STRUCT_ELEVATOR": {"color": 150},   # 엘리베이터 승강로 (콘크리트)
+    "STRUCT_ELEVATOR_CAR": {"color": 5},  # 엘리베이터 카
+    "PLAN_ELEVATOR": {"color": 150},     # 평면도 엘리베이터 (승강로·X 표시·카)
+    "SEC_ELEVATOR": {"color": 5},        # 단면도 엘리베이터 카
     "STRUCT_VENT": {"color": 130},       # 환기구 콘크리트 (덕트·수직구)
     "STRUCT_GRILL": {"color": 9},        # 환기구 금속 그릴
     "PLAN_VENT": {"color": 130},         # 평면도 환기구 벽

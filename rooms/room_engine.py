@@ -2,8 +2,9 @@ from config.master_config import StationProjectConfig
 from helper import prism_member as PM
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
-from rooms.room_data import PartitionData, RoomBox, RoomData, RoomPiece
+from rooms.room_data import PartitionData, RoomBox, RoomData, RoomPiece, SeparationLineData
 from rooms.room_layout import ceiling_rel
+from rooms.room_spec import PARTITION
 
 
 class RoomEngine:
@@ -18,7 +19,8 @@ class RoomEngine:
         self.cfg = config
         self.sp = config.station
         self.rooms: list[RoomData] = []
-        self.partitions: list[PartitionData] = []
+        self.partitions: list[PartitionData] = []        # 칸막이벽 + 구획분리 벽(두께 > 0)
+        self.separations: list[SeparationLineData] = []  # 두께 없는 구획분리 경계선
         self._build()
 
     def _piece(self, name, s0, s1, t0, t1, z0, z1) -> RoomPiece:
@@ -37,13 +39,22 @@ class RoomEngine:
                 self.rooms.append(RoomData(name=r.name, family_name="실", type_name=r.use, level=level,
                                            pos_x=pieces[0].pos_x, pos_y=pieces[0].pos_y, pos_z=pieces[0].pos_z,
                                            use=r.use, floor=fl.floor, is_default=r.is_default, pieces=pieces))
-            pt = self.cfg.room_settings.partition_t
+            rs = self.cfg.room_settings
             for pw in fl.partitions:
                 pieces = [self._piece(f"{pw.name}_P{k}", *p) for k, p in enumerate(pw.pieces, start=1)]
+                part = pw.kind == PARTITION
                 self.partitions.append(PartitionData(
-                    name=pw.name, family_name="칸막이벽", type_name=f"{int(round(pt * 1000))}mm", level=level,
+                    name=pw.name, family_name="칸막이벽" if part else "구획분리벽",
+                    type_name=f"{int(round(pw.thickness * 1000))}mm", level=level,
                     pos_x=pieces[0].pos_x, pos_y=pieces[0].pos_y, pos_z=pieces[0].pos_z,
-                    material=self.cfg.room_settings.partition_material, floor=fl.floor, axis=pw.axis, pieces=pieces))
+                    material=rs.partition_material if part else rs.separation_material, floor=fl.floor, axis=pw.axis,
+                    kind=pw.kind, thickness=pw.thickness, pieces=pieces))
+            for sl in fl.separations:
+                s0, s1, t0, t1 = sl.rect
+                self.separations.append(SeparationLineData(
+                    name=sl.name, family_name="구획분리선", type_name="가상 경계", level=level, pos_x=(s0 + s1) / 2.0,
+                    pos_y=(t0 + t1) / 2.0, pos_z=self.cfg.lv((s0 + s1) / 2.0) - self.sp.offset + sl.z_rel,
+                    floor=fl.floor, axis=sl.axis, rect=sl.rect, z_rel=sl.z_rel))
 
     def rooms_on(self, floor: int) -> list[RoomData]:
         return [r for r in self.rooms if r.floor == floor]
@@ -52,8 +63,9 @@ class RoomEngine:
     def add_partition_mesh(self, msp):
         """3D 메쉬 (칸막이벽 = STRUCT_PARTITION). 한 번만 호출할 것"""
         for pw in self.partitions:
+            layer = "STRUCT_PARTITION" if pw.kind == PARTITION else "STRUCT_SEPARATION"
             faces = [f for p in pw.pieces for f in PM.mesh_faces(self.cfg, p)]
-            pw.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_PARTITION"}) for f in faces]
+            pw.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
 
     # ---------- 2D 도면 ----------
     def section_items(self, sta):
@@ -78,13 +90,18 @@ class RoomEngine:
         return items
 
     def plan_items(self, cut_h, floor=1):
-        """평면도(floor 층): 칸막이벽 윤곽 + 실 이름·면적 글자(PLAN_ROOM, 실 조각 중 가장 큰 것의 중심, 윤곽선 없음)"""
+        """평면도(floor 층): 칸막이벽·구획분리 벽 윤곽 + 가상 경계선 + 실 이름·면적 글자(PLAN_ROOM, 실 조각 중 가장 큰 것의 중심, 윤곽선 없음)"""
         items = []
         for pw in self.partitions:
             if pw.floor == floor:
+                layer = "PLAN_PARTITION" if pw.kind == PARTITION else "PLAN_SEPARATION"
                 for p in pw.pieces:
                     s0, s1 = PM.s_range(p)
-                    items.append(ViewItem.rect(pw.name, "PLAN_PARTITION", s0, s1, *PM.t_range(p)))
+                    items.append(ViewItem.rect(pw.name, layer, s0, s1, *PM.t_range(p)))
+        for sl in self.separations:                       # 가상 경계선 = 선 하나
+            if sl.floor == floor:
+                s0, s1, t0, t1 = sl.rect
+                items.append(ViewItem(sl.name, "PLAN_SEPARATION", u0=s0, u1=s1, pts=[(s0, t0), (s1, t1)]))
         for r in self.rooms_on(floor):
             big = max(r.pieces, key=lambda p: p.shape.length * p.shape.width)
             text = f"{r.use if r.is_default else r.name} ({r.area:.1f}m2)"

@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.column_draft import level_name
-from gui.room_draft import RoomDraft, RoomDrafts, preview
+from gui.room_draft import B_SEPARATION, BOUNDARY_LABELS, RoomDraft, RoomDrafts, preview
 from rooms.room_spec import ROOM_USES, RoomSettings
 
 FONT = ("Malgun Gothic", 9)
@@ -34,6 +34,8 @@ class RoomTab:
         tk.Label(self.parent, justify="left", fg="#555555", font=("Malgun Gothic", 8), wraplength=470,
                  text="• 실 = 층별 사각형 (STA 범위 × t 범위, 칸막이벽 중심선 기준, t 는 왼쪽 +)\n"
                       "• 입력하지 않은 나머지 영역은 그 층의 기본 실. 실 경계에는 칸막이벽 자동 (본체 벽 위 변은 제외)\n"
+                      "• 경계 = 칸막이벽(공통 두께) 또는 구획분리(두께 0 = 가상 경계선, > 0 = 얇은 벽). 겹치면 칸막이벽 우선\n"
+                      "• 예) 대합실 PAID 구역을 구획분리로 넣고 그 층 기본 실을 복도로 → 나머지가 복도\n"
                       "• 용도는 목록에서 고르거나 직접 입력 (마감은 용도별로 다음 단계에서 연결)").pack(anchor="w", padx=15)
 
         top = tk.LabelFrame(self.parent, text=" 공통 설정 ", font=FONT_B, fg="#2E7D32", padx=8, pady=4)
@@ -130,6 +132,16 @@ class RoomTab:
         self.drafts.items[idx].use = use
         self.refresh_info()
 
+    def set_boundary(self, idx, label: str):
+        self.drafts.items[idx].boundary = label
+        self._sync_sep(idx)
+        self.refresh_info()
+
+    def _sync_sep(self, idx):
+        e = getattr(self, "_sep_entries", {}).get(idx)
+        if e is not None:
+            e.configure(state="normal" if self.drafts.items[idx].boundary == B_SEPARATION else "disabled")
+
     def set_default_use(self, floor_n: int, use: str):
         self.drafts.settings.default_uses[str(floor_n)] = use
 
@@ -142,6 +154,7 @@ class RoomTab:
         for k in [k for k in self._vars if k != "partition_t" and not (isinstance(k, tuple) and k[0] == "default")]:
             del self._vars[k]
         self._info_vars.clear()
+        self._sep_entries = {}
         for k in [k for k in self._combos if k[0] != "default"]:
             del self._combos[k]
         if "partition_t" in self._vars and self._vars["partition_t"].get() != self.drafts.settings.partition_t:
@@ -199,6 +212,20 @@ class RoomTab:
         uc.pack(side="left", padx=(2, 0))
         self._combos[(i, "use")] = uc
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_room(i)).pack(side="right")
+
+        row = tk.Frame(box)
+        row.pack(fill="x", pady=(4, 0))
+        tk.Label(row, text="경계", font=FONT).pack(side="left")
+        bc = ttk.Combobox(row, values=BOUNDARY_LABELS, state="readonly", width=8, font=FONT)
+        bc.set(it.boundary if it.boundary in BOUNDARY_LABELS else BOUNDARY_LABELS[0])
+        bc.bind("<<ComboboxSelected>>", lambda e, c=bc, k=i: self.set_boundary(k, c.get()))
+        bc.pack(side="left", padx=(2, 8))
+        self._combos[(i, "boundary")] = bc
+        tk.Label(row, text="구획분리 두께 (0 = 가상 경계선)", font=FONT).pack(side="left")
+        se = self._entry(row, it, "sep_t", (i, "sep_t"), 5)
+        se.pack(side="left", padx=(2, 0))
+        self._sep_entries[i] = se
+        self._sync_sep(i)
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))

@@ -1521,3 +1521,21 @@ def test_rooms_generate_and_project_round_trip(app, monkeypatch, tmp_path):
     app.on_open(path)
     assert tab._vars[(0, "sta1")].get() == "130" and tab._combos[("default", 3)].get() == "대합실(일반)"
     assert not app.is_dirty()
+
+
+def test_room_boundary_combo_and_project_round_trip(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    tab = app.room_tab
+    tab.add_room(); app.root.update()
+    assert str(tab._sep_entries[0].cget("state")) == "disabled"
+    tab._combos[(0, "boundary")].set("구획분리")
+    tab._combos[(0, "boundary")].event_generate("<<ComboboxSelected>>"); app.root.update()
+    assert str(tab._sep_entries[0].cget("state")) == "normal"
+    tab._vars[(0, "sep_t")].set("0.1")
+    (sp,) = TkAdapter.collect_entries(app.entries).rooms
+    assert (sp.boundary, sp.sep_t) == ("separation", 0.1)
+    path = str(tmp_path / "s.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new(); app.on_open(path)
+    assert tab._combos[(0, "boundary")].get() == "구획분리" and tab._vars[(0, "sep_t")].get() == "0.1"
+    assert str(tab._sep_entries[0].cget("state")) == "normal"

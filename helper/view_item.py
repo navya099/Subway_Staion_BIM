@@ -22,7 +22,7 @@ class ViewItem:
     hatch_layer: Optional[str] = None   # 지정하면 절단면 해치 작도
     merge: bool = False                 # 같은 u 구간에서 위아래로 맞닿은 부재를 하나로 합침 (층별로 나뉜 벽체)
     label: Optional[tuple] = None       # (text, u, v, height, layer)
-    pts: Optional[list] = None          # 지정하면 이 다각형을 그대로 사용 (종곡선처럼 위/아래 변이 곡선인 부재의 종단면)
+    pts: Optional[list] = None          # 지정하면 이 다각형을 그대로 사용 (종곡선처럼 위/아래 변이 곡선인 부재의 종단면). [] = 글자만
 
     @property
     def poly(self) -> list[tuple[float, float]]:
@@ -66,6 +66,8 @@ def draw_view_items(msp, items: list[ViewItem], du: float = 0.0, dv: float = 0.0
         if it.circle is not None:
             cu, cv, r = it.circle
             msp.add_circle((du + cu, dv + cv), r, dxfattribs={'layer': it.layer})
+        elif it.pts is not None and len(it.pts) < 2:
+            pass                                   # 글자만 있는 항목 (평면도 실 이름 등)
         else:
             pts = [(du + u, dv + v) for u, v in it.poly]
             msp.add_lwpolyline(pts, close=True, dxfattribs={'layer': it.layer})

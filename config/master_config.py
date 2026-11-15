@@ -11,6 +11,8 @@ from escalators.escalator_check import check_escalator_layouts, layout_escalator
 from openings.opening_check import check_openings
 from passages.passage_check import check_passage_layouts, layout_passages
 from platforms.platform_params import PlatformParameters
+from rooms.room_check import check_room_layouts, layout_rooms
+from rooms.room_spec import RoomSettings
 from stairs.stair_check import check_stair_layouts, layout_stairs
 from ventilations.vent_check import check_vent_layouts, layout_vents
 
@@ -28,6 +30,8 @@ class StationProjectConfig:
     passages: list = dataclasses.field(default_factory=list)      # list[PassageSpec]: 출구통로 (본체 측벽 오프닝 자동 생성)
     entrances: list = dataclasses.field(default_factory=list)     # list[EntranceSpec]: 출입구 (출구통로 끝에 이어 지표까지)
     elevators: list = dataclasses.field(default_factory=list)     # list[ElevatorSpec]: 엘리베이터 (승강로 슬래브 오프닝 자동)
+    rooms: list = dataclasses.field(default_factory=list)         # list[RoomSpec]: 실(구획) — 나머지는 층별 기본 실, 경계 칸막이벽 자동
+    room_settings: RoomSettings = dataclasses.field(default_factory=RoomSettings)
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
 
     def __post_init__(self):
@@ -55,10 +59,12 @@ class StationProjectConfig:
                                  "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
         stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)
-        check_openings(self.station, self.openings + self._auto_openings(stairs, escs, evs))
+        all_ops = self.openings + self._auto_openings(stairs, escs, evs)
+        check_openings(self.station, all_ops)
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
         check_elevator_layouts(self, evs, stairs, escs)
+        check_room_layouts(self, layout_rooms(self), all_ops, stairs, escs, evs)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)
@@ -71,6 +77,10 @@ class StationProjectConfig:
     def escalator_layouts(self) -> list:
         """에스컬레이터별 배치 계산 결과 (EscalatorLayout). 에스컬레이터·슬래브·승강장 엔진이 같은 결과를 쓴다"""
         return layout_escalators(self)
+
+    def room_layouts(self) -> list:
+        """층별 실 배치 (FloorRoomsLayout: 입력 실 + 기본 실 + 칸막이벽). 실 엔진이 쓴다"""
+        return layout_rooms(self)
 
     def elevator_layouts(self) -> list:
         """엘리베이터별 배치 계산 결과 (ElevatorLayout). 엘리베이터·슬래브·승강장 엔진이 같은 결과를 쓴다"""

@@ -21,6 +21,7 @@ from escalators.escalator_type import EscalatorPartKind
 from helper.strip_member import Strip, StripShape, part_faces
 from passages.passage_engine import PassageEngine
 from passages.passage_type import PassagePartKind
+from rooms.room_engine import RoomEngine
 from elevators.elevator_engine import ElevatorEngine
 from elevators.elevator_type import ElevatorPartKind
 from ventilations.vent_engine import VentEngine
@@ -564,6 +565,36 @@ class IFCExporter:
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm, RelatedObjects=shaft_parts)
             self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                     RelatingStructure=self.storeys[ev.level], RelatedElements=[asm])
+
+    def export_rooms(self, room_engine: RoomEngine):
+        """실: 층마다 IfcSpace(INTERNAL, LongName = 용도)를 IfcRelAggregates 로 IfcBuildingStorey 에 넣고(공간 분할),
+        칸막이벽은 IfcWall(PARTITIONING) 로 그 층 storey 에 포함. 형상 = 조각마다 닫힌 면 집합(세계 좌표)"""
+        cfg = self.config
+        by_level: dict = {}
+        for r in room_engine.rooms:
+            items = [self._face_set(PM.sweep_quads(PM.rings(cfg, p))) for p in r.pieces]   # 바깥 방향 면
+            space = self.file.create_entity(
+                "IfcSpace", GlobalId=ifcopenshell.guid.compress(uuid.UUID(r.guid).hex), Name=r.name, LongName=r.use,
+                Description=f"{r.level} {r.use} ({r.area:.2f} m2)" + (" — 기본 실" if r.is_default else ""),
+                ObjectType=r.use, ObjectPlacement=self._placement(),
+                Representation=self._product_shape(items, "Tessellation"), CompositionType="ELEMENT", PredefinedType="INTERNAL")
+            by_level.setdefault(r.level, ([], []))[0].append(space)
+        for pw in room_engine.partitions:
+            items = [self._face_set(PM.sweep_quads(PM.rings(cfg, p))) for p in pw.pieces]
+            wall = self.file.create_entity(
+                "IfcWall", GlobalId=ifcopenshell.guid.compress(uuid.UUID(pw.guid).hex), Name=pw.name, ObjectType=pw.type_name,
+                ObjectPlacement=self._placement(), Representation=self._product_shape(items, "Tessellation"),
+                PredefinedType="PARTITIONING")
+            if pw.material:
+                self._assign_material(wall, pw.material)
+            by_level.setdefault(pw.level, ([], []))[1].append(wall)
+        for level, (spaces, walls) in by_level.items():
+            if spaces:
+                self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingObject=self.storeys[level], RelatedObjects=spaces)
+            if walls:
+                self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingStructure=self.storeys[level], RelatedElements=walls)
 
     _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
                     VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),

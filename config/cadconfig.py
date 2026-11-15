@@ -39,6 +39,11 @@ LAYER_DEFINITIONS = {
     "STRUCT_ELEVATOR_CAR": {"color": 5},  # 엘리베이터 카
     "PLAN_ELEVATOR": {"color": 150},     # 평면도 엘리베이터 (승강로·X 표시·카)
     "SEC_ELEVATOR": {"color": 5},        # 단면도 엘리베이터 카
+    "STRUCT_PARTITION": {"color": 52},   # 실 경계 칸막이벽
+    "SEC_PARTITION": {"color": 52},      # 횡단면도 칸막이벽
+    "PROF_PARTITION": {"color": 52},     # 종단면도 칸막이벽
+    "PLAN_PARTITION": {"color": 52},     # 평면도 칸막이벽
+    "PLAN_ROOM": {"color": 3},           # 평면도 실 영역·실 이름
     "STRUCT_VENT": {"color": 130},       # 환기구 콘크리트 (덕트·수직구)
     "STRUCT_GRILL": {"color": 9},        # 환기구 금속 그릴
     "PLAN_VENT": {"color": 130},         # 평면도 환기구 벽

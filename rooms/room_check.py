@@ -1,6 +1,6 @@
 from openings.decompose import overlap_area
 from rooms.room_layout import layout_floor_rooms, resolve_room_names
-from rooms.room_spec import RoomSettings, RoomSpec
+from rooms.room_spec import BOUNDARIES, SEPARATION, RoomSettings, RoomSpec
 
 _EPS = 1e-6
 
@@ -24,6 +24,10 @@ def check_room_specs(cfg, specs: list, names: list):
             raise ValueError(f"실 {name}: 층 번호 {sp.floor!r} 이(가) 범위(1 ~ {st.floors})를 벗어납니다")
         if not isinstance(sp.use, str) or not sp.use.strip():
             raise ValueError(f"실 {name}: 용도를 입력하세요")
+        if sp.boundary not in BOUNDARIES:
+            raise ValueError(f"실 {name}: 경계 종류는 {' / '.join(BOUNDARIES)} 중 하나여야 합니다 ({sp.boundary!r})")
+        if sp.boundary == SEPARATION and not sp.sep_t >= 0:
+            raise ValueError(f"실 {name}: 구획분리 두께는 0 이상이어야 합니다 ({sp.sep_t}, 0 = 가상 경계선)")
         if not (sp.s1 - sp.s0 > rs.partition_t + _EPS and sp.t1 - sp.t0 > rs.partition_t + _EPS):
             raise ValueError(f"실 {name}: 크기({sp.s1 - sp.s0:g} x {sp.t1 - sp.t0:g}m)가 칸막이벽 두께보다 커야 합니다 "
                              "(시작 < 끝 인지 확인)")
@@ -50,7 +54,8 @@ def layout_rooms(cfg) -> list:
 
 
 def check_room_layouts(cfg, floors: list, openings: list, stairs: list, escalators: list, elevators: list):
-    """칸막이벽이 서 있는 슬래브의 오프닝 위에 놓이지 않고, 계단·에스컬레이터·엘리베이터와 평면이 겹치지 않을 것"""
+    """칸막이벽·구획분리 벽(두께 > 0)이 서 있는 슬래브의 오프닝 위에 놓이지 않고, 계단·에스컬레이터·엘리베이터와 평면이
+    겹치지 않을 것 (두께 없는 가상 경계선은 검사하지 않음)"""
     st = cfg.station
     for fl in floors:
         for pw in fl.partitions:

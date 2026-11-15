@@ -568,7 +568,8 @@ class IFCExporter:
 
     def export_rooms(self, room_engine: RoomEngine):
         """실: 층마다 IfcSpace(INTERNAL, LongName = 용도)를 IfcRelAggregates 로 IfcBuildingStorey 에 넣고(공간 분할),
-        칸막이벽은 IfcWall(PARTITIONING) 로 그 층 storey 에 포함. 형상 = 조각마다 닫힌 면 집합(세계 좌표)"""
+        칸막이벽·구획분리 벽은 IfcWall(PARTITIONING, Description = 종류), 두께 없는 구획분리선은 IfcVirtualElement(바닥 높이의
+        Axis 곡선)로 그 층 storey 에 포함. 형상 = 조각마다 닫힌 면 집합(세계 좌표)"""
         cfg = self.config
         by_level: dict = {}
         for r in room_engine.rooms:
@@ -582,12 +583,29 @@ class IFCExporter:
         for pw in room_engine.partitions:
             items = [self._face_set(PM.sweep_quads(PM.rings(cfg, p))) for p in pw.pieces]
             wall = self.file.create_entity(
-                "IfcWall", GlobalId=ifcopenshell.guid.compress(uuid.UUID(pw.guid).hex), Name=pw.name, ObjectType=pw.type_name,
+                "IfcWall", GlobalId=ifcopenshell.guid.compress(uuid.UUID(pw.guid).hex), Name=pw.name,
+                Description=pw.family_name, ObjectType=f"{pw.family_name} {pw.type_name}",
                 ObjectPlacement=self._placement(), Representation=self._product_shape(items, "Tessellation"),
                 PredefinedType="PARTITIONING")
             if pw.material:
                 self._assign_material(wall, pw.material)
             by_level.setdefault(pw.level, ([], []))[1].append(wall)
+        for sl in room_engine.separations:                 # 두께 없는 구획분리 = IfcVirtualElement (바닥 높이의 선)
+            s0, s1, t0, t1 = sl.rect
+            ss = cfg.sample_s(s0, s1) if s1 - s0 > 1e-9 else [s0, s0]
+            ts = [t0, t1] if s1 - s0 <= 1e-9 else [t0] * len(ss)
+            off = cfg.station.offset
+            pts = [self.file.create_entity("IfcCartesianPoint", Coordinates=(
+                *[float(v) for v in cfg.to_world(s, t)], float(cfg.lv(s) - off + sl.z_rel))) for s, t in zip(ss, ts)]
+            rep = self.file.create_entity(
+                "IfcShapeRepresentation", ContextOfItems=self.file.by_type("IfcGeometricRepresentationContext")[0],
+                RepresentationIdentifier="Axis", RepresentationType="Curve3D",
+                Items=[self.file.create_entity("IfcPolyline", Points=pts)])
+            ve = self.file.create_entity(
+                "IfcVirtualElement", GlobalId=ifcopenshell.guid.compress(uuid.UUID(sl.guid).hex), Name=sl.name,
+                Description="구획분리선 (가상 경계)", ObjectType="SPACE_SEPARATION", ObjectPlacement=self._placement(),
+                Representation=self.file.create_entity("IfcProductDefinitionShape", Representations=[rep]))
+            by_level.setdefault(sl.level, ([], []))[1].append(ve)
         for level, (spaces, walls) in by_level.items():
             if spaces:
                 self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),

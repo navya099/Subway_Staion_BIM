@@ -54,15 +54,30 @@ class RoomData(CommonBIMData):
 
 @dataclass
 class PartitionData(CommonBIMData):
-    """칸막이벽 1개 (실 경계의 한 직선). IFC: IfcWall(PARTITIONING)
+    """칸막이벽 또는 구획분리 벽(두께 > 0) 1개 (실 경계의 한 직선). IFC: IfcWall(PARTITIONING)
     Attributes:
         floor: 층 번호, axis: 's' = s 방향으로 뻗음(t 일정), 't' = t 방향으로 뻗음
+        kind: 'partition' (칸막이벽) | 'separation' (구획분리 벽), thickness: 두께
         pieces: RoomPiece 목록 (승강장 위·아래로 높이가 달라지면 나뉨)
     """
     floor: int = 1
     axis: str = "s"
+    kind: str = "partition"
+    thickness: float = 0.0
     pieces: list = field(default_factory=list)
 
     @property
     def volume(self) -> float:
         return sum(p.shape.volume for p in self.pieces)
+
+
+@dataclass
+class SeparationLineData(CommonBIMData):
+    """두께 없는 구획분리 경계선 (공간만 나눔). IFC: IfcVirtualElement (바닥 높이의 선)
+    Attributes:
+        floor: 층 번호, axis: 's' | 't', rect: (s0, s1, t0, t1) 한 방향 폭 0, z_rel: 층 FL (FL 기준)
+    """
+    floor: int = 1
+    axis: str = "s"
+    rect: tuple = (0.0, 0.0, 0.0, 0.0)
+    z_rel: float = 0.0

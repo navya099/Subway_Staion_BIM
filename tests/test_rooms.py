@@ -196,3 +196,100 @@ def test_drafts():
     ds.items[0].t0 = "x"
     with pytest.raises(ValueError, match="실 1\\(역무실\\): t 시작"):
         ds.to_specs(0.0)
+
+
+# ===================================================== 구획분리 (가상 경계선 / 얇은 벽)
+from rooms.room_spec import PARTITION, SEPARATION
+
+PAID = RoomSpec(3, "대합실(PAID)", 60, 198, -9, 9, boundary=SEPARATION)
+
+
+def test_virtual_separation_splits_remainder_without_wall():
+    cfg = cfg_with(RoomSpec(3, "기계실", 15, 35, 4, 9), PAID, settings=RoomSettings(default_uses={3: "복도"}))
+    fl = floor_layout(cfg, 3)
+    assert [(r.use, round(r.area, 3)) for r in fl.rooms] == [("기계실", 100.0), ("대합실(PAID)", 2484.0), ("복도", 980.0)]
+    assert [p.kind for p in fl.partitions] == [PARTITION] * 3                    # 기계실 칸막이벽만
+    (sl,) = fl.separations
+    assert sl.axis == "t" and sl.rect == pytest.approx((60, 60, -9, 9)) and sl.z_rel == pytest.approx(12.0)
+
+
+def test_thin_separation_wall_and_partition_precedence():
+    thin = RoomSpec(3, "대합실(PAID)", 60, 198, -9, 9, boundary=SEPARATION, sep_t=0.1)
+    fl = floor_layout(cfg_with(thin), 3)
+    (sw,) = fl.partitions
+    assert sw.name == "SW_B1F_T1" and sw.kind == SEPARATION and sw.thickness == 0.1 and not fl.separations
+    assert sw.pieces[0][:4] == pytest.approx((59.95, 60.05, -9, 9))
+    # 같은 선(s=60)을 칸막이벽 실과 구획분리 실이 함께 쓰면 칸막이벽 우선, 나머지 구간만 가상선
+    office = RoomSpec(3, "역무실", 40, 60, 4, 9)
+    fl = floor_layout(cfg_with(office, PAID), 3)
+    at60 = [pw for pw in fl.partitions if pw.axis == "t" and abs(pw.pieces[0][0] - 59.9) < 1e-9]
+    assert len(at60) == 1 and at60[0].kind == PARTITION and at60[0].pieces[0][2:4] == pytest.approx((4.1, 9))
+    seps = [sl.rect for sl in fl.separations]
+    assert seps == [pytest.approx((60, 60, -9, 4))]
+
+
+def test_separation_validation():
+    with pytest.raises(ValueError, match="경계 종류"):
+        StationCADEngine(cfg_with(RoomSpec(3, "A", 10, 20, 0, 5, boundary="x")))
+    with pytest.raises(ValueError, match="구획분리 두께"):
+        StationCADEngine(cfg_with(RoomSpec(3, "A", 10, 20, 0, 5, boundary=SEPARATION, sep_t=-0.1)))
+    # 가상 경계선은 오프닝 위에도 허용, 두께가 있으면 칸막이벽처럼 검사
+    stairs = [stair(lower=2, s=30.0, name="ST")]
+    StationCADEngine(cfg_with(RoomSpec(3, "역무실", 40, 60, -9, -4, boundary=SEPARATION), stairs=stairs))
+    with pytest.raises(ValueError, match="오프닝"):
+        StationCADEngine(cfg_with(RoomSpec(3, "역무실", 40, 60, -9, -4, boundary=SEPARATION, sep_t=0.1), stairs=stairs))
+
+
+def test_separation_ifc_and_drawings(tmp_path):
+    thin = RoomSpec(2, "B", 100, 150, -9, 9, boundary=SEPARATION, sep_t=0.1)
+    eng = StationCADEngine(cfg_with(PAID, thin))
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "s.ifc"))
+    (ve,) = f.by_type("IfcVirtualElement")
+    assert ve.Name == "SL_B1F_1" and ifcopenshell.util.element.get_container(ve).Name == "B1F"
+    rep = ve.Representation.Representations[0]
+    assert rep.RepresentationIdentifier == "Axis" and len(rep.Items[0].Points) == 2
+    sw = [w for w in f.by_type("IfcWall") if w.Description == "구획분리벽"]
+    assert len(sw) == 2 and ifcopenshell.util.element.get_material(sw[0]).Name == "Separation_Panel"
+    assert ifc_world_volume(sw[0]) == pytest.approx(0.1 * 18 * (12 - 0.4 - 6), rel=1e-7)
+    msp = ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace()
+    assert len(msp.query('3DFACE[layer=="STRUCT_SEPARATION"]')) == 12 and not msp.query('3DFACE[layer=="STRUCT_PARTITION"]')
+    plan = eng.rooms.plan_items(14.0, floor=3)
+    assert [len(it.pts) for it in plan if it.layer == "PLAN_SEPARATION"] == [2]
+
+
+def test_separation_drafts():
+    from gui.room_draft import B_SEPARATION
+    d = RoomDraft(floor=3, use="대합실(PAID)", sta0="60", sta1="198", t0="-9", t1="9", boundary=B_SEPARATION, sep_t="0.1")
+    sp = d.to_spec("실 1", 0.0)
+    assert (sp.boundary, sp.sep_t) == (SEPARATION, 0.1) and "구획분리 벽 0.1m" in preview(d, 0.0, 3)
+    d.sep_t = "0"
+    assert "구획분리 가상 경계선" in preview(d, 0.0, 3)
+    assert RoomDraft(sep_t="x").to_spec("", 0.0).sep_t == 0.0                       # 칸막이벽이면 두께 무시
+    with pytest.raises(ValueError, match="구획분리 두께"):
+        RoomDraft(boundary=B_SEPARATION, sep_t="-1").to_spec("실 1", 0.0)
+
+
+def test_disconnected_remainder_becomes_separate_default_rooms(tmp_path):
+    """전체 폭 구역이 나머지를 둘로 끊으면 기본 실도 둘 (사용자 검토: 좌측 잔여공간에 공간 정보가 없던 문제)"""
+    rooms = [RoomSpec(3, "기계실", 10, 25, 4, 9, name="기계실"),
+             RoomSpec(3, "대합실", 40, 70, -9, 9, boundary=SEPARATION, sep_t=0.2, name="대합실"),
+             RoomSpec(3, "통신실", 25, 40, -9, -4, name="통신실")]
+    cfg = cfg_with(*rooms, settings=RoomSettings(default_uses={3: "복도"}))
+    fl = floor_layout(cfg, 3)
+    rest = [(r.name, r.area) for r in fl.rooms if r.is_default]
+    assert rest == [("B1F_복도1", pytest.approx(40 * 18 - 75 - 75)), ("B1F_복도2", pytest.approx(128 * 18))]
+    eng = StationCADEngine(cfg)
+    labels = [it.label[0] for it in eng.rooms.plan_items(14.0, floor=3) if it.label]
+    assert sum(lb.startswith("복도") for lb in labels) == 2                          # 두 영역 모두 표기
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "r.ifc"))
+    names = {s.Name for s in f.by_type("IfcSpace")}
+    assert {"B1F_복도1", "B1F_복도2"} <= names and "B1F_복도" not in names
+    st = cfg.station
+    assert sum(r.volume for r in eng.rooms.rooms if r.floor == 3) == pytest.approx(
+        st.length * st.width * (st.height - st.roof_t - st.floor_level(3)))
+
+
+def test_connected_groups():
+    from rooms.room_layout import connected_groups
+    rects = [(0, 10, 0, 5), (10, 20, 0, 5), (30, 40, 0, 5), (0, 10, 5, 9), (20, 30, 5, 9)]   # 꼭짓점만 닿는 것은 따로
+    assert connected_groups(rects) == [[(0, 10, 0, 5), (10, 20, 0, 5), (0, 10, 5, 9)], [(20, 30, 5, 9)], [(30, 40, 0, 5)]]

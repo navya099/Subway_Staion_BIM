@@ -43,7 +43,9 @@ LAYER_DEFINITIONS = {
     "SEC_PARTITION": {"color": 52},      # 횡단면도 칸막이벽
     "PROF_PARTITION": {"color": 52},     # 종단면도 칸막이벽
     "PLAN_PARTITION": {"color": 52},     # 평면도 칸막이벽
-    "PLAN_ROOM": {"color": 3},           # 평면도 실 영역·실 이름
+    "PLAN_ROOM": {"color": 3},
+    "STRUCT_SEPARATION": {"color": 1},   # 구획분리 벽 (두께 > 0)
+    "PLAN_SEPARATION": {"color": 1},     # 평면도 구획분리 (벽 윤곽 / 가상 경계선)           # 평면도 실 영역·실 이름
     "STRUCT_VENT": {"color": 130},       # 환기구 콘크리트 (덕트·수직구)
     "STRUCT_GRILL": {"color": 9},        # 환기구 금속 그릴
     "PLAN_VENT": {"color": 130},         # 평면도 환기구 벽

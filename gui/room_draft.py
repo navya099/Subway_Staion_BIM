@@ -55,6 +55,7 @@ class RoomDraft:
     boundary: str = B_PARTITION          # 경계 종류: 칸막이벽 / 구획분리
     sep_t: str = "0"                     # 구획분리 두께 (0 = 가상 경계선)
     doors: list = field(default_factory=list)     # DoorDraft
+    finish: str = "(용도 기준)"                    # 마감 종류 덮어쓰기 ('(용도 기준)' = 용도 이름으로 마감표에서 찾음)
 
     def to_spec(self, where: str, start_station: float) -> RoomSpec:
         if not str(self.use).strip():
@@ -64,7 +65,8 @@ class RoomDraft:
         kind = _BOUNDARY[self.boundary]
         sep_t = _num(self.sep_t, where, "구획분리 두께", nonneg=True) if kind == SEPARATION else 0.0
         doors = [d.to_spec(f"{where} 문 {k}", start_station) for k, d in enumerate(self.doors, start=1)]
-        return RoomSpec(floor=self.floor, use=str(self.use).strip(), boundary=kind, sep_t=sep_t, doors=doors,
+        finish = "" if str(self.finish).strip() in ("", "(용도 기준)") else str(self.finish).strip()
+        return RoomSpec(floor=self.floor, use=str(self.use).strip(), boundary=kind, sep_t=sep_t, doors=doors, finish=finish,
                         s0=_num(self.sta0, where, "시작 STA") - start_station, s1=_num(self.sta1, where, "끝 STA") - start_station,
                         t0=_num(self.t0, where, "t 시작"), t1=_num(self.t1, where, "t 끝"), name=self.name.strip())
 

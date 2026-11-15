@@ -161,6 +161,10 @@ class RoomTab:
         except (TypeError, ValueError):
             return default
 
+    def set_finish(self, idx, name: str):
+        self.drafts.items[idx].finish = name
+        self.refresh_info()
+
     def set_boundary(self, idx, label: str):
         self.drafts.items[idx].boundary = label
         self._sync_sep(idx)
@@ -242,6 +246,17 @@ class RoomTab:
         uc.pack(side="left", padx=(2, 0))
         self._combos[(i, "use")] = uc
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_room(i)).pack(side="right")
+
+        frow = tk.Frame(box)
+        frow.pack(fill="x", pady=(4, 0))
+        tk.Label(frow, text="마감", font=FONT).pack(side="left")
+        fd = self.entries.get("finish_drafts")
+        names = ["(용도 기준)"] + (fd.names() if fd is not None else [])
+        fc = ttk.Combobox(frow, values=names, state="readonly", width=14, font=FONT)
+        fc.set(it.finish if it.finish in names else names[0])
+        fc.bind("<<ComboboxSelected>>", lambda e, c=fc, k=i: self.set_finish(k, c.get()))
+        fc.pack(side="left", padx=(2, 0))
+        self._combos[(i, "finish")] = fc
 
         row = tk.Frame(box)
         row.pack(fill="x", pady=(4, 0))

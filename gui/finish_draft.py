@@ -1,0 +1,98 @@
+"""마감표 입력의 화면 비의존 모델 (문자열 초안 → FinishSettings 변환 + 검증)"""
+from dataclasses import dataclass
+
+from finishes.finish_spec import FILL_MORTAR, FILL_VOID, FinishSettings, FinishType, default_finishes
+from gui.column_draft import _num
+
+FILL_LABELS = {"몰탈 채움": FILL_MORTAR, "빈 공간(액세스 플로어)": FILL_VOID}
+FILL_OF = {v: k for k, v in FILL_LABELS.items()}
+FRAME_LABELS = {"M바": "M", "T바": "T"}
+FRAME_OF = {v: k for k, v in FRAME_LABELS.items()}
+BY_USE = "(용도 기준)"            # 실 마감 덮어쓰기 콤보의 '덮어쓰지 않음'
+
+# (속성, 라벨, 규칙) 숫자 칸
+NUM_FIELDS = [("ffl", "바닥 마감 높이", "nonneg"), ("floor_t", "바닥 마감재 두께", "nonneg"), ("wall_t", "벽 마감 두께", "nonneg"),
+              ("ceiling_h", "천장 높이", "pos"), ("board_t", "천장판 두께", "pos"), ("bar_spacing", "바 간격", "pos"),
+              ("carrier_spacing", "캐링 간격", "pos")]
+TEXT_FIELDS = [("floor_material", "바닥 재질"), ("wall_material", "벽 재질"), ("ceiling_material", "천장 재질")]
+
+
+@dataclass
+class FinishTypeDraft:
+    """마감 종류 1개 (입력창 문자열). 바·캐링 채널 단면 치수는 모델 기본값을 그대로 씀"""
+    name: str = "새 마감"
+    ffl: str = "0.1"
+    floor_t: str = "0.03"
+    fill: str = "몰탈 채움"
+    floor_material: str = "석재"
+    wall_t: str = "0.05"
+    wall_material: str = "패널"
+    ceiling: bool = True
+    ceiling_h: str = "3"
+    board_t: str = "0.01"
+    ceiling_material: str = "알루미늄 천장판"
+    frame: str = "M바"
+    bar_spacing: str = "0.6"
+    carrier_spacing: str = "0.9"
+
+    @classmethod
+    def from_type(cls, ft: FinishType) -> "FinishTypeDraft":
+        g = lambda v: f"{v:g}"
+        return cls(name=ft.name, ffl=g(ft.ffl), floor_t=g(ft.floor_t), fill=FILL_OF.get(ft.floor_fill, "몰탈 채움"),
+                   floor_material=ft.floor_material, wall_t=g(ft.wall_t), wall_material=ft.wall_material, ceiling=ft.ceiling,
+                   ceiling_h=g(ft.ceiling_h), board_t=g(ft.board_t), ceiling_material=ft.ceiling_material,
+                   frame=FRAME_OF.get(ft.frame, "M바"), bar_spacing=g(ft.bar_spacing), carrier_spacing=g(ft.carrier_spacing))
+
+    def to_type(self, where: str) -> FinishType:
+        name = str(self.name).strip()
+        if not name:
+            raise ValueError(f"{where}: 마감 종류 이름을 입력하세요")
+        if self.fill not in FILL_LABELS:
+            raise ValueError(f"{where}: 바닥 채움이 올바르지 않습니다 ('{self.fill}')")
+        if self.frame not in FRAME_LABELS:
+            raise ValueError(f"{where}: 천장틀이 올바르지 않습니다 ('{self.frame}')")
+        vals = {}
+        for attr, label, rule in NUM_FIELDS:
+            if attr in ("ceiling_h", "board_t", "bar_spacing", "carrier_spacing") and not self.ceiling:
+                continue                                       # 천장이 없으면 천장 입력은 검사하지 않음
+            vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
+        texts = {attr: str(getattr(self, attr)).strip() for attr, _ in TEXT_FIELDS}
+        return FinishType(name=name, floor_fill=FILL_LABELS[self.fill], ceiling=bool(self.ceiling),
+                          frame=FRAME_LABELS[self.frame], **vals, **texts)
+
+
+def default_drafts() -> list:
+    return [FinishTypeDraft.from_type(ft) for ft in default_finishes().values()]
+
+
+class FinishDrafts:
+    """마감표 입력 초안 (마감 생성 여부 + 마감 종류 목록)"""
+
+    def __init__(self):
+        self.enabled = True                 # GUI 는 기본으로 마감을 생성
+        self.items: list[FinishTypeDraft] = default_drafts()
+
+    def names(self) -> list[str]:
+        return [str(it.name).strip() for it in self.items if str(it.name).strip()]
+
+    def to_settings(self) -> FinishSettings:
+        table = {}
+        for i, it in enumerate(self.items):
+            ft = it.to_type(f"마감 {i + 1}({str(it.name).strip() or '?'})")
+            if ft.name in table:
+                raise ValueError(f"마감 종류 이름이 중복됩니다: {ft.name}")
+            table[ft.name] = ft
+        return FinishSettings(enabled=bool(self.enabled), table=table)
+
+
+def preview(it: FinishTypeDraft) -> str:
+    try:
+        ft = it.to_type("")
+    except ValueError:
+        return "→ 입력값을 확인하세요"
+    floor = "바닥 마감 없음" if ft.ffl == 0 else f"바닥 FL+{ft.ffl:g} ({ft.floor_material} {ft.floor_t:g}, " \
+        f"{'몰탈 채움' if ft.floor_fill == FILL_MORTAR else '빈 공간'})"
+    wall = f"벽 {ft.wall_material}" + (f" {ft.wall_t:g}" if ft.wall_t > 0 else " (형상 없음)")
+    ceil = f"천장 마감면+{ft.ceiling_h:g} ({ft.ceiling_material}, {ft.frame}바 {ft.bar_spacing:g})" if ft.ceiling else "천장 없음"
+    return f"→ {floor} · {wall} · {ceil}"
+

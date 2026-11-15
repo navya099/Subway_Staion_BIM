@@ -4,6 +4,7 @@ from config.master_config import StationProjectConfig
 from config.station_config import StationParameters
 from gui.column_draft import ColumnDrafts, level_name
 from gui.elevator_draft import ElevatorDrafts
+from gui.finish_draft import FinishDrafts
 from gui.entrance_draft import EntranceDrafts
 from gui.escalator_draft import EscalatorDrafts
 from gui.opening_draft import OpeningDrafts
@@ -93,7 +94,8 @@ class TkAdapter:
         rooms, room_settings = room_drafts.to_specs(station_p.start_station), room_drafts.settings.to_settings()
         cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings,
                                    stairs=stairs, escalators=escalators, passages=passages, entrances=entrances, vents=vents,
-                                   elevators=elevators, rooms=rooms, room_settings=room_settings)
+                                   elevators=elevators, rooms=rooms, room_settings=room_settings,
+                                   finish_settings=(entries.get("finish_drafts") or FinishDrafts()).to_settings())
         cfg.validate()
         return cfg
 

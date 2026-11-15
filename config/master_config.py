@@ -7,6 +7,8 @@ from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
 from elevators.elevator_check import check_elevator_layouts, layout_elevators
 from entrances.entrance_check import layout_entrances
+from finishes.finish_check import check_finishes
+from finishes.finish_spec import FinishSettings
 from escalators.escalator_check import check_escalator_layouts, layout_escalators
 from openings.opening_check import check_openings
 from passages.passage_check import check_passage_layouts, layout_passages
@@ -32,6 +34,7 @@ class StationProjectConfig:
     elevators: list = dataclasses.field(default_factory=list)     # list[ElevatorSpec]: 엘리베이터 (승강로 슬래브 오프닝 자동)
     rooms: list = dataclasses.field(default_factory=list)         # list[RoomSpec]: 실(구획) — 나머지는 층별 기본 실, 경계 칸막이벽 자동
     room_settings: RoomSettings = dataclasses.field(default_factory=RoomSettings)
+    finish_settings: FinishSettings = dataclasses.field(default_factory=FinishSettings)   # 용도별 마감표
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
 
     def __post_init__(self):
@@ -65,6 +68,7 @@ class StationProjectConfig:
         check_escalator_layouts(self, escs, stairs)
         check_elevator_layouts(self, evs, stairs, escs)
         check_room_layouts(self, layout_rooms(self), all_ops, stairs, escs, evs)
+        check_finishes(self)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)

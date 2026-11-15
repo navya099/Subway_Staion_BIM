@@ -56,6 +56,7 @@ class RoomSpec:
     boundary: str = PARTITION
     sep_t: float = 0.0
     doors: list = dataclasses.field(default_factory=list)        # list[DoorSpec]
+    finish: str = ""                                             # 마감 종류 (비우면 용도 이름으로 마감표에서 찾음)
 
     @property
     def rect(self) -> tuple:

@@ -14,6 +14,7 @@ from slabs.slab_engine import SlabEngine
 from entrances.entrance_engine import EntranceEngine
 from elevators.elevator_engine import ElevatorEngine
 from escalators.escalator_engine import EscalatorEngine
+from finishes.finish_engine import FinishEngine
 from passages.passage_engine import PassageEngine
 from stairs.stair_engine import StairEngine
 from ventilations.vent_engine import VentEngine
@@ -37,11 +38,12 @@ class StationCADEngine:
         self.entrances = EntranceEngine(config)
         self.vents = VentEngine(config)
         self.rooms = RoomEngine(config)
+        self.finishes = FinishEngine(config, self.columns)
         self.slabs.check_columns(self.columns)
         self.stairs.check_columns(self.columns)
         self.escalators.check_columns(self.columns)
         self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs, self.escalators, self.elevators,
-                            self.passages, self.entrances, self.vents, self.rooms]
+                            self.passages, self.entrances, self.vents, self.rooms, self.finishes]
     @staticmethod
     def _save(doc, filename):
         filename = str(filename)
@@ -87,6 +89,8 @@ class StationCADEngine:
                 engine.add_elevator_mesh(msp)
             if hasattr(engine, 'add_partition_mesh'):
                 engine.add_partition_mesh(msp)
+            if hasattr(engine, 'add_finish_mesh'):
+                engine.add_finish_mesh(msp)
             if hasattr(engine, 'add_entrance_mesh'):
                 engine.add_entrance_mesh(msp)
 
@@ -257,6 +261,7 @@ class StationCADEngine:
         exporter.export_vents(self.vents)
         exporter.export_elevators(self.elevators)
         exporter.export_rooms(self.rooms)
+        exporter.export_finishes(self.finishes)
         exporter.export_entrances(self.entrances)
         exporter.save(str(output_path))
         return os.path.abspath(output_path)

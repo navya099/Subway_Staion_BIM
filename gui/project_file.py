@@ -21,6 +21,7 @@ from gui.column_draft import FloorDraft, PatternDraft, RowDraft
 from gui.elevator_draft import ElevatorDraft, ElevatorDrafts
 from gui.entrance_draft import EntranceDraft, EntranceDrafts
 from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
+from gui.finish_draft import FinishTypeDraft, default_drafts
 from gui.opening_draft import OpeningDraft, OpeningDrafts
 from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
@@ -201,6 +202,8 @@ class ProjectState:
     print_draft: PrintDraft = field(default_factory=PrintDraft)     # 출력 탭 옵션
     room_drafts: list = field(default_factory=list)
     room_settings: RoomSettingsDraft = field(default_factory=RoomSettingsDraft)   # 칸막이벽 두께·층별 기본 실
+    finish_enabled: bool = True                                                   # 마감 생성
+    finish_drafts: list = field(default_factory=default_drafts)                  # 마감표 (FinishTypeDraft)
     alignment: Optional[EmbeddedAlignment] = None
 
     def to_dict(self) -> dict:
@@ -210,6 +213,8 @@ class ProjectState:
             d[name] = _plain(getattr(self, name))
         d["print_draft"] = _plain(self.print_draft)
         d["room_settings"] = _plain(self.room_settings)
+        d["finish_enabled"] = bool(self.finish_enabled)
+        d["finish_drafts"] = _plain(self.finish_drafts)
         d["alignment"] = _alignment_plain(self.alignment)
         return d
 
@@ -234,6 +239,10 @@ class ProjectState:
             if not isinstance(items, list):
                 raise ValueError(f"{name}: 목록이어야 합니다")
             setattr(st, name, [_build(elem, x, f"{name} {i + 1}") for i, x in enumerate(items)])
+        if "finish_enabled" in d:
+            st.finish_enabled = bool(d["finish_enabled"])
+        if isinstance(d.get("finish_drafts"), list):                 # 옛 파일에는 없음 → 기본 마감표
+            st.finish_drafts = [_build(FinishTypeDraft, x, f"마감 {i + 1}") for i, x in enumerate(d["finish_drafts"])]
         if d.get("room_settings") is not None:
             st.room_settings = _build(RoomSettingsDraft, d["room_settings"], "실 설정")
             st.room_settings.default_uses = {str(k): str(v) for k, v in (st.room_settings.default_uses or {}).items()}

@@ -5,6 +5,7 @@ from columns.column_params import ColumnParameters
 from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
+from elevators.elevator_check import check_elevator_layouts, layout_elevators
 from entrances.entrance_check import layout_entrances
 from escalators.escalator_check import check_escalator_layouts, layout_escalators
 from openings.opening_check import check_openings
@@ -26,6 +27,7 @@ class StationProjectConfig:
     escalators: list = dataclasses.field(default_factory=list)    # list[EscalatorSpec]: 에스컬레이터 (위층 오프닝·하부 피트 자동 생성)
     passages: list = dataclasses.field(default_factory=list)      # list[PassageSpec]: 출구통로 (본체 측벽 오프닝 자동 생성)
     entrances: list = dataclasses.field(default_factory=list)     # list[EntranceSpec]: 출입구 (출구통로 끝에 이어 지표까지)
+    elevators: list = dataclasses.field(default_factory=list)     # list[ElevatorSpec]: 엘리베이터 (승강로 슬래브 오프닝 자동)
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
 
     def __post_init__(self):
@@ -52,10 +54,11 @@ class StationProjectConfig:
                 raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 외곽 폭({2 * half_w:g}m)에 비해 너무 작아 "
                                  "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
-        stairs, escs = layout_stairs(self), layout_escalators(self)
-        check_openings(self.station, self.openings + self._auto_openings(stairs, escs))
+        stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)
+        check_openings(self.station, self.openings + self._auto_openings(stairs, escs, evs))
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
+        check_elevator_layouts(self, evs, stairs, escs)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)
@@ -69,18 +72,24 @@ class StationProjectConfig:
         """에스컬레이터별 배치 계산 결과 (EscalatorLayout). 에스컬레이터·슬래브·승강장 엔진이 같은 결과를 쓴다"""
         return layout_escalators(self)
 
+    def elevator_layouts(self) -> list:
+        """엘리베이터별 배치 계산 결과 (ElevatorLayout). 엘리베이터·슬래브·승강장 엔진이 같은 결과를 쓴다"""
+        return layout_elevators(self)
+
     @staticmethod
-    def _auto_openings(stairs: list, escs: list) -> list:
+    def _auto_openings(stairs: list, escs: list, evs: list = ()) -> list:
         out = [lay.opening for lay in stairs]
         for lay in escs:
             out.append(lay.opening)
             if lay.pit_opening:
                 out.append(lay.pit_opening)
+        out += [lay.opening for lay in evs if lay.opening]
         return out
 
     def all_openings(self) -> list:
-        """직접 입력한 오프닝 + 계단·에스컬레이터가 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
-        return list(self.openings) + self._auto_openings(self.stair_layouts(), self.escalator_layouts())
+        """직접 입력한 오프닝 + 계단·에스컬레이터·엘리베이터가 자동으로 뚫는 오프닝 (슬래브 엔진이 이 목록으로 슬래브를 뚫는다)"""
+        return list(self.openings) + self._auto_openings(self.stair_layouts(), self.escalator_layouts(),
+                                                         self.elevator_layouts())
 
     def passage_layouts(self) -> list:
         """출구통로별 배치 계산 결과 (PassageLayout). 통로·벽체 엔진이 같은 결과를 쓴다"""
@@ -101,8 +110,8 @@ class StationProjectConfig:
         return out + [o for lay in self.vent_layouts() for o in lay.wall_openings]
 
     def platform_holes(self) -> list:
-        """승강장 슬래브에 뚫는 구멍 [(이름, s0, s1, t0, t1)]: 승강장 위 에스컬레이터의 하부 피트"""
-        return [lay.platform_hole for lay in self.escalator_layouts() if lay.platform_hole]
+        """승강장 슬래브에 뚫는 구멍 [(이름, s0, s1, t0, t1)]: 승강장 위 에스컬레이터의 하부 피트, 승강장 위 엘리베이터 승강로"""
+        return [lay.platform_hole for lay in self.escalator_layouts() + self.elevator_layouts() if lay.platform_hole]
 
     # ---------- 선형 접점: 엔진/내보내기는 이 메서드로만 선형에 접근한다 ----------
     def _sta(self, s: float) -> float:

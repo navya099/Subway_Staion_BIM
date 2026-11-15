@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_ten_tabs_fit_in_window_width(app):
-    """탭 10개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_eleven_tabs_fit_in_window_width(app):
+    """탭 11개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 10
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 11
 
 
 # ---------------- 계단 탭 ----------------
@@ -1414,3 +1414,55 @@ def test_generate_with_vent_end_to_end_and_project_round_trip(app, monkeypatch, 
     app.on_open(path)
     assert app.vent_tab._vars[(0, "cells")].get() == "5" and len(app.vent_tab.drafts.items[0].vertices) == 4
     assert TkAdapter.collect_entries(app.entries).vents == cfg.vents
+
+
+# ---------------- 엘리베이터 탭 ----------------
+def test_elevator_tab_add_and_floor_combos(app):
+    assert app.elevator_tab.drafts.items == [] and TkAdapter.collect_entries(app.entries).elevators == []
+    set_floors(app, 3)
+    set_entry(app, "start_station", "100")
+    tab = app.elevator_tab
+    tab.add_elevator(); app.root.update()
+    it = tab.drafts.items[0]
+    assert (it.lower_floor, it.upper_floor, it.car_floor) == (1, 3, 1) and tab._combos[(0, "upper")].get() == "B1F"
+    tab._combos[(0, "car")].current(1)
+    tab._combos[(0, "car")].event_generate("<<ComboboxSelected>>")
+    tab._combos[(0, "lower")].current(2)                                    # 최하를 B1F 로 → 최하 < 최상 이 되도록 조정
+    tab._combos[(0, "lower")].event_generate("<<ComboboxSelected>>"); app.root.update()
+    assert (it.lower_floor, it.upper_floor, it.car_floor) == (2, 3, 2)
+    assert tab._combos[(0, "lower")].get() == "B2F"
+
+
+def test_elevator_input_becomes_spec_and_generates(app, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "100")
+    tab = app.elevator_tab
+    tab.add_elevator(); app.root.update()
+    tab._vars[(0, "sta_center")].set("160")
+    tab._vars[(0, "t_center")].set("6.5")
+    tab._vars[(0, "through")].set(True)
+    tab._combos[(0, "door")].set("+s (종점 방향)")
+    tab._combos[(0, "door")].event_generate("<<ComboboxSelected>>"); app.root.update()
+    (sp,) = TkAdapter.collect_entries(app.entries).elevators
+    assert (sp.s_center, sp.t_center, sp.door_side, sp.through) == (60.0, 6.5, "+s", True)
+    (var, _), = tab._info_vars
+    assert "정지 B3F ~ B1F (3개 층)" in var.get()
+    paths = BIMEngine.build(TkAdapter.collect_entries(app.entries), tmp_path)
+    f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
+    assert [a.Name for a in f.by_type("IfcElementAssembly") if a.ObjectType == "ELEVATOR"] == ["EV1"]
+
+
+def test_project_file_keeps_elevators(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    tab = app.elevator_tab
+    tab.add_elevator(); app.root.update()
+    tab._vars[(0, "overhead")].set("4.5")
+    tab._combos[(0, "car")].current(2)
+    tab._combos[(0, "car")].event_generate("<<ComboboxSelected>>")
+    path = str(tmp_path / "e.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save()
+    app.on_new()
+    assert tab.drafts.items == []
+    app.on_open(path)
+    assert tab._vars[(0, "overhead")].get() == "4.5" and tab._combos[(0, "car")].get() == "B1F" and not app.is_dirty()

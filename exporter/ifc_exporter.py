@@ -1,4 +1,5 @@
 import dataclasses
+from types import SimpleNamespace
 import math
 import os
 import uuid
@@ -17,9 +18,11 @@ from slabs.slab_shape_type import SlabKind
 from entrances.entrance_engine import EntranceEngine
 from escalators.escalator_engine import EscalatorEngine
 from escalators.escalator_type import EscalatorPartKind
-from helper.strip_member import part_faces
+from helper.strip_member import Strip, StripShape, part_faces
 from passages.passage_engine import PassageEngine
 from passages.passage_type import PassagePartKind
+from elevators.elevator_engine import ElevatorEngine
+from elevators.elevator_type import ElevatorPartKind
 from ventilations.vent_engine import VentEngine
 from ventilations.vent_type import VentPartKind
 from stairs.stair_engine import StairEngine
@@ -512,6 +515,55 @@ class IFCExporter:
             if elements:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=storey, RelatedElements=elements)
+
+    _EV_ENTITY = {ElevatorPartKind.HOIST_WALL: ("IfcWall", "SOLIDWALL"), ElevatorPartKind.PIT_SLAB: ("IfcSlab", "BASESLAB"),
+                  ElevatorPartKind.TOP_SLAB: ("IfcSlab", "ROOF"), ElevatorPartKind.CAR_FLOOR: ("IfcBuildingElementPart", "USERDEFINED"),
+                  ElevatorPartKind.CAR_WALL: ("IfcBuildingElementPart", "USERDEFINED"),
+                  ElevatorPartKind.CAR_ROOF: ("IfcBuildingElementPart", "USERDEFINED"), ElevatorPartKind.CAR_DOOR: ("IfcDoor", "DOOR")}
+
+    def export_elevators(self, elevator_engine: ElevatorEngine):
+        """엘리베이터: IfcElementAssembly(USERDEFINED: ELEVATOR) 가 승강로 벽(IfcWall)·피트 슬래브(IfcSlab BASESLAB)·
+        승강로 천장 슬래브(IfcSlab ROOF)와 카(IfcTransportElement ELEVATOR ⊃ 바닥·벽·천장 IfcBuildingElementPart + 문 IfcDoor)를 묶고,
+        IfcElementAssembly 만 최하 정지층 storey 에 포함. 정지층 출입구는 IfcOpeningElement(ELEVATOR_DOOR)로 승강로 벽에 연결.
+        형상 = 상자 띠마다 닫힌 면 집합(세계 좌표, 곡선 선형에서도 본체 슬래브 오프닝과 같은 곡면)"""
+        cfg = self.config
+        for ev in elevator_engine.elevators:
+            asm = self.file.create_entity(
+                "IfcElementAssembly", GlobalId=ifcopenshell.guid.compress(uuid.UUID(ev.guid).hex), Name=ev.name,
+                Description=f"엘리베이터 {cfg.station.level_name(ev.lower_floor)} ~ {cfg.station.level_name(ev.upper_floor)}"
+                            + (" (승강장 위)" if ev.on_platform else ""),
+                ObjectType="ELEVATOR", ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+            car = self.file.create_entity(
+                "IfcTransportElement", GlobalId=ifcopenshell.guid.new(), Name=f"{ev.name}_CAR",
+                Description=f"카 ({cfg.station.level_name(ev.car_floor)} 정지)", ObjectType="ELEVATOR_CAR",
+                ObjectPlacement=self._placement(), PredefinedType="ELEVATOR")
+            shaft_parts, car_parts, walls = [car], [], {}
+            for e in ev.elements:
+                entity, predefined = self._EV_ENTITY[e.kind]
+                items = [self._face_set(fs) for part in e.parts for fs in part_faces(cfg, part)]
+                el = self.file.create_entity(
+                    entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
+                    ObjectPlacement=self._placement(), Representation=self._product_shape(items, "Tessellation"),
+                    PredefinedType=predefined)
+                if e.material:
+                    self._assign_material(el, e.material)
+                (car_parts if e.kind.is_car else shaft_parts).append(el)
+                if e.kind == ElevatorPartKind.HOIST_WALL:
+                    walls[e.code] = el
+            for name, code, _, (s0, s1, t0, t1), z0, z1 in ev.door_openings:
+                box = SimpleNamespace(t_range=(t0, t1), shape=StripShape(
+                    strips=[Strip(s0, s1, z0, z0, z1, PM.curve_factor(cfg, s0, s1, (t0 + t1) / 2.0))], width=t1 - t0))
+                op = self.file.create_entity(
+                    "IfcOpeningElement", GlobalId=ifcopenshell.guid.new(), Name=f"OPEN_{name}", Description="엘리베이터 출입구",
+                    ObjectType="ELEVATOR_DOOR", ObjectPlacement=self._placement(),
+                    Representation=self._product_shape([self._face_set(fs) for fs in part_faces(cfg, box)], "Tessellation"),
+                    PredefinedType="OPENING")
+                self.file.create_entity("IfcRelVoidsElement", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingBuildingElement=walls[code], RelatedOpeningElement=op)
+            self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=car, RelatedObjects=car_parts)
+            self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm, RelatedObjects=shaft_parts)
+            self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingStructure=self.storeys[ev.level], RelatedElements=[asm])
 
     _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
                     VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 673개 통과** (GUI 98개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 703개 통과** (GUI 101개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -53,15 +53,16 @@ walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
 stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
+elevators/                  엘리베이터: spec(승강로·카·문 입력), layout(정지 바닥·피트/천장 채움·출입구·슬래브 오프닝), check(검증·간섭), data/engine
 passages/                   출구통로: spec(경로 꼭짓점 입력), layout(경로 해석·연귀·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
 ventilations/               환기구: spec(연속박스 단면·그릴 입력), layout(수직구·칸별 오프닝·그릴 조각), check(검증·간섭), data/engine
 entrances/                  출입구: spec(입력·구역 폭), layout(지표 EL 기준 자동 계산: 박스·계단·에스컬레이터 띠, EntranceFrame), check(검증), data/engine
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC), bim_engine.py(BIMEngine.build)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
-gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~10, 제목은 짧게 '1.선형' …),
-                            column_draft·opening_draft·stair_draft·escalator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
+gui/                        station_tab / platform_tab / column_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~11, 제목은 짧게 '1.선형' …, 창 폭 520),
+                            column_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -90,6 +91,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 자동 오프닝: 위층 슬래브(번호 k) = 트러스가 슬래브를 지나는 구간 ∪ 머리 높이 부족 구간 ~ 트러스 상단 끝. 하부 피트 = 트러스 하면이 시작면 아래인 구간 → 아래 슬래브(k−1) 오프닝, **피트가 슬래브보다 깊으면 오류**(바닥 내린 피트는 이후 단계). 승강장 위면 승강장 슬래브에 구멍(`cfg.platform_holes()`, `PlatformData.pieces/openings`), 지지벽체와 겹치면 오류.
   - IFC: `IfcTransportElement`(ESCALATOR) ⊃ 트러스·스텝 `IfcBuildingElementPart`, 난간 `IfcRailing`(BALUSTRADE), 핸드레일 `IfcRailing`(HANDRAIL). 승강장 IfcSlab 에도 IfcOpeningElement.
   - 검증: 치수·층·내공 범위, 트러스 폭 ≥ 스텝+난간, 같은 층 에스컬레이터·계단끼리 비겹침, 서 있는 슬래브의 다른 오프닝 위 금지(계단도 피트 위 금지), 시작 층 기둥 비관통.
+- **엘리베이터(1단계, 정거장 내부)**: `ElevatorSpec`(최하·최상 정지층 = 그 사이 모든 층 정지, **카 정지층 1개**(카가 서 있는 위치), 승강로 내공 중심 s·t, 내공 2.4×2.4, 벽 0.3, 문 방향 ±s/±t + 관통형, 문 0.9×2.1, 피트 1.5 + 피트 슬래브 0.6, 오버헤드 4.0 + 천장 슬래브 0.3, 카 1.6(문 면과 나란)×1.5×2.3, 카 바닥 0.1·벽/문 0.05·천장 0.1).
+  - 모든 부재 = 정거장 로컬 상자(띠 1개, `helper.strip_member`), 절대 표고는 승강로 중심 s 의 FL 기준(연직·수평, 구배 안 따름). 정지 바닥 = 층 FL, 최하층에서 승강로 외곽이 승강장 슬래브 안이면 승강장 상면(걸치면 오류).
+  - 승강로 벽 = 피트 바닥 상면(최하 정지 − pit_depth) ~ 최상 정지 + overhead. 문 쪽 벽(관통형이면 반대쪽도)은 정지층마다 출입구를 뺀 조각(`decompose.subtract_rects`). 벽 코드 `WALL_PS/NS/PT/NT`(+s/−s/+t/−t 면, s 면 벽이 외곽 t 폭 전체).
+  - **승강로가 지나는 본체 슬래브·승강장 슬래브는 외곽 크기 오프닝**(`cfg.all_openings()` 에 `{이름}_SHAFT`, `cfg.platform_holes()`). 피트 슬래브 하면 / 천장 슬래브 상면이 뚫린 슬래브 두께 안에서 끝나면 그 슬래브 면까지 늘려 채움(내린 피트). 천장 슬래브가 본체 천장 하면을 넘으면 오류, 피트가 아래층 바닥에 닿으면 오류.
+  - 카: 내공 중심, 카 바닥 상면 = 카 정지층 정지 바닥. `CAR_FLOOR/CAR_ROOF`(카 외곽), `CAR_WALL_PS/NS/PT/NT`(문 쪽은 문 자리 비운 조각), `CAR_DOOR_*`(닫힌 문 패널, 벽 + 문 = 닫힌 벽).
+  - IFC: `IfcElementAssembly`(USERDEFINED, ELEVATOR) ⊃ IfcWall(승강로)·IfcSlab(BASESLAB 피트, ROOF 천장)·`IfcTransportElement`(ELEVATOR, 카) ⊃ IfcBuildingElementPart(바닥·벽·천장) + IfcDoor. 출입구 = IfcOpeningElement(ELEVATOR_DOOR) → 승강로 벽 IfcRelVoidsElement. 형상은 모두 면 집합(세계 좌표), 최하 정지층 storey.
+  - 2D: 횡단 = 승강로 해치(SEC_CONCRETE, merge) + 카 윤곽(SEC_ELEVATOR), 종단 = 축이 지나면 절단(카는 PROF_ESCALATOR 레이어), 아니면 승강로 외곽 1개(PROF_BEYOND), 평면(PLAN_ELEVATOR) = 정지층마다 외곽·내공·X 기호, 카 정지층에 카 외곽.
+  - 검증: 층 범위·최하 < 최상·카 층 범위·문 방향·치수, 카 외곽 ≤ 승강로 내공(문 면 기준), 문 ≤ 카, 피트 ≥ 카 바닥, 오버헤드 ≥ 카 높이 + 천장, 출입구 높이 ≤ 층 내공, 엘리베이터끼리·계단·에스컬레이터와 평면 겹침(같은 층), 슬래브 오프닝 검사(내공 범위·다른 오프닝과 겹침·기둥 관통), 승강장 지지벽체 겹침.
 - **출구통로(경로 입력)**: `PassageSpec`(층, `path` = 통로 중심선 폴리선 꼭짓점 목록, 내공 폭·높이 4.0×3.0, 벽·바닥·천장 0.6, 상부 헌치 0.3×0.3·하부 헌치(기본 없음)).
   - 꼭짓점 `PathVertex(mode, x, y, z)`: **꼭짓점마다** 좌표 방식 선택 — `station` = 선형 상대 (s, t, 접합부 FL 기준 높이), `world` = 절대 (X, Y, EL). GUI 는 통로마다 한 방식(STA 로 입력해 s 로 변환), 모델은 혼용 가능(향후 큰 UI 대비).
   - 절대 좌표 해석을 위해 `StationProjectConfig.to_station(x, y)`(to_world 의 역변환, 수선의 발 탐색)를 둠. 선형 접점은 여전히 config 하나.
@@ -151,7 +160,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 
-- 계단 2단계 후보: U자(꺾임) 계단, 엘리베이터 객체, 계단 위 난간.
+- 계단 2단계 후보: U자(꺾임) 계단, 계단 위 난간.
+- 엘리베이터 2단계 후보: 지상까지 가는 외부 엘리베이터(출입구 연계), 유리 승강로, 일부 층 미정지(정지층 선택), 승강장 문(landing door) 패널, 기계실형, 실무 제원 반영.
 - 출입구 2단계 후보: 천장을 도면처럼 계단참마다 꺾기, 깊이별 벽 두께(700/800/900), 상부 캐노피(지상 구조물), E-E 단면처럼 계단식 파라펫, 지형 자료 불러오기(지표 EL 자동), 종단면도·층별 평면도 표시, 계단연석 분리.
 - 환기구 2단계 후보: 아래로 내려가는 수직구, 위 덕트가 다른 방향(직각)으로 나가는 수직구, 본체 천장에서 바로 올라가는 수직구, 지상 환기탑·루버, 수직구 깊이 방향 회전, 종단면도 표시.
 - 출구통로 다음 후보: 끝단 폐합, 통로 경로와 본체(다른 층·곡선 안쪽)의 간섭 검사, 종단면도 표시, 경로 그래픽 편집 UI(Revit 식).

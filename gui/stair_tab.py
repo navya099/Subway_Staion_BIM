@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from gui import pick_buttons as PB
 
 from gui.stair_draft import DIRECTIONS, StairDraft, StairDrafts, floor_choice_label, preview
 
@@ -181,6 +182,8 @@ class StairTab:
             if l2:
                 tk.Label(grid, text=l2, font=FONT).grid(row=r, column=2, sticky="w")
                 self._entry(grid, it, a2, (i, a2), width=ENTRY_W).grid(row=r, column=3, padx=(2, 0), pady=1)
+        PB.button(grid, "위치 선택", lambda k=i, d=it: PB.pick_point(self, k, "계단 {} 첫 단 위치".format(k + 1), d.lower_floor, "sta_start")).grid(
+            row=0, column=4, padx=(8, 0))
 
         info = tk.StringVar(value="")
         self._info_vars.append((info, it))

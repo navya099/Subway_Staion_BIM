@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from gui import pick_buttons as PB
 
 from gui.opening_draft import KIND_LABELS, OpeningDraft, OpeningDrafts, slab_choice_label
 
@@ -151,6 +152,7 @@ class OpeningTab:
             self._entry(grid, it, a1, (i, a1), width=ENTRY_W).grid(row=r, column=1, padx=(2, 12), pady=1)
             tk.Label(grid, text=l2, font=FONT).grid(row=r, column=2, sticky="w")
             self._entry(grid, it, a2, (i, a2), width=ENTRY_W).grid(row=r, column=3, padx=(2, 0), pady=1)
+        PB.button(grid, "영역 선택", lambda k=i: PB.pick_opening_rect(self, k)).grid(row=0, column=4, rowspan=2, padx=(8, 0), sticky="ns")
 
         rng = tk.StringVar(value="")
         self._range_vars.append((rng, it))

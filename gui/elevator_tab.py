@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from gui import pick_buttons as PB
 
 from gui.column_draft import level_name
 from gui.elevator_draft import DOOR_LABELS, NUM_FIELDS, ElevatorDraft, ElevatorDrafts, preview
@@ -171,6 +172,8 @@ class ElevatorTab:
         self._entry(row, it, "sta_center", (i, "sta_center"), 9).pack(side="left", padx=(2, 8))
         tk.Label(row, text="t", font=FONT).pack(side="left")
         self._entry(row, it, "t_center", (i, "t_center"), 6).pack(side="left", padx=(2, 8))
+        PB.button(row, "위치 선택", lambda k=i, d=it: PB.pick_point(self, k, f"엘리베이터 {k + 1} 승강로 중심", d.lower_floor,
+                                                                 "sta_center")).pack(side="left")
 
         row = tk.Frame(box)
         row.pack(fill="x", pady=(4, 0))

@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from gui import pick_buttons as PB
 
 from gui.passage_draft import (COLUMN_LABELS, MODES, PassageDraft, PassageDrafts, VertexDraft, default_draft,
                                floor_label, preview)
@@ -206,7 +207,10 @@ class PassageTab:
                 self._entry(table, v, attr, (i, "v", j, attr), width=10).grid(row=j + 1, column=c, padx=(2, 4), pady=1)
             tk.Button(table, text="−", font=FONT, width=2, command=lambda k=i, jj=j: self.remove_vertex(k, jj)).grid(
                 row=j + 1, column=4)
-        tk.Button(box, text="+ 꼭짓점", font=FONT, command=lambda k=i: self.add_vertex(k)).pack(anchor="w", pady=(2, 0))
+        brow = tk.Frame(box)
+        brow.pack(fill="x", pady=(2, 0))
+        tk.Button(brow, text="+ 꼭짓점", font=FONT, command=lambda k=i: self.add_vertex(k)).pack(side="left")
+        PB.button(brow, "경로 선택 (미리보기에서 클릭)", lambda k=i: PB.pick_path(self, k, "출구통로")).pack(side="left", padx=(6, 0))
 
         info = tk.StringVar(value="")
         self._info_vars.append((info, it))

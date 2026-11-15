@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from gui import pick_buttons as PB
 
 from gui.column_draft import level_name
 from gui.room_draft import (B_SEPARATION, BOUNDARY_LABELS, DOOR_KIND_LABELS, DOOR_SIDE_LABELS, DoorDraft, RoomDraft,
@@ -279,6 +280,7 @@ class RoomTab:
             self._entry(grid, it, a1, (i, a1), ENTRY_W + 2).grid(row=r, column=1, padx=(2, 12), pady=1)
             tk.Label(grid, text=l2, font=FONT).grid(row=r, column=2, sticky="w")
             self._entry(grid, it, a2, (i, a2), ENTRY_W + 2).grid(row=r, column=3, padx=(2, 0), pady=1)
+        PB.button(grid, "영역 선택", lambda k=i: PB.pick_room_rect(self, k)).grid(row=0, column=4, rowspan=2, padx=(8, 0), sticky="ns")
         doors = tk.Frame(box)
         doors.pack(fill="x", pady=(4, 0))
         for k, d in enumerate(it.doors):
@@ -304,6 +306,7 @@ class RoomTab:
             kc.pack(side="left")
             self._combos[(i, "door", k, "kind")] = kc
             tk.Button(dr, text="−", font=FONT, width=2, command=lambda ii=i, kk=k: self.remove_door(ii, kk)).pack(side="right")
+            PB.button(dr, "선택", lambda ii=i, kk=k: PB.pick_door(self, ii, kk)).pack(side="right", padx=(0, 2))
         tk.Button(box, text="+ 문", font=FONT, command=lambda ii=i: self.add_door(ii)).pack(anchor="w", pady=(2, 0))
 
         info = tk.StringVar(value="")

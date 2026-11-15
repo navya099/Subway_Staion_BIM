@@ -40,6 +40,7 @@ class StationBIMApp:
         self.project_path = None
         self.recent = RecentProjects(recent_file)
         self.preview = None                          # 미리보기 창 (PreviewWindow)
+        self.entries["pick"] = self.request_pick       # 입력 탭의 [선택] 버튼 → 미리보기 평면에서 위치 선택
 
         self._build_ui()
         self._build_menu()
@@ -219,12 +220,21 @@ class StationBIMApp:
 
     def on_preview(self):
         """미리보기 창을 열거나(이미 열려 있으면 앞으로) 현재 입력으로 갱신"""
+        fresh = self.preview is None or not self.preview.alive
+        pv = self._ensure_preview()
+        if not fresh:
+            pv.lift()
+        pv.refresh()
+
+    def _ensure_preview(self):
         if self.preview is None or not self.preview.alive:
             self.preview = PreviewWindow(self.root, lambda: TkAdapter.collect_entries(self.entries),
                                          print_draft=self.entries.get("print_draft"))
-        else:
-            self.preview.lift()
-        self.preview.refresh()
+        return self.preview
+
+    def request_pick(self, request) -> bool:
+        """입력 탭의 [선택]: 미리보기 창을 열고 평면에서 위치를 고름 (끝나면 request.on_done 이 입력칸을 채움)"""
+        return self._ensure_preview().start_pick(request)
 
     # ================================================================== 프로젝트 파일
     def _build_menu(self):

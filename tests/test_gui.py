@@ -1601,7 +1601,7 @@ def test_finish_bad_input_and_project_round_trip(app, monkeypatch, tmp_path):
     path = str(tmp_path / "f.ssbim")
     patch_files(monkeypatch, save_path=path, answer=False)
     app.on_save(); app.on_new()
-    assert tab._vars[(0, "wall_t")].get() == "0.05" and tab.drafts.items[-1].name == "기본"
+    assert tab._vars[(0, "wall_t")].get() == "0.0016" and tab._vars[(0, "wall_face")].get() == "0.15" and tab.drafts.items[-1].name == "기본"
     app.on_open(path)
     assert tab._vars[(0, "wall_t")].get() == "0.08" and "기본" not in tab.drafts.names() and not app.is_dirty()
 

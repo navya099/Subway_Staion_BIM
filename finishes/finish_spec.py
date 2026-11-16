@@ -18,7 +18,9 @@ class FinishType:
     """마감 종류 1개 (보통 실 용도 이름과 같음).
     바닥: ffl = 마감 높이 (구조 바닥 상면 → 마감면, 0 이면 바닥 마감 없음), floor_t = 마감재 두께 (마감면에서 아래로),
           floor_fill = 그 아래 (FILL_MORTAR 몰탈 채움 | FILL_VOID 빈 공간 = 액세스 플로어)
-    벽: wall_t = 마감 두께 (0 = 면처리, 형상 없음), 마감면 ~ 천장(없으면 위 슬래브 하면)
+    벽: wall_t = 마감재 두께 (0 = 면처리, 형상 없음), 마감면 ~ 천장(없으면 위 슬래브 하면),
+        wall_face = 구조체 면 → 마감 표면 거리 (None = wall_t, 이격 없음). 마감재 뒷면 이격 = wall_face − wall_t (빈 공간,
+        하지재 미모델링). 예) 금속패널: 표면 0.15, 판 T1.6 → 이격 0.1484 (실무 상세 WB-14). 기둥·승강로 둘레에도 같은 거리
     천장: ceiling = 천장 있음, ceiling_h = 바닥 마감면에서 천장판 하면까지, board_t = 천장판 두께,
           frame = M | T, bar_spacing = 천장틀 바(M/T) 간격 (t 방향으로 뻗은 바를 s 방향으로 배열),
           carrier_spacing = 캐링 채널 간격 (s 방향으로 뻗은 바를 t 방향으로 배열), bar 단면 = 폭 bar_w × 높이 bar_h,
@@ -42,6 +44,17 @@ class FinishType:
     bar_h: float = 0.025
     carrier_w: float = 0.012
     carrier_h: float = 0.038
+    wall_face: float = None
+
+    @property
+    def face(self) -> float:
+        """구조체 면 → 벽 마감 표면 거리 (wall_face 를 비우면 마감재 두께, 즉 이격 없음)"""
+        return self.wall_t if self.wall_face is None else self.wall_face
+
+    @property
+    def wall_gap(self) -> float:
+        """구조체 면 → 마감재 뒷면 이격 (빈 공간)"""
+        return self.face - self.wall_t
 
     @property
     def frame_depth(self) -> float:
@@ -50,14 +63,16 @@ class FinishType:
 
 
 def default_finishes() -> dict:
-    """용도별 기본 마감표 (이름 → FinishType). 기계·전기·공조실은 콘크리트 면처리 + 천장 없음, 통신실은 액세스 플로어"""
+    """용도별 기본 마감표 (이름 → FinishType). 기계·전기·공조실은 콘크리트 면처리 + 천장 없음, 통신실은 액세스 플로어,
+    대합실·승강장층·복도·역무실·통로·기타·기본은 금속패널(T1.6, 구조면에서 표면까지 0.15 — 실무 상세 WB-14), 화장실 타일은 이격 없음"""
+    panel = dict(wall_t=0.0016, wall_face=0.15, wall_material="금속패널")
     concrete = dict(ffl=0.0, floor_t=0.0, floor_material="콘크리트 면처리", wall_t=0.0, wall_material="콘크리트 면처리",
                     ceiling=False)
     table = [
-        FinishType("대합실"),
-        FinishType("승강장층"),
-        FinishType("복도"),
-        FinishType("역무실", floor_material="타일", wall_t=0.05, ceiling_h=2.7),
+        FinishType("대합실", **panel),
+        FinishType("승강장층", **panel),
+        FinishType("복도", **panel),
+        FinishType("역무실", floor_material="타일", ceiling_h=2.7, **panel),
         FinishType("기계실", **concrete),
         FinishType("전기실", **concrete),
         FinishType("공조실", **concrete),
@@ -66,9 +81,9 @@ def default_finishes() -> dict:
         FinishType("화장실", floor_material="타일", wall_t=0.03, wall_material="타일", ceiling_h=2.7,
                    ceiling_material="방수 천장판"),
         FinishType("창고", floor_material="타일", wall_t=0.0, wall_material="콘크리트 면처리", ceiling=False),
-        FinishType("통로"),
-        FinishType("기타"),
-        FinishType(FALLBACK),
+        FinishType("통로", **panel),
+        FinishType("기타", **panel),
+        FinishType(FALLBACK, **panel),
     ]
     return {f.name: f for f in table}
 

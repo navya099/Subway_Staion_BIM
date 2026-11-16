@@ -7,10 +7,13 @@
 - 바닥: 실 영역 ∩ 기준 바닥 영역 − (칸막이벽·사각 기둥·승강로·그 층 계단·에스컬레이터 평면·아래 슬래브 오프닝).
   마감재 = 마감면(base + ffl) 아래 floor_t, 채움 = base ~ 마감재 하면 (FILL_MORTAR 일 때만)
 - 벽: 실 경계 중 벽이 있는 부분(본체 벽 내공면, 칸막이벽·구획분리 벽 면)에 두께 wall_t. 가상 경계선·같은 실 안 경계는 없음.
+  구조체 면에서 마감 표면까지 FinishType.face (= wall_face, 비우면 wall_t): 마감재는 [face − wall_t, face], 그 뒤 이격은 빈 공간.
+  직각 벽 마감은 서로의 이격 공간에 들어가지 않아 모서리에서 마감 표면끼리 만남.
   높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리는 비움.
   모서리: s 방향 조각을 그대로 두고 t 방향 조각에서 s 방향 조각을 뺌. 벽·기둥·승강로 평면과 겹치는 부분은 뺌
-- 기둥 둘레(실 안 기둥), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움): 같은 두께의 고리
-- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝).
+- 기둥 둘레(실 안 기둥), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움): 같은 두께·같은 이격의 고리
+- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝)
+  − 벽·사각 기둥·승강로 마감 표면 안쪽 (바닥은 구조체 면까지, 천장은 벽 마감 표면까지 — 실무 상세 WB-14).
   천장틀 바(M/T, t 방향)를 s 의 bar_spacing 격자에, 캐링 채널(s 방향)을 t 의 carrier_spacing 격자에 (원점 기준 격자)
 """
 import math
@@ -104,6 +107,12 @@ def _ring_rects(rect, f):
             ((s0 - f, s0, t0, t1), "t", -1, s0), ((s1, s1 + f, t0, t1), "t", 1, s1)]
 
 
+def _grow(rect, d):
+    """사각형을 사방으로 d 만큼 키움"""
+    s0, s1, t0, t1 = rect
+    return (s0 - d, s1 + d, t0 - d, t1 + d)
+
+
 def _grid(lo, hi, step):
     """[lo, hi] 안의 step 격자점 (원점 0 기준, 끝에서 step/2 이상 떨어진 것만은 아님 — 구간 안 모두)"""
     k0, k1 = math.ceil(lo / step - 1e-9), math.floor(hi / step + 1e-9)
@@ -188,7 +197,10 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                     if ft.floor_fill == FILL_MORTAR:
                         rf.floor_fill += _with_z(area, zb, z_top - ft.floor_t)
 
-            # ---- 벽 (실 경계 중 벽이 있는 곳)
+            # ---- 벽 (실 경계 중 벽이 있는 곳). 마감재는 구조체 면에서 gap 띄워 [gap, gap + f] (뒷면 이격 = 빈 공간)
+            gap = ft.wall_gap if f > _EPS else 0.0
+            face = gap + f
+            gap_rects, face_rects = [], []      # 구조체 면 ~ 마감재 뒷면 (다른 벽 마감이 들어가지 않음) / ~ 마감 표면 (천장 제외)
             if f > _EPS:
                 s_strips, t_strips = [], []
                 for axis, c, a, b, sign in _boundary(room.rects):
@@ -202,14 +214,19 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                             if x1 - x0 > _EPS:
                                 backs.append((x0, x1, half, "wall"))
                     for x0, x1, off, kind in backs:
-                        d0, d1 = sorted((c + sign * off, c + sign * (off + f)))
+                        d0, d1 = sorted((c + sign * (off + gap), c + sign * (off + face)))
                         r = (x0, x1, d0, d1) if axis == "s" else (d0, d1, x0, x1)
                         (s_strips if axis == "s" else t_strips).append((r, axis, c, kind))
+                        for depth, bucket in ((gap, gap_rects), (face, face_rects)):
+                            if depth > _EPS:
+                                e0, e1 = sorted((c + sign * off, c + sign * (off + depth)))
+                                bucket.append((x0, x1, e0, e1) if axis == "s" else (e0, e1, x0, x1))
                 s_rects = [r for r, *_ in s_strips]
                 pieces = []
                 for group, cut_by in ((s_strips, []), (t_strips, s_rects)):
                     for r, axis, c, kind in group:
-                        for rr in _minus(_minus([r], obstacles), cut_by):
+                        # 직각 벽의 이격 공간에는 들어가지 않음 → 모서리에서 마감 표면끼리 만남
+                        for rr in _minus(_minus(_minus([r], obstacles), gap_rects), cut_by):
                             for p0, p1, zb in zones:
                                 zz = _inter(rr, (0.0, L, p0, p1))
                                 if not zz:
@@ -242,7 +259,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                     if rad is None:
                         rings.append(((s - hs, s + hs, t - ht, t + ht), zb, []))
                     else:
-                        rf.rings += _circle_ring(cfg, s, t, rad, f, zb + ft.ffl, wall_top)
+                        rf.rings += _circle_ring(cfg, s, t, rad + gap, f, zb + ft.ffl, wall_top)   # 원기둥은 천장에서 빼지 않음 (기존 단순화)
                 for ev in evs:
                     S0, S1, T0, T1 = ev.outer_rect()
                     if not inside((S0 + S1) / 2.0, (T0 + T1) / 2.0):
@@ -255,7 +272,8 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                     rings.append(((S0, S1, T0, T1), zb, holes))
                 for rect, zb, door_holes in rings:
                     z0 = zb + ft.ffl
-                    for r, axis, sign, c in _ring_rects(rect, f):
+                    face_rects.append(_grow(rect, face))
+                    for r, axis, sign, c in _ring_rects(_grow(rect, gap), f):
                         for rr in _minus([r], walls_fp + wall_fp + [x for x in col_rects if x != rect]):
                             rr = _inter(rr, clear)
                             if not rr:
@@ -272,7 +290,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 c = rf.ceiling_rel
                 # 최하층은 승강장 위(t 범위)만 — 선로 구간에는 천장 마감 없음 (바닥·벽과 같은 기준 영역)
                 area = [r for rr in room.rects for p0, p1, _ in zones for r in [_inter(tuple(rr), (0.0, L, p0, p1))] if r]
-                area = _minus(area, obstacles + above)
+                area = _minus(area, obstacles + above + face_rects)     # 천장판은 벽 마감 표면에서 끝남
                 rf.ceiling = _with_z(area, c, c + ft.board_t)
                 zb0, zb1 = c + ft.board_t, c + ft.board_t + ft.bar_h
                 zc1 = zb1 + ft.carrier_h

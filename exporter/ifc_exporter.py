@@ -649,7 +649,7 @@ class IFCExporter:
     def export_finishes(self, finish_engine: FinishEngine):
         """마감: 실마다 바닥 마감재·채움(IfcCovering FLOORING), 벽·기둥·승강로 마감(CLADDING), 천장판(CEILING),
         천장틀(IfcMember). 마감은 IfcRelCoversSpaces 로 그 실(IfcSpace)에 연결하고, 모든 부재는 층 storey 에 포함.
-        IfcSpace 에는 마감 속성 세트(SSBIM_SpaceFinish: 마감 종류·재질·마감 높이·천장 높이)를 붙인다"""
+        IfcSpace 에는 마감 속성 세트(SSBIM_SpaceFinish: 마감 종류·재질·마감 높이·벽 마감 두께·마감면 거리·이격·천장 높이)를 붙인다"""
         f = self.file
         spaces = getattr(self, "_space_ents", {})
         by_level: dict = {}
@@ -676,6 +676,8 @@ class IFCExporter:
             vals = [("FinishType", "IfcLabel", ft.name), ("FloorMaterial", "IfcLabel", ft.floor_material),
                     ("FloorFinishLevel", "IfcLengthMeasure", float(ft.ffl)), ("WallMaterial", "IfcLabel", ft.wall_material),
                     ("WallFinishThickness", "IfcLengthMeasure", float(ft.wall_t)),
+                    ("WallFinishFace", "IfcLengthMeasure", float(ft.face)),          # 구조체 면 → 마감 표면
+                    ("WallFinishGap", "IfcLengthMeasure", float(ft.wall_gap)),       # 마감재 뒷면 이격 (하지 공간)
                     ("CeilingMaterial", "IfcLabel", ft.ceiling_material if ft.ceiling else "없음"),
                     ("CeilingHeight", "IfcLengthMeasure", float(ft.ceiling_h if ft.ceiling else 0.0)),
                     ("CeilingFrame", "IfcLabel", f"{ft.frame}바" if ft.ceiling else "없음")]

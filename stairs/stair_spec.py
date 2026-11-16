@@ -24,6 +24,8 @@ class StairSpec:
         landing_len: 중간 계단참 길이 (m, 진행방향, 단너비 이상)
         waist_t: 계단 슬래브(허리) 두께 (m, 경사면에 직각). 구조 띠의 연직 두께 = waist_t / cos(경사각), 계단참도 같은 연직 두께
         headroom: 계단 위 최소 유효 높이 (m). 이보다 낮아지는 구간부터 위층 슬래브를 뚫는다
+            (마감을 켜면 아래층 천장판 하면이 슬래브 하면보다 낮을 때 천장판 하면 기준)
+        side_clear: 자동 오프닝 옆 여유 (m, 계단 폭 양쪽에 더함, 기본 0)
         name: 비우면 ST + 일련번호
     """
     lower_floor: int = 1
@@ -38,6 +40,7 @@ class StairSpec:
     waist_t: float = 0.2
     headroom: float = 2.1
     name: str = ""
+    side_clear: float = 0.0
 
     @property
     def t_lo(self) -> float:

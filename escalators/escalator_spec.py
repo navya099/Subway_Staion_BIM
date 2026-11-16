@@ -32,7 +32,8 @@ class EscalatorSpec:
         lower_flat_steps / upper_flat_steps: 하부 / 상부 평탄 스텝 수
         step_depth: 스텝 깊이 (m, 수평). 단높이 = step_depth · tan(경사각)
         handrail_height: 핸드레일 높이 (m, 스텝 코 선 기준 연직)
-        headroom: 스텝 코 선 위 최소 유효 높이 (m)
+        headroom: 스텝 코 선 위 최소 유효 높이 (m) (마감을 켜면 아래층 천장판 하면이 슬래브 하면보다 낮을 때 천장판 하면 기준)
+        side_clear: 위층 자동 오프닝 옆 여유 (m, 트러스 외폭 양쪽에 더함, 기본 0)
         name: 비우면 ES + 일련번호
     """
     lower_floor: int = 1
@@ -51,6 +52,7 @@ class EscalatorSpec:
     handrail_height: float = 1.0
     headroom: float = 2.3
     name: str = ""
+    side_clear: float = 0.0
 
     @property
     def tan(self) -> float:

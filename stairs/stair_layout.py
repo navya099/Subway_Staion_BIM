@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass, field
 
 from helper import prism_member as PM
+from finishes.finish_layout import ceiling_bottom_under
 from openings.opening_kind import OpeningKind
 from openings.opening_spec import OpeningSpec
 from stairs.stair_shape import StairStrip
@@ -213,16 +214,20 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
                               lambda sa, sb, t: PM.curve_factor(cfg, sa, sb, t))
     length = run + g                                     # 첫 챌판 ~ 위층 슬래브와 맞닿는 점
 
-    # 자동 오프닝: 위층 슬래브(번호 k) 하면까지의 유효 높이가 headroom 보다 낮아지는 첫 걷는 면부터 슬래브와 맞닿는 점까지
+    # 자동 오프닝: 위층 슬래브(번호 k) 하면까지의 유효 높이가 headroom 보다 낮아지는 첫 걷는 면부터 슬래브와 맞닿는 점까지.
+    # 아래층(k) 천장 마감이 슬래브 하면보다 낮으면 천장판 하면을 기준으로 (오프닝이 그만큼 길어짐)
     z_slab_bot = z_top - st.mid_t
+    foot = (*sorted((s_at(0.0), s_at(length))), t0, t1)
+    ceil = ceiling_bottom_under(cfg, k, foot)
+    z_head = z_slab_bot if ceil is None else min(z_slab_bot, ceil)
     u_open = run
     for p in parts:
         for ua, ub, zt in p.surfaces:
-            if min(elev(ua, z_slab_bot), elev(ub, z_slab_bot)) - zt < spec.headroom - 1e-9:
+            if min(elev(ua, z_head), elev(ub, z_head)) - zt < spec.headroom - 1e-9:
                 u_open = min(u_open, ua)
     s_lo, s_hi = sorted((s_at(u_open), s_at(length)))
-    opening = OpeningSpec(kind=OpeningKind.STAIR, s_start=s_lo, length=s_hi - s_lo, t_center=tc, width=spec.width,
-                          slabs=[k], name=name)
+    opening = OpeningSpec(kind=OpeningKind.STAIR, s_start=s_lo, length=s_hi - s_lo, t_center=tc,
+                          width=spec.width + 2.0 * spec.side_clear, slabs=[k], name=name)
     return StairLayout(name=name, spec=spec, lower_floor=k, on_platform=on_platform, base_level=z_base, n_risers=n, riser=r,
                        flight_risers=counts, run=run, length=length, s_range=tuple(sorted((s_at(0.0), s_at(length)))),
                        t_range=(t0, t1), parts=parts, opening=opening)

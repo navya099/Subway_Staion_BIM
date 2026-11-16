@@ -13,7 +13,7 @@ _FIELDS = [("시작 STA", "sta_start", "t 위치", "t_center"),
            ("폭", "width", "단높이 상한", "riser_max"),
            ("단너비", "tread", "런 높이 상한", "flight_rise_max"),
            ("계단참 길이", "landing_len", "슬래브 두께", "waist_t"),
-           ("머리 높이", "headroom", None, None)]
+           ("머리 높이", "headroom", "오프닝 옆 여유", "side_clear")]
 
 
 class StairTab:

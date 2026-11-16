@@ -24,6 +24,8 @@ def check_stair_spec(station, spec, name: str):
                      ("계단 슬래브 두께", spec.waist_t), ("머리 높이", spec.headroom)):
         if not v > 0:
             raise ValueError(f"계단 {name}: {label}은(는) 0보다 커야 합니다 ({v})")
+    if not spec.side_clear >= 0:
+        raise ValueError(f"계단 {name}: 오프닝 옆 여유는 0 이상이어야 합니다 ({spec.side_clear})")
     if spec.flight_rise_max < 2 * spec.riser_max - _EPS:
         raise ValueError(f"계단 {name}: 런 높이 상한({spec.flight_rise_max:g}m)은 단높이 상한의 2배"
                          f"({2 * spec.riser_max:g}m) 이상이어야 합니다")

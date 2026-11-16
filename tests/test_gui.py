@@ -1809,3 +1809,12 @@ def test_pick_passage_by_clicks_with_ortho_builds_valid_passage(app, monkeypatch
     pv.toggle_ortho()
     assert not pv._vars["ortho"].get() and "끔" in pv.status.cget("text")
     pv.close()
+
+
+def test_stair_and_escalator_side_clear_fields(app):
+    app.stair_tab.add_stair(); app.escalator_tab.add_escalator(); app.root.update()
+    app.stair_tab._vars[(0, "side_clear")].set("0.3")
+    app.escalator_tab._vars[(0, "side_clear")].set("0.2")
+    app.escalator_tab._vars[(0, "t_center")].set("-6.5")          # 기본 위치는 기본 계단과 겹침
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.stairs[0].side_clear == 0.3 and cfg.escalators[0].side_clear == 0.2

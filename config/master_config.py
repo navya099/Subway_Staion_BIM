@@ -60,6 +60,9 @@ class StationProjectConfig:
             if k_max * half_w >= 0.5:
                 raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 외곽 폭({2 * half_w:g}m)에 비해 너무 작아 "
                                  "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
+        # 실 경계가 내공면에서 경계 벽 두께 이내면 내공면에 붙임 (입력 정규화: 이후 엔진·도면·마감은 붙인 값을 씀).
+        # 계단·에스컬레이터 자동 오프닝이 아래층 천장 높이를 실 배치에서 찾으므로 그 전에
+        self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings)
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
         stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)
         all_ops = self.openings + self._auto_openings(stairs, escs, evs)
@@ -67,8 +70,6 @@ class StationProjectConfig:
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
         check_elevator_layouts(self, evs, stairs, escs)
-        # 실 경계가 내공면에서 경계 벽 두께 이내면 내공면에 붙임 (입력 정규화: 이후 엔진·도면·마감은 붙인 값을 씀)
-        self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings)
         check_room_layouts(self, layout_rooms(self), all_ops, stairs, escs, evs)
         check_finishes(self)
         passages = layout_passages(self)

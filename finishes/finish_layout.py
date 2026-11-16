@@ -52,6 +52,39 @@ def _inter(a, b):
     return r if r[1] - r[0] > _EPS and r[3] - r[2] > _EPS else None
 
 
+def ceiling_bottom_under(cfg, floor: int, rect) -> float:
+    """층 floor 에서 rect(s0, s1, t0, t1) 와 겹치는 실 중 천장 마감이 있는 실의 가장 낮은 천장판 하면 (본체 FL 기준).
+    마감을 끄거나 천장이 없으면 None. 계단·에스컬레이터 자동 오프닝의 머리 높이 기준 — 아래층 천장이 위 슬래브 하면보다
+    낮으면 그 높이로 재서 오프닝을 키운다 (천장판·천장틀이 오르내리는 사람 머리에 걸리지 않게)"""
+    fs = getattr(cfg, "finish_settings", None)
+    if fs is None or not fs.enabled:
+        return None
+    from rooms.room_check import layout_rooms
+    from rooms.room_layout import resolve_room_names
+    try:
+        floors = layout_rooms(cfg)
+        specs = dict(zip(resolve_room_names(cfg, cfg.rooms), cfg.rooms))
+    except ValueError:
+        return None                                        # 실 입력 오류는 실 검사가 알림
+    if not 1 <= floor <= len(floors):
+        return None
+    st, pl = cfg.station, cfg.platform
+    ref = pl.top_level if (floor == 1 and pl.exists) else st.floor_level(floor)
+    low = None
+    for room in floors[floor - 1].rooms:
+        if not any(_inter(tuple(r), tuple(rect)) for r in room.rects):
+            continue
+        sp = specs.get(room.name)
+        try:
+            ft = fs.for_room(room.use, getattr(sp, "finish", "") if sp else "")
+        except ValueError:
+            continue
+        if ft.ceiling:
+            c = ref + ft.ffl + ft.ceiling_h
+            low = c if low is None else min(low, c)
+    return low
+
+
 def _minus(rects, holes):
     out = []
     for r in rects:

@@ -12,7 +12,7 @@
   높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리는 비움.
   모서리: s 방향 조각을 그대로 두고 t 방향 조각에서 s 방향 조각을 뺌. 벽·기둥·승강로 평면과 겹치는 부분은 뺌
 - 기둥 둘레(실 안 기둥), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움): 같은 두께·같은 이격의 고리
-- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝)
+- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝 — 위층 에스컬레이터 하부 피트는 제외)
   − 벽·사각 기둥·승강로 마감 표면 안쪽 (바닥은 구조체 면까지, 천장은 벽 마감 표면까지 — 실무 상세 WB-14).
   천장틀 바(M/T, t 방향)를 s 의 bar_spacing 격자에, 캐링 채널(s 방향)을 t 의 carrier_spacing 격자에 (원점 기준 격자)
 """
@@ -181,6 +181,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
     L, hw = st.length, st.width / 2.0
     clear = (0.0, L, -hw, hw)
     wall_ops = cfg.wall_openings()
+    pit_names = {lay.pit_opening.name for lay in escalators if getattr(lay, "pit_opening", None) is not None}
     out = []
     for fl in floors:
         n = fl.floor
@@ -194,7 +195,8 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         ev_rects = [ev.outer_rect() for ev in evs]
         stair_fp = [(*x.s_range, *x.t_range) for x in list(stairs) + list(escalators) if x.lower_floor == n]
         below = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
-        above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs]
+        # 위 슬래브 오프닝만큼 천장을 뺌. 단 위층 에스컬레이터 하부 피트(슬래브 두께 안에서 트러스가 막음)는 아래층 천장을 뚫지 않음
+        above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs and o.name not in pit_names]
         lines = {}                                           # (축, 좌표) → [(접선 lo, hi, 반두께)] 칸막이벽·구획분리 벽
         for pw in fl.partitions:
             for s0, s1, t0, t1, *_ in pw.pieces:

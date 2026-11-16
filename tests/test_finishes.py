@@ -436,3 +436,25 @@ def test_side_clear_drafts():
     assert EscalatorDraft().to_spec("x", 0.0).side_clear == 0.0
     with pytest.raises(ValueError, match="오프닝 옆 여유"):
         StairDraft(side_clear="-1").to_spec("x", 0.0)
+
+
+def test_upper_escalator_pit_does_not_cut_lower_ceiling():
+    """버그: B2F 에서 오르는 에스컬레이터의 하부 피트(아래 슬래브 오프닝)가 B3F 천장판까지 뚫음.
+    피트는 슬래브 두께 안에서 트러스가 막으므로 아래층 천장은 그대로, 그 층(B2F) 바닥 마감만 피트 자리 비움"""
+    e = EscalatorSpec(lower_floor=2, s_wp=60.0, direction=1, t_center=-6.0, truss_depth=0.35, name="ES")
+    eng = StationCADEngine(cfg_with(no_cols=True, escalators=[e], table=flush_table()))
+    pit = _open(eng, "ES_PIT")
+    assert pit.slabs == [1]
+
+    def hits(pieces):
+        out = []
+        for p in pieces:
+            s0, s1 = PM.s_range(p)
+            t0, t1 = p.pos_y - p.shape.width / 2, p.pos_y + p.shape.width / 2
+            if s0 < pit.s_end - 1e-6 and s1 > pit.s_start + 1e-6 and t0 < pit.t_hi - 1e-6 and t1 > pit.t_lo + 1e-6:
+                out.append(p)
+        return out
+    low = fin(eng, "B3F_승강장층")
+    assert hits(low.element("CEILING").pieces)                      # B3F 천장은 피트 아래에도 있음
+    hall = fin(eng, "B2F_대합실")
+    assert not hits(hall.element("FLOOR").pieces)                   # B2F 바닥 마감은 피트 자리 비움

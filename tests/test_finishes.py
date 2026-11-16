@@ -74,6 +74,10 @@ def test_platform_floor_finish_only_on_platform():
     assert rect_area(pieces) == pytest.approx(2 * (9 - 3.9) * 198)                # 좌·우 승강장만
     assert all(PM.z_off(eng.cfg, p) == pytest.approx(1.3 + 0.07) for p in pieces)
     assert plat.ceiling_rel == pytest.approx(1.3 + 0.1 + 3.0)
+    # 천장·천장틀도 승강장 위만 (선로 구간 t ±3.9 안쪽에는 천장 마감 없음)
+    ceil = plat.element("CEILING").pieces
+    assert rect_area(ceil) == pytest.approx(2 * (9 - 3.9) * 198)
+    assert all(abs(p.pos_y) - p.shape.width / 2 >= 3.9 - 1e-9 for p in ceil + plat.element("FRAME").pieces)
 
 
 def test_floor_skips_openings_stairs_and_shafts():

@@ -10,7 +10,7 @@
   높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리는 비움.
   모서리: s 방향 조각을 그대로 두고 t 방향 조각에서 s 방향 조각을 뺌. 벽·기둥·승강로 평면과 겹치는 부분은 뺌
 - 기둥 둘레(실 안 기둥), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움): 같은 두께의 고리
-- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝).
+- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝).
   천장틀 바(M/T, t 방향)를 s 의 bar_spacing 격자에, 캐링 채널(s 방향)을 t 의 carrier_spacing 격자에 (원점 기준 격자)
 """
 import math
@@ -270,7 +270,9 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
             # ---- 천장 · 천장틀
             if ft.ceiling:
                 c = rf.ceiling_rel
-                area = _minus([tuple(r) for r in room.rects], obstacles + above)
+                # 최하층은 승강장 위(t 범위)만 — 선로 구간에는 천장 마감 없음 (바닥·벽과 같은 기준 영역)
+                area = [r for rr in room.rects for p0, p1, _ in zones for r in [_inter(tuple(rr), (0.0, L, p0, p1))] if r]
+                area = _minus(area, obstacles + above)
                 rf.ceiling = _with_z(area, c, c + ft.board_t)
                 zb0, zb1 = c + ft.board_t, c + ft.board_t + ft.bar_h
                 zc1 = zb1 + ft.carrier_h

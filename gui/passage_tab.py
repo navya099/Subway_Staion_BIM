@@ -42,7 +42,7 @@ class PassageTab:
                  fg="#6A1B9A").pack(anchor="w", padx=15, pady=(12, 2))
         tk.Label(self.parent, justify="left", fg="#555555", font=("Malgun Gothic", 8), wraplength=430,
                  text="• 경로 = 통로 중심선 꼭짓점 (선형 상대 STA·t·높이 또는 절대 X·Y·EL)\n"
-                      "• 첫 꼭짓점은 측벽 바깥면 위, 첫 구간은 본체에 직각. 첫 높이는 비우면 FL\n"
+                      "• 첫 꼭짓점은 측벽 바깥면 위(t 를 비우면 자동), 첫 구간은 본체에 직각. 첫 높이는 비우면 FL\n"
                       "• 꼭짓점 높이가 같으면 수평, 다르면 경사 (일직선 꼭짓점 = 경사 시작점)\n"
                       "• 꺾이는 꼭짓점 앞뒤 구간은 수평, 꺾임은 임의 각도(연귀)").pack(anchor="w", padx=15)
 

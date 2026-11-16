@@ -52,7 +52,10 @@ class VentDraft:
         for j, v in enumerate(self.vertices, start=1):
             w = f"{where} 꼭짓점 {j}"
             x = _num(v.x, w, cols[0])
-            y = _num(v.y, w, cols[1])
+            if j == 1 and mode == STATION and not str(v.y).strip():
+                y = None                                   # 비우면 외벽 바깥면에 붙임 (resolve_vertices)
+            else:
+                y = _num(v.y, w, cols[1])
             z = None if j == 1 and not str(v.z).strip() else _num(v.z, w, cols[2])
             path.append(PathVertex(mode, x - start_station if mode == STATION else x, y, z))
         try:
@@ -104,8 +107,10 @@ def preview(it: VentDraft, start_station: float) -> str:
     except ValueError:
         return "→ 입력값을 확인하세요"
     pts = sp.path
-    vertical = [i for i, (a, b) in enumerate(zip(pts, pts[1:])) if abs(a.x - b.x) < 1e-3 and abs(a.y - b.y) < 1e-3]
+    vertical = [i for i, (a, b) in enumerate(zip(pts, pts[1:])) if a.y is not None and abs(a.x - b.x) < 1e-3 and abs(a.y - b.y) < 1e-3]
     end = "수직구 상단" if vertical and vertical[-1] == len(pts) - 2 else "덕트 끝 단면"
     text = (f"→ {sp.cells}련 × {sp.cell_width:g}×{sp.cell_height:g}, 내공 폭 {sp.inner_width:g}m "
             f"(외곽 {2 * sp.half_out:g}m)\n   꼭짓점 {len(pts)}개, 수직 구간 {len(vertical)}곳, 그릴: {end} {sp.cells}개")
+    if pts and pts[0].y is None:
+        text += "\n   첫 꼭짓점 t = 외벽 바깥면 (자동)"
     return text

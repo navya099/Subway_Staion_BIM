@@ -1,7 +1,7 @@
 import math
 
 from helper.box_piece import footprints_overlap
-from passages.passage_spec import MODES, PathVertex
+from passages.passage_spec import MODES, STATION, PathVertex
 from ventilations.vent_layout import layout_vent
 from ventilations.vent_spec import VentSpec, resolve_vent_names
 
@@ -21,8 +21,11 @@ def check_vent_spec(station, spec, name: str):
     for i, v in enumerate(spec.path, start=1):
         if not isinstance(v, PathVertex) or v.mode not in MODES:
             raise ValueError(f"환기구 {name}: 꼭짓점 {i} 의 형식이 올바르지 않습니다 ({v!r})")
-        if not (math.isfinite(v.x) and math.isfinite(v.y)) or (v.z is not None and not math.isfinite(v.z)):
-            raise ValueError(f"환기구 {name}: 꼭짓점 {i} 의 좌표가 숫자가 아닙니다")
+        auto_t = v.y is None and i == 1 and v.mode == STATION         # 첫 꼭짓점 t 비움 = 외벽 바깥면에 붙임
+        if (not math.isfinite(v.x) or (not auto_t and (v.y is None or not math.isfinite(v.y)))
+                or (v.z is not None and not math.isfinite(v.z))):
+            raise ValueError(f"환기구 {name}: 꼭짓점 {i} 의 좌표가 숫자가 아닙니다"
+                             + (" (t 를 비울 수 있는 것은 선형 상대 좌표의 첫 꼭짓점뿐)" if v.y is None else ""))
     if not isinstance(spec.cells, int) or isinstance(spec.cells, bool) or not 1 <= spec.cells <= 20:
         raise ValueError(f"환기구 {name}: 련 수는 1 ~ 20 의 정수여야 합니다 ({spec.cells!r})")
     for label, val in (("칸 내공 폭", spec.cell_width), ("칸 내공 높이", spec.cell_height), ("바깥 벽 두께", spec.wall_t),
@@ -50,9 +53,7 @@ def check_vent_spec(station, spec, name: str):
     if spec.cell_height > clear + _EPS:
         raise ValueError(f"환기구 {name}: 칸 내공 높이({spec.cell_height:g}m)가 {station.level_name(k)} 내공 높이"
                          f"({clear:g}m)보다 큽니다 (측벽 오프닝이 위 슬래브에 닿음)")
-    wt = station.wall_t_at(k)
-    if k > 1 and station.wall_t_at(k - 1) > wt + _EPS:
-        raise ValueError(f"환기구 {name}: 아래층({station.level_name(k - 1)}) 외벽이 더 두꺼워 덕트 바닥 슬래브와 겹칩니다")
+    wt = station.wall_t_at(k)          # 아래층 외벽이 더 두꺼우면 그 턱 위의 바닥 슬래브를 뺀다 (passage_layout.lower_ledge)
     top = station.floor_level(k) + spec.cell_height + spec.roof_t
     if k < floors and top > station.floor_level(k + 1) + _EPS and station.wall_t_at(k + 1) > wt + _EPS:
         raise ValueError(f"환기구 {name}: 위층({station.level_name(k + 1)}) 외벽이 더 두꺼워 덕트 천장 슬래브와 겹칩니다")

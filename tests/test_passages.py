@@ -193,15 +193,68 @@ def test_world_vertex_off_wall_and_self_crossing_rejected():
         StationCADEngine(cfg_with(ps(loop)))
 
 
-def test_thicker_lower_or_upper_wall_rejected():
-    cfg = cfg_with(ps(straight(), floor=2))
+@pytest.mark.parametrize("curved", [False, True])
+def test_thicker_lower_wall_trims_floor_slab_on_ledge(tmp_path, curved):
+    """아래층 외벽이 0.2 더 두꺼우면 첫 구간 바닥 슬래브는 턱(0.2) 뒤부터 — 아래층 벽 상단(= FL)이 그 자리 바닥"""
+    cfg = cfg_with(ps(straight(side=-1), floor=2, bottom_haunch_w=0.2, bottom_haunch_h=0.2, name="A"),
+                   ps(ell(), floor=2, name="B"), curved=curved)
+    hw = cfg.station.width / 2.0
     cfg.station.wall_ts = [1.2, 1.0, 1.0]
-    with pytest.raises(ValueError, match="아래층"):
+    for p in cfg.passages:                                            # 2층 외벽 바깥면 = 내공 반폭 + 1.0
+        for v in p.path[:1]:
+            v.y = (hw + 1.0) * (1 if v.y > 0 else -1)
+    eng = StationCADEngine(cfg)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "p.ifc"))
+    els = {e.Name: e for e in f.by_type("IfcSlab") + f.by_type("IfcWall")}
+    for p, sp in zip(eng.passages.all_passages(), cfg.passages):
+        floor = next(e for e in p.elements if e.name == f"{p.name}_S1_FLOOR")
+        slab = [q for q in floor.pieces if q.local["seg"] == 0 and q.sect[0][1] < 0]
+        assert len(slab) == 1 and slab[0].a0 == pytest.approx(0.2)
+        assert slab[0].z0 == pytest.approx(slab[0].z_ref(0.2))
+        others = [q for e in p.elements for q in e.pieces if q not in slab]
+        assert all(q.a0 == 0.0 for q in others if q.local["seg"] == 0)        # 헌치(FL 위)·벽·천장은 그대로
+        L0 = math.hypot(p.vertices[1].x - p.vertices[0].x, p.vertices[1].y - p.vertices[0].y)
+        if p.name == "A":
+            assert floor.volume == pytest.approx((L0 - 0.2) * 2 * sp.half_out * sp.floor_t + 2 * L0 * 0.5 * 0.2 * 0.2)
+        for e in p.elements:
+            assert sum(PM.mesh_volume(q.faces()) for q in e.pieces) == pytest.approx(e.volume, rel=1e-9)
+            assert ifc_world_volume(els[e.name]) == pytest.approx(e.volume, rel=1e-6)
+
+
+def test_ledge_longer_than_first_segment_rejected():
+    cfg = cfg_with(ps(station_path([(50, TF, None), (50, TF + 0.15, 0)]), floor=2))
+    cfg.station.wall_ts = [1.2, 1.0, 1.0]
+    with pytest.raises(ValueError, match="외벽 턱"):
         StationCADEngine(cfg)
+
+
+def test_thicker_upper_wall_rejected():
     cfg = cfg_with(ps(straight(), floor=2, inner_height=5.5, roof_t=0.8))      # 천장 상면 FL+6.3 > 위층 FL+6.0
     cfg.station.wall_ts = [1.0, 1.0, 1.2]
     with pytest.raises(ValueError, match="위층"):
         StationCADEngine(cfg)
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_blank_first_t_snaps_to_outer_face(side):
+    """첫 꼭짓점 t 를 비우면 그 층 외벽 바깥면(측벽은 두 번째 꼭짓점 t 부호) — 벽 두께를 바꿔도 따라감"""
+    auto = ps(station_path([(50, None, None), (50, side * (TF + 15), 0)]))
+    a = by_name(eng_with(auto), "EX1")
+    b = by_name(eng_with(ps(straight(side=side))), "EX1")
+    assert a.side == side and a.vertices[0].t == pytest.approx(side * TF) and a.volume == pytest.approx(b.volume)
+    cfg = cfg_with(ps(station_path([(50, None, None), (50, side * (TF + 15), 0)])))
+    cfg.station.wall_ts = [1.0, 1.0, 1.3]
+    lay = by_name(StationCADEngine(cfg), "EX1")
+    assert lay.vertices[0].t == pytest.approx(side * (TF + 0.3))
+
+
+def test_blank_t_only_for_first_station_vertex():
+    with pytest.raises(ValueError, match="t 를 비울 수 있는 것은"):
+        StationCADEngine(cfg_with(ps(station_path([(50, TF, None), (50, None, 0)]))))
+    with pytest.raises(ValueError, match="t 를 비울 수 있는 것은"):
+        StationCADEngine(cfg_with(ps([PathVertex("world", 1.0, None, None), PathVertex("world", 1.0, 20.0, 0.0)])))
+    with pytest.raises(ValueError, match="두 번째 꼭짓점"):
+        StationCADEngine(cfg_with(ps(station_path([(50, None, None), (60, 0, 0)]))))
 
 
 def test_overlapping_passages_and_names_rejected():
@@ -383,6 +436,17 @@ def test_default_draft_and_preview():
     assert "꼭짓점 2개" in text and "평면 길이 약 15.00m" in text and "STA 78.00 ~ 82.00" in text
     assert "확인" in preview(PassageDraft(vertices=[VertexDraft("x", "1", "")]), 0.0)
     assert MODE_STATION != MODE_WORLD
+
+
+def test_draft_blank_first_t():
+    it = PassageDraft(floor=3, vertices=[VertexDraft("80", "", ""), VertexDraft("80", "25", "0")])
+    sp = it.to_spec("", 0.0)
+    assert sp.path[0].y is None and sp.path[1].y == 25.0
+    StationCADEngine(cfg_with(sp))
+    assert "외벽 바깥면 (자동)" in preview(it, 0.0)
+    it.vertices[1].y = ""
+    with pytest.raises(ValueError, match="꼭짓점 2"):
+        it.to_spec("", 0.0)
 
 
 def test_draft_floor_clamped():

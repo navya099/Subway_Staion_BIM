@@ -386,3 +386,50 @@ def test_door_drafts():
     d.doors[0].height = "0"
     with pytest.raises(ValueError, match="실 1 문 1: 문 높이"):
         d.to_spec("실 1", 100.0)
+
+
+# ===================================================== 내공면 자동 붙임
+from rooms.room_spec import SEPARATION, snap_to_clear
+
+
+def test_snap_to_clear_rule():
+    st = RoomSettings(partition_t=0.2)
+    # 칸막이벽: 허용 = 0.2. 안쪽 0.1 → 붙음, 바깥 0.15 → 붙음, 0.3 → 그대로
+    sp = snap_to_clear(RoomSpec(2, "역무실", 0.1, 30, 8.9, 9.15), 198, 9, st)
+    assert sp.rect == (0.0, 30, 8.9, 9.0)                       # 변마다 자기 쪽 내공면만 (t0 8.9 는 왼쪽 벽에 가깝지만 그대로)
+    keep = RoomSpec(2, "역무실", 0.3, 30, 2, 8.7)
+    assert snap_to_clear(keep, 198, 9, st) is keep
+    # 구획분리 0.5: 허용 = 0.5 (실무 샘플: 내공 ±10.1 에 ±10 입력)
+    sep = RoomSpec(2, "공조실", 0, 52, -10.0, 10.0, boundary=SEPARATION, sep_t=0.5)
+    assert snap_to_clear(sep, 250, 10.1, st).rect == (0, 52, -10.1, 10.1)
+    # 가상 경계선(두께 0)도 최소 칸막이벽 두께까지
+    virt = RoomSpec(2, "복도", 197.85, 198, -3, 3, boundary=SEPARATION, sep_t=0.0)
+    assert snap_to_clear(virt, 198, 9, st).s1 == 198
+    # 내공 밖으로 조금 나간 경계도 붙임 (예전에는 '내공 밖' 오류)
+    assert snap_to_clear(RoomSpec(2, "창고", -0.1, 9, -9.2, -3), 198, 9, st).rect == (0.0, 9, -9.0, -3)
+
+
+def test_rooms_near_station_wall_snap_without_thin_walls_or_slivers():
+    """실 경계가 내공면에서 0.1m 모자라도 본체 벽에 붙은 얇은 벽·자투리 기본 실이 생기지 않음"""
+    near = RoomSpec(3, "공조실", 0.0, 40.0, -8.9, 8.9, boundary=SEPARATION, sep_t=0.5)
+    office = RoomSpec(3, "역무실", 40.0, 50.0, 4.0, 8.95)
+    cfg = cfg_with(near, office)
+    cfg.validate()
+    assert cfg.rooms[0].rect == (0.0, 40.0, -9.0, 9.0) and cfg.rooms[1].t1 == 9.0
+    fl = floor_layout(cfg, 3)
+    for w in fl.partitions:
+        for pc in w.pieces:
+            assert not (w.axis == "s" and (pc[3] >= 9.0 - 1e-9 or pc[2] <= -9.0 + 1e-9)), (w.name, pc)   # 본체 벽을 따라가는 벽 없음
+    default = [r for r in fl.rooms if r.is_default]
+    assert all(t1 - t0 > 0.5 for r in default for _, _, t0, t1 in r.rects)                      # 0.1m 자투리 없음
+    total = sum((s1 - s0) * (t1 - t0) for r in fl.rooms for s0, s1, t0, t1 in r.rects)
+    assert total == pytest.approx(198 * 18)
+    StationCADEngine(cfg)                                                                            # 모델 생성 성공
+
+
+def test_room_preview_shows_snap_note():
+    from gui.room_draft import RoomDraft, preview
+    d = RoomDraft(floor=2, use="공조실", sta0="0", sta1="52", t0="-10", t1="10", boundary="구획분리", sep_t="0.5")
+    text = preview(d, 0.0, 3, clear=(250, 20.2), partition_t=0.2)
+    assert "내공면에 붙임" in text and "t0 -10→-10.1" in text and "t1 10→10.1" in text and "1050.4" in text
+    assert "내공면" not in preview(d, 0.0, 3)                                                       # clear 없으면 알림 없음

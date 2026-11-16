@@ -14,7 +14,7 @@ from openings.opening_check import check_openings
 from passages.passage_check import check_passage_layouts, layout_passages
 from platforms.platform_params import PlatformParameters
 from rooms.room_check import check_room_layouts, layout_rooms
-from rooms.room_spec import RoomSettings
+from rooms.room_spec import RoomSettings, snap_rooms_to_clear
 from stairs.stair_check import check_stair_layouts, layout_stairs
 from ventilations.vent_check import check_vent_layouts, layout_vents
 
@@ -67,6 +67,8 @@ class StationProjectConfig:
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
         check_elevator_layouts(self, evs, stairs, escs)
+        # 실 경계가 내공면에서 경계 벽 두께 이내면 내공면에 붙임 (입력 정규화: 이후 엔진·도면·마감은 붙인 값을 씀)
+        self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings)
         check_room_layouts(self, layout_rooms(self), all_ops, stairs, escs, evs)
         check_finishes(self)
         passages = layout_passages(self)

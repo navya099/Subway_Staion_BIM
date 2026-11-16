@@ -326,5 +326,9 @@ class RoomTab:
     def refresh_info(self):
         start = self._start_station()
         n = max(1, self.floor_count)
+        try:
+            clear = (float(self.entries["length"].get()), float(self.entries["width"].get()))
+        except (KeyError, ValueError, AttributeError):
+            clear = None
         for var, it in self._info_vars:
-            var.set(preview(it, start, n))
+            var.set(preview(it, start, n, clear, self.drafts.settings.partition_t))

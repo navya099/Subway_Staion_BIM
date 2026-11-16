@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 
 from gui.column_draft import _num, level_name
-from rooms.room_spec import DOOR_KINDS, PARTITION, SEPARATION, DoorSpec, RoomSettings, RoomSpec
+from rooms.room_spec import DOOR_KINDS, PARTITION, SEPARATION, DoorSpec, RoomSettings, RoomSpec, snap_to_clear
 
 _SET = RoomSettings()
 
@@ -112,15 +112,27 @@ class RoomDrafts:
         return f"실 {i + 1}" + (f"({it.name.strip()})" if it.name.strip() else f"({it.use})")
 
 
-def preview(it: RoomDraft, start_station: float, floor_count: int) -> str:
-    """입력 중 미리보기: 층·용도, 크기·면적 (칸막이벽 중심선 기준)"""
+def preview(it: RoomDraft, start_station: float, floor_count: int, clear=None, partition_t: float = 0.2) -> str:
+    """입력 중 미리보기: 층·용도, 크기·면적 (칸막이벽 중심선 기준).
+    clear = (내공 길이, 내공 폭): 주면 내공면에 붙는 경계를 붙인 값으로 보여 주고 알림"""
     try:
         sp = it.to_spec("", start_station)
     except ValueError:
         return "→ 입력값을 확인하세요"
+    note = ""
+    if clear is not None and sp.s0 < sp.s1 and sp.t0 < sp.t1:
+        try:
+            snapped = snap_to_clear(sp, clear[0], clear[1] / 2.0, RoomSettings(partition_t=float(partition_t)))
+        except (TypeError, ValueError):
+            snapped = sp
+        if snapped is not sp:
+            moved = [f"{lab} {a:g}→{b:g}" for lab, a, b in (("s0", sp.s0, snapped.s0), ("s1", sp.s1, snapped.s1),
+                                                           ("t0", sp.t0, snapped.t0), ("t1", sp.t1, snapped.t1)) if a != b]
+            note = "\n   (내공면에 붙임: " + ", ".join(moved) + ")"
+            sp = snapped
     ds, dt = sp.s1 - sp.s0, sp.t1 - sp.t0
     if ds <= 0 or dt <= 0:
         return "→ 시작 < 끝 이어야 합니다"
     edge = "칸막이벽" if sp.boundary == PARTITION else ("구획분리 가상 경계선" if sp.sep_t == 0 else f"구획분리 벽 {sp.sep_t:g}m")
     doors = f", 문 {len(sp.doors)}개" if sp.doors else ""
-    return f"→ {level_name(floor_count, sp.floor)} {sp.use}: {ds:g} x {dt:g} m = {sp.area:.1f} m² (경계: {edge}, 중심선 기준){doors}"
+    return f"→ {level_name(floor_count, sp.floor)} {sp.use}: {ds:g} x {dt:g} m = {sp.area:.1f} m² (경계: {edge}, 중심선 기준){doors}{note}"

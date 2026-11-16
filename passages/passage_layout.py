@@ -71,14 +71,40 @@ def _haunch_bottom(v_face, into, hw, hh):
     return [(v_face, 0.0), (v_face + into * hw, 0.0), (v_face, hh)]
 
 
+def lower_ledge(station, floor_n: int) -> float:
+    """아래층 외벽이 그 층보다 두꺼워 바깥으로 나온 턱의 폭 (m, 없으면 0).
+    아래층 벽 상단 = 그 층 FL 이라, 접합부에서 나가는 통로·덕트의 바닥 슬래브(FL − 바닥 두께 ~ FL)와 이 폭만큼 겹친다"""
+    if floor_n <= 1:
+        return 0.0
+    return max(0.0, station.wall_t_at(floor_n - 1) - station.wall_t_at(floor_n))
+
+
+def _auto_side(cfg, spec, name: str, what: str) -> int:
+    """첫 꼭짓점 t 를 비웠을 때 붙을 측벽: 두 번째 꼭짓점이 선형 중심의 어느 쪽인가"""
+    if len(spec.path) < 2:
+        raise ValueError(f"{what} {name}: 첫 꼭짓점 t 를 비우려면 두 번째 꼭짓점이 있어야 합니다")
+    v = spec.path[1]
+    t = v.y if v.mode == STATION else cfg.to_station(v.x, v.y)[1]
+    if t is None or abs(t) < 1e-9:
+        raise ValueError(f"{what} {name}: 첫 꼭짓점 t 를 비우면 두 번째 꼭짓점의 t 부호로 측벽을 정합니다 "
+                         "(두 번째 꼭짓점 t 가 0 이 아니어야 함)")
+    return 1 if t > 0 else -1
+
+
 def resolve_vertices(cfg, spec, name: str, what: str = "출구통로") -> tuple[list, int, float]:
-    """꼭짓점을 세계 좌표·절대 표고로 해석하고 접합부 조건 검사. (꼭짓점, side, 접합부 FL 표고). what = 오류 문구의 구조물 이름"""
+    """꼭짓점을 세계 좌표·절대 표고로 해석하고 접합부 조건 검사. (꼭짓점, side, 접합부 FL 표고). what = 오류 문구의 구조물 이름.
+    첫 꼭짓점(선형 상대)의 t 가 None 이면 그 층 외벽 바깥면(측벽은 두 번째 꼭짓점 t 의 부호)에 붙인다"""
     st = cfg.station
     k = spec.floor
+    t_face = st.width / 2.0 + st.wall_t_at(k)
     raw = []
     for i, v in enumerate(spec.path, start=1):
         if v.mode == STATION:
             s, t = v.x, v.y
+            if t is None:
+                if i > 1:
+                    raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 t 를 입력하세요 (비울 수 있는 것은 첫 꼭짓점뿐)")
+                t = _auto_side(cfg, spec, name, what) * t_face
             x, y = cfg.to_world(s, t)
         elif v.mode == WORLD:
             x, y = v.x, v.y
@@ -87,7 +113,6 @@ def resolve_vertices(cfg, spec, name: str, what: str = "출구통로") -> tuple[
             raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 좌표 방식이 올바르지 않습니다 ({v.mode!r})")
         raw.append((x, y, s, t))
     x0, y0, s0, t0 = raw[0]
-    t_face = st.width / 2.0 + st.wall_t_at(k)
     if abs(abs(t0) - t_face) > 1e-3:
         raise ValueError(f"{what} {name}: 첫 꼭짓점(t = {t0:.3f})이 {st.level_name(k)} 외벽 바깥면(t = ±{t_face:g})에 있지 않습니다")
     side = 1 if t0 > 0 else -1
@@ -159,6 +184,9 @@ def layout_passage(cfg, spec, name: str) -> PassageLayout:
         sections += [(PassagePartKind.FLOOR, "FLOOR", _haunch_bottom(-a, 1, bh_w, bh_h)),
                      (PassagePartKind.FLOOR, "FLOOR", _haunch_bottom(a, -1, bh_w, bh_h))]
 
+    ledge = lower_ledge(st, k)            # 아래층 벽 턱 위는 바닥 슬래브를 빼고 벽 상단이 바닥 (겹침 제거)
+    if ledge > 0 and segs[0][2] <= ledge + b * abs(math.tan(turns[1] / 2.0)) + 1e-6:
+        raise ValueError(f"출구통로 {name}: 첫 구간({segs[0][2]:.3f}m)이 아래층 외벽 턱({ledge:g}m)에 비해 너무 짧습니다")
     elements: dict = {}
     run = 1
     for i, (ux, uy, L) in enumerate(segs):
@@ -171,8 +199,9 @@ def layout_passage(cfg, spec, name: str) -> PassageLayout:
         p, q = vs[i], vs[i + 1]
         slope = (q.z - p.z) / L
         for kind, code, sect in sections:
-            piece = BoxPiece(ox=p.x, oy=p.y, ux=ux, uy=uy, a0=0.0, a1=L, sect=sect, z0=p.z, slope=slope,
-                             ks=tp, ke=-tn, local={"seg": i, "run": run})
+            lo = ledge if (i == 0 and kind == PassagePartKind.FLOOR and sect[0][1] < 0.0) else 0.0   # 바닥 슬래브만 (헌치는 FL 위)
+            piece = BoxPiece(ox=p.x, oy=p.y, ux=ux, uy=uy, a0=lo, a1=L, sect=sect, z0=p.z + slope * lo, slope=slope,
+                             ks=tp if lo == 0.0 else 0.0, ke=-tn, local={"seg": i, "run": run})
             key = f"S{run}_{code}"
             elements.setdefault(key, PassageElementLayout(key, run, kind, [])).pieces.append(piece)
 

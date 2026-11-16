@@ -16,7 +16,7 @@ import math
 from dataclasses import dataclass, field
 
 from helper.box_piece import BoxPiece
-from passages.passage_layout import resolve_vertices
+from passages.passage_layout import lower_ledge, resolve_vertices
 from ventilations.vent_type import VentPartKind
 
 _COLLINEAR = 1e-6
@@ -159,6 +159,9 @@ def layout_vent(cfg, spec, name: str) -> VentLayout:
             haunches += [[(c0, H - hh), (c0, H), (c0 + hw, H)], [(c1, H - hh), (c1 - hw, H), (c1, H)]]
     last_is_shaft = segs[-1][0] == "V"
 
+    ledge = lower_ledge(st, k)            # 아래층 벽 턱 위는 첫 덕트 바닥 슬래브를 빼고 벽 상단이 바닥 (겹침 제거)
+    if ledge > 0 and segs[0][3] <= ledge + 1e-6:
+        raise ValueError(f"환기구 {name}: 첫 구간({segs[0][3]:.3f}m)이 아래층 외벽 턱({ledge:g}m)에 비해 너무 짧습니다")
     elements: dict = {}
 
     def add(code, kind, piece):
@@ -195,15 +198,15 @@ def layout_vent(cfg, spec, name: str) -> VentLayout:
                             ks=tp if (first_ks and abs(lo - a0) < _EPS) else 0.0,
                             ke=-tn if (last_ke and abs(hi - a1) < _EPS) else 0.0, local={"seg": i, "run": run})
 
-        def strips(kind, code, d0, d1, hole):
-            """슬래브: 구멍 구간 밖은 전체 폭, 구멍 구간에서는 벽 위 띠만"""
-            for lo, hi in _subtract(a0, a1, hole):
+        def strips(kind, code, d0, d1, hole, start=a0):
+            """슬래브: 구멍 구간 밖은 전체 폭, 구멍 구간에서는 벽 위 띠만. start = 슬래브 시작 (아래층 벽 턱이면 뒤로)"""
+            for lo, hi in _subtract(start, a1, hole):
                 add(code, kind, piece(lo, hi, _rect(-b, b, d0, d1)))
             for lo, hi in hole:
                 for v0, v1 in solid:
                     add(code, kind, piece(lo, hi, _rect(v0, v1, d0, d1)))
 
-        strips(VentPartKind.FLOOR, f"{dcode}_FLOOR", -ft, 0.0, floor_hole)
+        strips(VentPartKind.FLOOR, f"{dcode}_FLOOR", -ft, 0.0, floor_hole, ledge if i == 0 else a0)
         strips(VentPartKind.ROOF, f"{dcode}_ROOF", H, H + rt, roof_hole)
         add(f"{dcode}_WALL_L", VentPartKind.WALL, piece(a0, a1, _rect(a, b, 0.0, H)))      # L = 진행방향 왼쪽(+v)
         add(f"{dcode}_WALL_R", VentPartKind.WALL, piece(a0, a1, _rect(-b, -a, 0.0, H)))

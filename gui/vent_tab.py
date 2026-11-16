@@ -36,7 +36,7 @@ class VentTab:
         tk.Label(self.parent, text="[ 환기구 ]", font=("Malgun Gothic", 10, "bold"),
                  fg="#00695C").pack(anchor="w", padx=15, pady=(12, 2))
         tk.Label(self.parent, justify="left", fg="#555555", font=("Malgun Gothic", 8), wraplength=430,
-                 text="• 경로는 출구통로와 같음 (첫 꼭짓점 = 측벽 바깥면, 첫 구간 직각, 첫 높이는 비우면 FL)\n"
+                 text="• 경로는 출구통로와 같음 (첫 꼭짓점 = 측벽 바깥면(t 비우면 자동), 첫 구간 직각, 첫 높이는 비우면 FL)\n"
                       "• 같은 평면 위치에 높이만 다른 꼭짓점을 이어 넣으면 수직구 (위로만, 앞뒤 덕트는 수평)\n"
                       "• 수직구 위로 이어지는 덕트는 아래 덕트와 같은 선(같은/반대 방향)\n"
                       "• 단면 = n련 연속박스, 경로 마지막 끝면에 칸마다 금속 그릴").pack(anchor="w", padx=15)

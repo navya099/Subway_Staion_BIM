@@ -166,6 +166,26 @@ def test_volume_formula_mesh_and_ifc_agree(tmp_path, pts, curved):
         assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=1e-6), e.name
 
 
+@pytest.mark.parametrize("pts", [SHAFT_END, DUCT_END])
+def test_thicker_lower_wall_trims_first_duct_floor(tmp_path, pts):
+    """아래층 외벽이 더 두꺼우면 첫 덕트 바닥 슬래브는 턱 뒤부터 (첫 꼭짓점 t 비움 = 외벽 바깥면 자동)"""
+    cfg = make_cfg(user_example())
+    cfg.station.wall_ts = [1.0, 1.25, 1.0]
+    cfg.vents = [vent([(50, None, None)] + pts[1:])]
+    eng = StationCADEngine(cfg)
+    vt = the_vent(eng)
+    assert vt.vertices[0].t == pytest.approx(10.0)
+    floor = next(e for e in vt.elements if e.name.endswith("D1_FLOOR"))
+    assert min(q.a0 for q in floor.pieces) == pytest.approx(0.25)
+    L = 20.0 + (0.0 if pts is DUCT_END else cfg.vents[0].depth / 2.0)
+    assert floor.volume == pytest.approx((L - 0.25) * 2 * cfg.vents[0].half_out * cfg.vents[0].floor_t)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "v.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for e in vt.elements + vt.grills:
+        assert sum(PM.mesh_volume(p.faces()) for p in e.pieces) == pytest.approx(e.volume, rel=1e-7), e.name
+        assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=1e-6), e.name
+
+
 def test_ifc_structure(tmp_path):
     eng = eng_with(vent(SHAFT_END))
     f = ifcopenshell.open(eng.generate_ifc(tmp_path / "v.ifc"))

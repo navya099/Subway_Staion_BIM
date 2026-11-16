@@ -57,7 +57,10 @@ class PassageDraft:
         for j, v in enumerate(self.vertices, start=1):
             w = f"{where} 꼭짓점 {j}"
             x = _num(v.x, w, cols[0])
-            y = _num(v.y, w, cols[1])
+            if j == 1 and mode == STATION and not str(v.y).strip():
+                y = None                                   # 비우면 외벽 바깥면에 붙임 (resolve_vertices)
+            else:
+                y = _num(v.y, w, cols[1])
             z = None if j == 1 and not str(v.z).strip() else _num(v.z, w, cols[2])
             path.append(PathVertex(mode, x - start_station if mode == STATION else x, y, z))
         pos = lambda attr, label: _num(getattr(self, attr), where, label, positive=True)
@@ -108,8 +111,9 @@ def preview(it: PassageDraft, start_station: float) -> str:
     except ValueError:
         return "→ 입력값을 확인하세요"
     pts = [(v.x, v.y) for v in sp.path]
-    length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
-    text = f"→ 꼭짓점 {len(pts)}개, 평면 길이 약 {length:.2f}m"
+    auto = bool(pts) and pts[0][1] is None
+    length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]) if a[1] is not None)
+    text = f"→ 꼭짓점 {len(pts)}개, 평면 길이 약 {length:.2f}m" + (" (첫 구간 제외)\n   첫 꼭짓점 t = 외벽 바깥면 (자동)" if auto else "")
     if sp.path and sp.path[0].mode == STATION:
         sta = sp.path[0].x + start_station
         text += f"\n   측벽 오프닝 STA {sta - sp.half_in:.2f} ~ {sta + sp.half_in:.2f} (폭 {sp.inner_width:g} x 높이 {sp.inner_height:g})"

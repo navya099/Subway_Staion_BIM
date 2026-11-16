@@ -23,11 +23,18 @@ from test_patch import make_cfg, user_example
 # user_example: 3개 층 각 6m (중간 슬래브 0.4, 천장 0.4), 내공 198 x 18, 승강장 t ±3.9 ~ ±9 (상면 1.3), 기둥 t=0 열
 
 
+def flush_table():
+    """이격 없는 마감표 (벽 마감 0.05 를 구조체 면에 바로 붙임) — 이격 도입 전 기하를 검사하는 테스트용"""
+    import dataclasses
+    return {k: (dataclasses.replace(v, wall_t=0.05, wall_face=None) if v.wall_face is not None else v)
+            for k, v in default_finishes().items()}
+
+
 def cfg_with(*rooms, curved=False, table=None, default_uses=None, **extra):
     cfg = curved_cfg(columns=NO_COLS()) if curved else make_cfg(NO_COLS() if extra.pop("no_cols", False) else user_example())
     cfg.rooms = list(rooms)
     cfg.room_settings = RoomSettings(default_uses=default_uses or {})
-    cfg.finish_settings = FinishSettings(enabled=True, table=table or default_finishes())
+    cfg.finish_settings = FinishSettings(enabled=True, table=table or flush_table())
     for k, v in extra.items():
         setattr(cfg, k, v)
     return cfg
@@ -76,7 +83,7 @@ def test_platform_floor_finish_only_on_platform():
     assert plat.ceiling_rel == pytest.approx(1.3 + 0.1 + 3.0)
     # 천장·천장틀도 승강장 위만 (선로 구간 t ±3.9 안쪽에는 천장 마감 없음)
     ceil = plat.element("CEILING").pieces
-    assert rect_area(ceil) == pytest.approx(2 * (9 - 3.9) * 198)
+    assert rect_area(ceil) == pytest.approx(2 * (9 - 3.9 - 0.05) * (198 - 0.1))   # 측벽·단부 벽 마감 표면(0.05)에서 끝남
     assert all(abs(p.pos_y) - p.shape.width / 2 >= 3.9 - 1e-9 for p in ceil + plat.element("FRAME").pieces)
 
 
@@ -148,14 +155,14 @@ def test_ceiling_board_and_frame_grid():
     off = fin(eng, "OFF")
     assert off.ceiling_rel == pytest.approx(6.0 + 0.1 + 2.7)
     board = off.element("CEILING")
-    assert rect_area(board.pieces) == pytest.approx(19.8 * 6.9)
+    assert rect_area(board.pieces) == pytest.approx(19.7 * 6.8)          # 칸막이벽 반두께 + 벽 마감 표면(0.05)까지 뺌
     ft = default_finishes()["역무실"]
     frame = off.element("FRAME").pieces
     bars = [p for p in frame if p.shape.width > 1]               # t 방향 바 (M바): s 0.6 격자
     carriers = [p for p in frame if p.shape.length > 1]
     s_pos = sorted(round(p.pos_x, 6) for p in bars)
     assert s_pos[0] == pytest.approx(10.2) and all(abs(b - a - 0.6) < 1e-6 for a, b in zip(s_pos, s_pos[1:]))
-    assert len(carriers) == len([t for t in [k * 0.9 for k in range(-20, 20)] if 2.1 < t < 9.0])
+    assert len(carriers) == len([t for t in [k * 0.9 for k in range(-20, 20)] if 2.15 < t < 8.95])
     z_bar = PM.z_off(eng.cfg, bars[0])
     assert z_bar == pytest.approx(off.ceiling_rel + ft.board_t)
 
@@ -254,3 +261,103 @@ def test_finish_drafts():
     bad.items = [FinishTypeDraft(name=" ")]
     with pytest.raises(ValueError, match="마감 종류 이름을 입력"):
         bad.to_settings()
+
+
+
+# ===================================================== 벽 마감 이격 (구조체 면 → 마감 표면)
+GAP_FACE, GAP_T = 0.15, 0.0016          # 기본 금속패널 (실무 상세 WB-14)
+
+
+def gap_cfg(*rooms, **kw):
+    return cfg_with(*rooms, table=default_finishes(), **kw)
+
+
+def test_default_panel_face_and_validation():
+    t = default_finishes()
+    assert t["대합실"].face == GAP_FACE and t["대합실"].wall_t == GAP_T and t["대합실"].wall_gap == pytest.approx(0.1484)
+    assert t["화장실"].face == t["화장실"].wall_t == 0.03 and t["공조실"].face == 0.0          # 타일·면처리는 이격 없음
+    assert FinishType("x").face == 0.05                                                         # 비우면 이격 없음
+    bad = dict(default_finishes(), 대합실=FinishType("대합실", wall_t=0.05, wall_face=0.03))
+    with pytest.raises(ValueError, match="마감면 거리"):
+        StationCADEngine(cfg_with(table=bad))
+
+
+def test_wall_finish_offset_on_station_wall_and_corners():
+    eng = StationCADEngine(gap_cfg(no_cols=True))
+    hall = fin(eng, "B2F_대합실")
+    walls = hall.element("WALL").pieces
+    left = [p for p in walls if p.shape.length > 100]                      # 왼쪽(+t)·오른쪽 측벽 마감
+    for p in left:
+        y0, y1 = p.pos_y - p.shape.width / 2, p.pos_y + p.shape.width / 2
+        assert abs(y1) == pytest.approx(9 - 0.1484) or abs(y0) == pytest.approx(9 - 0.1484)
+        assert p.shape.width == pytest.approx(GAP_T)
+        s0, s1 = PM.s_range(p)
+        assert s0 == pytest.approx(0.1484) and s1 == pytest.approx(198 - 0.1484)   # 단부 벽 이격 공간에는 안 들어감
+    ends = [p for p in walls if p.shape.length < 1]                        # 단부 벽 마감 (t 방향)
+    assert ends and all(min(PM.s_range(p)) == pytest.approx(0.1484) or max(PM.s_range(p)) == pytest.approx(198 - 0.1484)
+                        for p in ends)
+    # 모서리: 단부 마감은 측벽 마감 표면까지 (겹침·빈틈 없음)
+    for p in ends:
+        assert p.shape.width == pytest.approx(18 - 2 * 0.15)
+    # 천장판은 마감 표면에서 끝남, 바닥은 구조체 면까지
+    assert rect_area(hall.element("CEILING").pieces) == pytest.approx((198 - 0.3) * (18 - 0.3))
+    assert rect_area(hall.element("FLOOR").pieces) == pytest.approx(198 * 18)
+
+
+def test_wall_finish_offset_on_partition_and_column_rings():
+    room = RoomSpec(2, "역무실", 10, 30, 2, 9, name="OFF")
+    eng = StationCADEngine(gap_cfg(room))
+    off = fin(eng, "OFF")
+    t_low = [p for p in off.element("WALL").pieces if p.shape.length > 10 and p.pos_y < 5]     # t=2 칸막이벽 면
+    assert t_low and all(p.pos_y - p.shape.width / 2 == pytest.approx(2 + 0.1 + 0.1484) for p in t_low)
+    # B2F 원기둥(φ1.0) 둘레: 반지름 0.5 + 이격에 외접하는 16각형
+    hall = fin(eng, "B2F_대합실")
+    import math
+    ring = hall.element("COLUMN").boxes[:16]
+    r = 0.5 + 0.1484
+    side = 2 * r * math.tan(math.pi / 16)
+    assert sum(b.volume for b in ring) == pytest.approx(16 * GAP_T * (side + math.tan(math.pi / 16) * GAP_T) * 3.0, rel=1e-9)
+
+
+@pytest.mark.parametrize("curved", [False, True])
+def test_wall_finish_offset_volumes_mesh_and_ifc(tmp_path, curved):
+    rooms = [RoomSpec(2, "역무실", 10, 30, 2, 9, name="OFF", doors=[DoorSpec("-t", 20.0)])]
+    eng = StationCADEngine(gap_cfg(*rooms, curved=curved))
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "f.ifc"))
+    by = {e.Name: e for e in f.by_type("IfcProduct") if e.Name}
+    tol = 1e-4 if curved else 1e-7
+    for e in eng.finishes.all_elements():
+        if e.code not in ("WALL", "COLUMN", "CEILING"):
+            continue
+        quads = [q for p in e.pieces for q in PM.sweep_quads(PM.rings(eng.cfg, p))]
+        if curved:
+            quads = [t for q in quads for t in _fan(q)]
+        mesh = PM.mesh_volume(quads) + sum(PM.mesh_volume(b.faces()) for b in e.boxes)
+        assert mesh == pytest.approx(e.volume, rel=tol), e.name
+        assert ifc_world_volume(by[e.name]) == pytest.approx(e.volume, rel=tol), e.name
+    off = next(s for s in f.by_type("IfcSpace") if s.Name == "OFF")
+    pset = ifcopenshell.util.element.get_psets(off)["SSBIM_SpaceFinish"]
+    assert pset["WallFinishFace"] == pytest.approx(GAP_FACE) and pset["WallFinishGap"] == pytest.approx(0.1484)
+
+
+def test_wall_face_drafts_round_trip_and_old_project():
+    from gui.finish_draft import FinishTypeDraft, preview
+    from gui.project_file import ProjectState
+    d = FinishTypeDraft.from_type(default_finishes()["대합실"])
+    assert d.wall_face == "0.15" and d.wall_t == "0.0016"
+    ft = d.to_type("x")
+    assert ft.face == 0.15 and ft.wall_gap == pytest.approx(0.1484)
+    assert "구조면→표면 0.15" in preview(d) and "이격 0.1484" in preview(d)
+    d.wall_face = ""
+    assert d.to_type("x").wall_face is None and d.to_type("x").wall_gap == 0                 # 비우면 이격 없음
+    d.wall_face = "0.001"
+    with pytest.raises(ValueError, match="마감면 거리"):
+        d.to_type("x")
+    # 옛 프로젝트 파일(마감면 거리 칸 없음)은 이격 없이 열림
+    st = ProjectState()
+    raw = st.to_dict()
+    for x in raw["finish_drafts"]:
+        x.pop("wall_face", None)
+    back = ProjectState.from_dict(raw)
+    assert all(x.wall_face == "" for x in back.finish_drafts)
+    assert ProjectState.from_dict(st.to_dict()).finish_drafts[0].wall_face == "0.15"

@@ -12,6 +12,12 @@ def check_finish_type(ft: FinishType):
     for label, v in (("바닥 마감 높이", ft.ffl), ("바닥 마감재 두께", ft.floor_t), ("벽 마감 두께", ft.wall_t)):
         if not v >= 0:
             raise ValueError(f"{w}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    if ft.wall_face is not None:
+        if not ft.wall_face >= 0:
+            raise ValueError(f"{w}: 벽 마감면 거리는 0 이상이어야 합니다 ({ft.wall_face})")
+        if ft.wall_face < ft.wall_t - _EPS:
+            raise ValueError(f"{w}: 벽 마감면 거리({ft.wall_face:g})가 마감재 두께({ft.wall_t:g})보다 작습니다 "
+                             "(구조체 면 → 마감 표면 거리 ≥ 마감재 두께)")
     if ft.floor_t > ft.ffl + _EPS:
         raise ValueError(f"{w}: 바닥 마감재 두께({ft.floor_t:g})가 마감 높이({ft.ffl:g})보다 큽니다")
     if ft.ffl > 0 and not ft.floor_t > 0:

@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.finish_draft import FILL_LABELS, FRAME_LABELS, NUM_FIELDS, TEXT_FIELDS, FinishDrafts, FinishTypeDraft, preview
+from gui.finish_draft import FACE_FIELD, FILL_LABELS, FRAME_LABELS, NUM_FIELDS, TEXT_FIELDS, FinishDrafts, FinishTypeDraft, preview
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -116,7 +116,8 @@ class FinishTab:
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(3, 0))
-        cells = [(a, lb, ENTRY_W) for a, lb, _ in NUM_FIELDS[:3]] + [(a, lb, 12) for a, lb in TEXT_FIELDS[:2]]
+        cells = ([(a, lb, ENTRY_W) for a, lb, _ in NUM_FIELDS[:3]] + [(FACE_FIELD[0], FACE_FIELD[1], ENTRY_W)]
+                 + [(a, lb, 12) for a, lb in TEXT_FIELDS[:2]])
         for n, (attr, label, w) in enumerate(cells):
             r, col = divmod(n, 3)
             tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")

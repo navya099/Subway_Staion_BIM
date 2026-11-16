@@ -43,6 +43,7 @@ class EscalatorDraft:
     step_depth: str = f"{_SPEC.step_depth:g}"
     handrail_height: str = f"{_SPEC.handrail_height:g}"
     headroom: str = f"{_SPEC.headroom:g}"
+    side_clear: str = f"{_SPEC.side_clear:g}"      # 자동 오프닝 옆 여유 (양쪽)
 
     def to_spec(self, where: str, start_station: float) -> EscalatorSpec:
         if self.direction not in _DIR:
@@ -64,6 +65,7 @@ class EscalatorDraft:
             step_depth=num("step_depth", "스텝 깊이"),
             handrail_height=num("handrail_height", "핸드레일 높이"),
             headroom=num("headroom", "머리 높이"),
+            side_clear=_num(self.side_clear, where, "오프닝 옆 여유", nonneg=True),
             name=self.name.strip())
 
 

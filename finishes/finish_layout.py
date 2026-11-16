@@ -12,7 +12,7 @@
   높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리는 비움.
   모서리: s 방향 조각을 그대로 두고 t 방향 조각에서 s 방향 조각을 뺌. 벽·기둥·승강로 평면과 겹치는 부분은 뺌
 - 기둥 둘레(실 안 기둥), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움): 같은 두께·같은 이격의 고리
-- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝)
+- 천장: 천장판 하면 = base + ffl + ceiling_h. 영역 = 실 영역 ∩ 기준 바닥(최하층은 승강장 위만, 선로 구간 천장 없음) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝 — 위층 에스컬레이터 하부 피트는 제외)
   − 벽·사각 기둥·승강로 마감 표면 안쪽 (바닥은 구조체 면까지, 천장은 벽 마감 표면까지 — 실무 상세 WB-14).
   천장틀 바(M/T, t 방향)를 s 의 bar_spacing 격자에, 캐링 채널(s 방향)을 t 의 carrier_spacing 격자에 (원점 기준 격자)
 """
@@ -50,6 +50,39 @@ class RoomFinishLayout:
 def _inter(a, b):
     r = (max(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), min(a[3], b[3]))
     return r if r[1] - r[0] > _EPS and r[3] - r[2] > _EPS else None
+
+
+def ceiling_bottom_under(cfg, floor: int, rect) -> float:
+    """층 floor 에서 rect(s0, s1, t0, t1) 와 겹치는 실 중 천장 마감이 있는 실의 가장 낮은 천장판 하면 (본체 FL 기준).
+    마감을 끄거나 천장이 없으면 None. 계단·에스컬레이터 자동 오프닝의 머리 높이 기준 — 아래층 천장이 위 슬래브 하면보다
+    낮으면 그 높이로 재서 오프닝을 키운다 (천장판·천장틀이 오르내리는 사람 머리에 걸리지 않게)"""
+    fs = getattr(cfg, "finish_settings", None)
+    if fs is None or not fs.enabled:
+        return None
+    from rooms.room_check import layout_rooms
+    from rooms.room_layout import resolve_room_names
+    try:
+        floors = layout_rooms(cfg)
+        specs = dict(zip(resolve_room_names(cfg, cfg.rooms), cfg.rooms))
+    except ValueError:
+        return None                                        # 실 입력 오류는 실 검사가 알림
+    if not 1 <= floor <= len(floors):
+        return None
+    st, pl = cfg.station, cfg.platform
+    ref = pl.top_level if (floor == 1 and pl.exists) else st.floor_level(floor)
+    low = None
+    for room in floors[floor - 1].rooms:
+        if not any(_inter(tuple(r), tuple(rect)) for r in room.rects):
+            continue
+        sp = specs.get(room.name)
+        try:
+            ft = fs.for_room(room.use, getattr(sp, "finish", "") if sp else "")
+        except ValueError:
+            continue
+        if ft.ceiling:
+            c = ref + ft.ffl + ft.ceiling_h
+            low = c if low is None else min(low, c)
+    return low
 
 
 def _minus(rects, holes):
@@ -148,6 +181,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
     L, hw = st.length, st.width / 2.0
     clear = (0.0, L, -hw, hw)
     wall_ops = cfg.wall_openings()
+    pit_names = {lay.pit_opening.name for lay in escalators if getattr(lay, "pit_opening", None) is not None}
     out = []
     for fl in floors:
         n = fl.floor
@@ -161,7 +195,8 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         ev_rects = [ev.outer_rect() for ev in evs]
         stair_fp = [(*x.s_range, *x.t_range) for x in list(stairs) + list(escalators) if x.lower_floor == n]
         below = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
-        above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs]
+        # 위 슬래브 오프닝만큼 천장을 뺌. 단 위층 에스컬레이터 하부 피트(슬래브 두께 안에서 트러스가 막음)는 아래층 천장을 뚫지 않음
+        above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs and o.name not in pit_names]
         lines = {}                                           # (축, 좌표) → [(접선 lo, hi, 반두께)] 칸막이벽·구획분리 벽
         for pw in fl.partitions:
             for s0, s1, t0, t1, *_ in pw.pieces:

@@ -26,6 +26,8 @@ def check_escalator_spec(station, spec, name: str):
                      ("핸드레일 높이", spec.handrail_height), ("머리 높이", spec.headroom)):
         if not v > 0:
             raise ValueError(f"에스컬레이터 {name}: {label}은(는) 0보다 커야 합니다 ({v})")
+    if not spec.side_clear >= 0:
+        raise ValueError(f"에스컬레이터 {name}: 오프닝 옆 여유는 0 이상이어야 합니다 ({spec.side_clear})")
     for label, v in (("하부 평탄 스텝 수", spec.lower_flat_steps), ("상부 평탄 스텝 수", spec.upper_flat_steps)):
         if not isinstance(v, int) or isinstance(v, bool) or v < 0:
             raise ValueError(f"에스컬레이터 {name}: {label}은(는) 0 이상의 정수여야 합니다 ({v!r})")

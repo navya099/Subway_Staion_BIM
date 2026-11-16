@@ -361,3 +361,100 @@ def test_wall_face_drafts_round_trip_and_old_project():
     back = ProjectState.from_dict(raw)
     assert all(x.wall_face == "" for x in back.finish_drafts)
     assert ProjectState.from_dict(st.to_dict()).finish_drafts[0].wall_face == "0.15"
+
+
+# ===================================================== 계단·ESC 오프닝: 아래층 천장 마감 기준 머리 높이 + 옆 여유
+from escalators.escalator_spec import EscalatorSpec
+from stairs.stair_spec import StairSpec
+
+
+def _open(eng, name):
+    return next(o for o in eng.cfg.all_openings() if o.name == name)
+
+
+def _surfaces(eng, name):
+    lay = next(x for x in eng.cfg.stair_layouts() if x.name == name)
+    return lay, [(ua, ub, zt) for p in lay.parts for ua, ub, zt in p.surfaces]
+
+
+def test_stair_opening_uses_lower_floor_ceiling_for_headroom():
+    """B2F→B1F 계단: 대합실 천장판 하면(FL+0.1+3.0) 이 슬래브 하면(FL+5.6) 보다 낮아 오프닝이 길어짐.
+    오프닝 밖 걷는 면은 천장판까지 머리 높이 2.1 이상, 오프닝 시작 면은 부족"""
+    sp = StairSpec(lower_floor=2, s_start=60.0, direction=1, t_center=-6.0, width=2.0, name="ST")
+    flat = StationCADEngine(cfg_with(no_cols=True, stairs=[sp], table=flush_table()))
+    off_cfg = cfg_with(no_cols=True, stairs=[sp])
+    off_cfg.finish_settings.enabled = False
+    plain = StationCADEngine(off_cfg)
+    o_fin, o_off = _open(flat, "ST"), _open(plain, "ST")
+    assert o_fin.length > o_off.length + 1.0 and o_fin.s_end == pytest.approx(o_off.s_end)
+    cfg, st = flat.cfg, flat.cfg.station
+    ceil = st.floor_level(2) + 0.1 + 3.0
+    lay, surfs = _surfaces(flat, "ST")
+    for ua, ub, zt in surfs:
+        s_mid = 60.0 + (ua + ub) / 2.0
+        head = min(cfg.lv(60.0 + ua), cfg.lv(60.0 + ub)) - st.offset + ceil - zt
+        if 60.0 + ub <= o_fin.s_start + 1e-9:
+            assert head >= 2.1 - 1e-9, s_mid                          # 오프닝 밖: 천장판까지 머리 높이 확보
+    first = min((ua for ua, ub, zt in surfs if 60.0 + ua >= o_fin.s_start - 1e-9))
+    assert 60.0 + first == pytest.approx(o_fin.s_start)
+    # 천장판·천장틀은 오프닝 자리에 없음 (위 슬래브 오프닝을 뺌)
+    hall = fin(flat, "B2F_대합실")
+    for p in hall.element("CEILING").pieces + hall.element("FRAME").pieces:
+        s0, s1 = PM.s_range(p)
+        t0, t1 = p.pos_y - p.shape.width / 2, p.pos_y + p.shape.width / 2
+        assert not (s0 < o_fin.s_end - 1e-6 and s1 > o_fin.s_start + 1e-6 and t0 < -5 - 1e-6 and t1 > -7 + 1e-6)
+
+
+def test_no_ceiling_room_keeps_slab_basis_and_side_clear():
+    sp = StairSpec(lower_floor=2, s_start=60.0, direction=1, t_center=-6.0, width=2.0, name="ST", side_clear=0.3)
+    mech = RoomSpec(2, "기계실", 50, 100, -9, -3, name="MECH")                  # 천장 없는 실 → 슬래브 하면 기준
+    on = StationCADEngine(cfg_with(mech, no_cols=True, stairs=[sp], table=flush_table()))
+    off_cfg = cfg_with(mech, no_cols=True, stairs=[sp])
+    off_cfg.finish_settings.enabled = False
+    off = StationCADEngine(off_cfg)
+    a, b = _open(on, "ST"), _open(off, "ST")
+    assert a.length == pytest.approx(b.length) and a.width == pytest.approx(2.0 + 0.6)   # 옆 여유 양쪽 0.3
+    with pytest.raises(ValueError, match="옆 여유"):
+        StationCADEngine(cfg_with(no_cols=True, stairs=[StairSpec(lower_floor=2, s_start=60.0, side_clear=-0.1)]))
+
+
+def test_escalator_opening_uses_lower_floor_ceiling_and_side_clear():
+    e = EscalatorSpec(lower_floor=1, s_wp=60.0, direction=1, t_center=-6.0, name="ES", side_clear=0.2)   # 승강장 위 (천장 = 승강장 상면 + 3.1)
+    on = StationCADEngine(cfg_with(no_cols=True, escalators=[e], table=flush_table()))
+    off_cfg = cfg_with(no_cols=True, escalators=[e])
+    off_cfg.finish_settings.enabled = False
+    off = StationCADEngine(off_cfg)
+    a, b = _open(on, "ES"), _open(off, "ES")
+    assert a.length > b.length + 1.0 and a.width == pytest.approx(e.truss_width + 0.4)
+    assert max(a.s_start + a.length, a.s_start) == pytest.approx(b.s_start + b.length)
+
+
+def test_side_clear_drafts():
+    from gui.escalator_draft import EscalatorDraft
+    from gui.stair_draft import StairDraft
+    assert StairDraft(side_clear="0.25").to_spec("x", 0.0).side_clear == 0.25
+    assert EscalatorDraft().to_spec("x", 0.0).side_clear == 0.0
+    with pytest.raises(ValueError, match="오프닝 옆 여유"):
+        StairDraft(side_clear="-1").to_spec("x", 0.0)
+
+
+def test_upper_escalator_pit_does_not_cut_lower_ceiling():
+    """버그: B2F 에서 오르는 에스컬레이터의 하부 피트(아래 슬래브 오프닝)가 B3F 천장판까지 뚫음.
+    피트는 슬래브 두께 안에서 트러스가 막으므로 아래층 천장은 그대로, 그 층(B2F) 바닥 마감만 피트 자리 비움"""
+    e = EscalatorSpec(lower_floor=2, s_wp=60.0, direction=1, t_center=-6.0, truss_depth=0.35, name="ES")
+    eng = StationCADEngine(cfg_with(no_cols=True, escalators=[e], table=flush_table()))
+    pit = _open(eng, "ES_PIT")
+    assert pit.slabs == [1]
+
+    def hits(pieces):
+        out = []
+        for p in pieces:
+            s0, s1 = PM.s_range(p)
+            t0, t1 = p.pos_y - p.shape.width / 2, p.pos_y + p.shape.width / 2
+            if s0 < pit.s_end - 1e-6 and s1 > pit.s_start + 1e-6 and t0 < pit.t_hi - 1e-6 and t1 > pit.t_lo + 1e-6:
+                out.append(p)
+        return out
+    low = fin(eng, "B3F_승강장층")
+    assert hits(low.element("CEILING").pieces)                      # B3F 천장은 피트 아래에도 있음
+    hall = fin(eng, "B2F_대합실")
+    assert not hits(hall.element("FLOOR").pieces)                   # B2F 바닥 마감은 피트 자리 비움

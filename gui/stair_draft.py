@@ -35,6 +35,7 @@ class StairDraft:
     landing_len: str = f"{_SPEC.landing_len:g}"
     waist_t: str = f"{_SPEC.waist_t:g}"
     headroom: str = f"{_SPEC.headroom:g}"
+    side_clear: str = f"{_SPEC.side_clear:g}"      # 자동 오프닝 옆 여유 (양쪽)
 
     def to_spec(self, where: str, start_station: float) -> StairSpec:
         if self.direction not in _DIR:
@@ -52,6 +53,7 @@ class StairDraft:
             landing_len=num("landing_len", "계단참 길이"),
             waist_t=num("waist_t", "계단 슬래브 두께"),
             headroom=num("headroom", "머리 높이"),
+            side_clear=_num(self.side_clear, where, "오프닝 옆 여유", nonneg=True),
             name=self.name.strip())
 
 

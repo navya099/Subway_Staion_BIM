@@ -12,6 +12,7 @@ from typing import Optional
 
 from escalators.escalator_spec import HANDRAIL_H, STEP_PLATE_T
 from escalators.escalator_type import EscalatorPartKind
+from finishes.finish_layout import ceiling_bottom_under
 from helper import prism_member as PM
 from helper.strip_member import Strip
 from openings.opening_kind import OpeningKind
@@ -173,17 +174,20 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
         spec, nose, e0, run, s_at, lambda sa, sb, tc: PM.curve_factor(cfg, sa, sb, tc))
 
     # 위층 슬래브(번호 k) 오프닝: 트러스가 슬래브를 지나는 구간 + 스텝 코 선 위 머리 높이 부족 구간 → 트러스 상단 끝까지
+    # 머리 높이는 아래층(k) 천장 마감이 슬래브 하면보다 낮으면 천장판 하면 기준 (오프닝이 그만큼 길어짐)
     z_sb, z_st = z_top - st.mid_t, z_top
+    ceil = ceiling_bottom_under(cfg, k, (*sorted((s_at(u_lo), s_at(u_hi))), *t_truss))
+    z_head = z_sb if ceil is None else min(z_sb, ceil)
     u_open = u_hi
     for (a, b), ttop in truss_top.items():
         for x, tt in ((a, ttop[0]), (b, ttop[1])):
             through = tt > elev(x, z_sb) + 1e-9 and nose(x) - depth < elev(x, z_st) - 1e-9
-            low = elev(x, z_sb) - nose(x) < spec.headroom - 1e-9
+            low = elev(x, z_head) - nose(x) < spec.headroom - 1e-9
             if x >= 0.0 and (through or low):
                 u_open = min(u_open, a)
     s_lo, s_hi = sorted((s_at(u_open), s_at(u_hi)))
     opening = OpeningSpec(kind=OpeningKind.ESCALATOR, s_start=s_lo, length=s_hi - s_lo, t_center=tc,
-                          width=spec.truss_width, slabs=[k], name=name)
+                          width=spec.truss_width + 2.0 * spec.side_clear, slabs=[k], name=name)
 
     # 하부 피트: 트러스 하면이 시작면 아래인 구간 (트러스 하단 끝 ~ 하면이 시작면 위로 올라오는 점)
     u_pit = u_lo

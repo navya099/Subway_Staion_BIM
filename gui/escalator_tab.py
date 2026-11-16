@@ -15,7 +15,7 @@ _FIELDS = [("하부 WP STA", "sta_wp", "t 위치", "t_center"),
            ("하부 연장", "lower_ext", "상부 연장", "upper_ext"),
            ("하부 평탄 스텝", "lower_flat_steps", "상부 평탄 스텝", "upper_flat_steps"),
            ("스텝 깊이", "step_depth", "핸드레일 높이", "handrail_height"),
-           ("머리 높이", "headroom", None, None)]
+           ("머리 높이", "headroom", "오프닝 옆 여유", "side_clear")]
 
 
 class EscalatorTab:

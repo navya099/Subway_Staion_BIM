@@ -64,7 +64,7 @@ engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, buil
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
-assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel .jpg/.png, 사용자가 준비) + README
+assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~13, 제목은 짧게 '1.선형' …, 창 폭 600),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
 tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_gui
@@ -184,8 +184,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 곡선 선형은 평면이 WCS 라 클릭은 `to_station`(정확, 약 30ms), 마우스 이동은 0.5m 중심선 표본 근사(`to_st(fast=True)`).
   - 탭 연결(`gui/pick_buttons.py`, 값 계산은 `gui/pick_fill.py`): 실 '영역 선택'(RECT → 시작/끝 STA·t), 문 '선택'(POINT → 가장 가까운 실 변 + 중심, 변 범위로 자름), 오프닝 '영역 선택'(RECT → 시작 STA·길이·t 중심·폭, 평면 층 = 가장 낮은 슬래브 위층), 계단 '위치 선택'(첫 단 STA·t), ESC(하부 WP), EV(승강로 중심, 최하 정지층), 출구통로·환기구 '경로 선택'(PATH → 꼭짓점 표 교체, 높이는 같은 순번 값 유지·새 점은 첫 점 비움/나머지 0, 절대 좌표 방식이면 to_world 로 X·Y).
 - **텍스처 3D 모델(COLLADA .dae, `exporter/dae_exporter.py`)**: 스케치업 기본 가져오기로 둘러보기용 (스케치업 IFC 가져오기는 텍스처를 읽지 않음, 2D 도면에는 불필요). 출력 탭 '텍스처 DAE'(기본 끔) → `정거장3d모델.dae` + 옆 `textures/` 에 이미지 복사.
-  - 기하 = `build_3d_doc` 의 3DFACE 그대로(단일 원천). 마감 부재는 그 부재의 `material`(source_element 핸들로 연결), 나머지는 레이어별 재질(`render_material.LAYER_MATERIALS`, 기본 콘크리트). **천장틀(FIN_FRAME)은 기본 제외**(면이 많고 천장판에 가림, `frames=True` 로 포함).
-  - 텍스처는 재질 이름 기준 `FINISH_MATERIALS`: 금속패널 → `metal_panel` 1.2×0.6, 화강석 → `granite` 0.6×0.6, 알루미늄 천장판 → `ceiling_panel` 0.6×0.6 (이미지 한 장의 실제 크기). 이미지(`assets/image/tile/{이름}.jpg|.jpeg|.png`)가 없으면 색만 + 완료 알림에 안내. 그 밖의 재질은 색만.
+  - 기하 = `build_3d_doc` 의 3DFACE 그대로(단일 원천). 마감 부재는 그 부재의 `material`(source_element 핸들로 연결), 나머지는 레이어별 재질(`render_material.LAYER_MATERIALS`, 목록에 없는 구조 레이어 = `CONCRETE` — 텍스처 `Polished Concrete New` 2.0×2.0, 콘크리트 면처리도 같은 텍스처). **천장틀(FIN_FRAME)은 기본 제외**(면이 많고 천장판에 가림, `frames=True` 로 포함).
+  - 텍스처는 재질 이름 기준 `FINISH_MATERIALS`: 금속패널 → `metal_panel` 1.2×0.6, 화강석 → `granite` 0.6×0.6, 알루미늄 천장판 → `ceiling_panel` 0.6×0.6 (이미지 한 장의 실제 크기). 이미지(`assets/image/tile/{이름}.jpg|.jpeg|.png`, 공백 있는 이름은 URI 에서 `%20`)가 없으면 색만 + 완료 알림에 안내. 그 밖의 재질은 색만.
   - 텍스처 좌표: 면마다 평면 투영 — 수평 면(|n_z| ≥ 0.7)은 u = 면 중심의 선형 접선(곡선은 `preview_render.station_of` 근사), v = 왼쪽 +t; 그 밖은 u = 면 안 수평, v = 면 안 위쪽. 세계 원점 기준 좌표라 이웃 면끼리 무늬가 이어짐(곡선 수평 면은 근사).
   - 좌표는 정수 원점 기준 상대 좌표(소수 5자리, 스케치업 정밀도) — 원점은 `<asset><comments>`·완료 알림. 레이어마다 노드(스케치업 그룹), 재질마다 삼각형 묶음, double_sided.
   - 기본 마감 재질 이름 변경: 바닥 기본 `석재` → **화강석**, 벽 기본 `패널` → **금속패널**(FinishType·마감 탭 초안). 옛 프로젝트 파일의 마감표는 저장된 이름 그대로라 텍스처를 쓰려면 마감 탭에서 이름을 바꿔야 함.

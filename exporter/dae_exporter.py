@@ -13,6 +13,7 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 import numpy as np
@@ -149,7 +150,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
         i = mat_id[m]
         lib_mat.append(f'<material id="{i}" name="{escape(m.name, {chr(34): "&quot;"})}"><instance_effect url="#{i}-fx"/></material>')
         if m in images:
-            lib_img.append(f'<image id="{i}-img" name="{i}-img"><init_from>{TEXTURE_FOLDER}/{escape(images[m].name)}</init_from></image>')
+            lib_img.append(f'<image id="{i}-img" name="{i}-img"><init_from>{TEXTURE_FOLDER}/{escape(quote(images[m].name))}</init_from></image>')
             diffuse = f'<texture texture="{i}-sampler" texcoord="UVSET0"/>'
             params = (f'<newparam sid="{i}-surface"><surface type="2D"><init_from>{i}-img</init_from></surface></newparam>'
                       f'<newparam sid="{i}-sampler"><sampler2D><source>{i}-surface</source></sampler2D></newparam>')

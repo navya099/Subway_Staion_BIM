@@ -31,14 +31,15 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("방수 천장판", (0.95, 0.95, 0.95)),
     RenderMaterial("액세스 플로어", (0.55, 0.57, 0.60)),
     RenderMaterial("몰탈", (0.70, 0.70, 0.68)),
-    RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70)),
+    RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
     RenderMaterial("M바 천장틀", (0.60, 0.60, 0.60)),
     RenderMaterial("T바 천장틀", (0.60, 0.60, 0.60)),
 )}
 FINISH_DEFAULT = (0.80, 0.80, 0.80)       # 목록에 없는 마감 재질
 
-CONCRETE = RenderMaterial("콘크리트", (0.72, 0.72, 0.70))
+# 구조 부재 기본 재질 (벽·슬래브·승강장·기둥·계단·통로·출입구·환기구·승강로): 콘크리트 텍스처, 2m 한 장
+CONCRETE = RenderMaterial("콘크리트", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0)
 # 마감이 아닌 3D 레이어 → 보기 재질 (목록에 없는 레이어는 콘크리트)
 LAYER_MATERIALS = {
     "STRUCT_ESCALATOR": RenderMaterial("에스컬레이터", (0.55, 0.57, 0.60)),

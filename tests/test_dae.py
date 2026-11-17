@@ -13,14 +13,15 @@ from config.output_config import OutputOptions
 from engine.bim_engine import BIMEngine
 from engine.cad_engine import StationCADEngine
 from exporter.dae_exporter import dae_notes, texture_uv
-from exporter.render_material import FINISH_MATERIALS, finish_material
+from exporter.render_material import CONCRETE, FINISH_MATERIALS, finish_material, layer_material
 from finishes.finish_spec import FinishSettings, default_finishes
 from gui.print_draft import PrintDraft, preview
 from test_curved import curved_cfg
 from test_finishes import cfg_with
 
 NS = {"c": "http://www.collada.org/2005/11/COLLADASchema"}
-TEXTURES = {"metal_panel": "금속패널", "granite": "화강석", "ceiling_panel": "알루미늄 천장판"}
+TEXTURES = {"metal_panel": "금속패널", "granite": "화강석", "ceiling_panel": "알루미늄 천장판",
+            "Polished Concrete New": "콘크리트"}      # 구조 부재 기본 (파일 이름에 공백)
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ def tex_dir(tmp_path):
     d = tmp_path / "tile"
     d.mkdir()
     for k, name in enumerate(TEXTURES):
-        Image.new("RGB", (16, 16), (100 + 40 * k, 120, 140)).save(d / (name + (".png" if k else ".jpg")))
+        Image.new("RGB", (16, 16), (100 + 40 * k, 120, 140)).save(d / (name + (".png" if k in (1, 2) else ".jpg")))
     return d
 
 
@@ -75,7 +76,9 @@ def dxf_area(doc, layers):
 def test_default_floor_material_is_granite_with_textures():
     assert {default_finishes()[k].floor_material for k in ("대합실", "승강장층", "복도", "기본")} == {"화강석"}
     for tex, name in TEXTURES.items():
-        assert FINISH_MATERIALS[name].texture == tex
+        assert (CONCRETE if name == "콘크리트" else FINISH_MATERIALS[name]).texture == tex
+    assert layer_material("STRUCT_WALL") is CONCRETE and layer_material("STRUCT_SLAB") is CONCRETE
+    assert FINISH_MATERIALS["콘크리트 면처리"].texture == CONCRETE.texture
     assert finish_material("없는 재질").texture == "" and finish_material("없는 재질").name == "없는 재질"
 
 
@@ -86,10 +89,12 @@ def test_dae_materials_textures_and_geometry(tmp_path, tex_dir, curved):
     path = eng.generate_dae(tmp_path / "out" / "m.dae", texture_dir=tex_dir)
     res = eng.dae_result
     groups, images, comment = parse(path)
-    # 텍스처: 세 재질 모두 이미지 붙음, textures/ 로 복사
+    # 텍스처: 네 재질 모두 이미지 붙음, textures/ 로 복사 (공백은 URI 에서 %20)
     assert sorted(res.textured) == sorted(TEXTURES.values()) and not res.missing
-    assert sorted(images.values()) == ["textures/ceiling_panel.png", "textures/granite.png", "textures/metal_panel.jpg"]
-    assert sorted(os.listdir(tmp_path / "out" / "textures")) == ["ceiling_panel.png", "granite.png", "metal_panel.jpg"]
+    assert sorted(images.values()) == ["textures/Polished%20Concrete%20New.jpg", "textures/ceiling_panel.png",
+                                     "textures/granite.png", "textures/metal_panel.jpg"]
+    assert sorted(os.listdir(tmp_path / "out" / "textures")) == ["Polished Concrete New.jpg", "ceiling_panel.png",
+                                                                 "granite.png", "metal_panel.jpg"]
     with_uv = {n for n, _, uv, _ in groups if uv is not None}
     assert with_uv == set(TEXTURES.values())
     # 재질: 마감 부재는 마감 재질, 구조체는 콘크리트, 천장틀은 뺌
@@ -131,8 +136,9 @@ def test_uv_follows_alignment_and_real_size(tmp_path, tex_dir, curved):
     eng = StationCADEngine(cfg)
     groups, _, _ = parse(eng.generate_dae(tmp_path / "m.dae", texture_dir=tex_dir))
     origin = np.array(eng.dae_result.origin)
-    for name, flat in (("화강석", True), ("알루미늄 천장판", True), ("금속패널", False)):
-        m = FINISH_MATERIALS[name]
+    for name, flat in (("화강석", True), ("알루미늄 천장판", True), ("금속패널", False), ("콘크리트", True),
+                       ("콘크리트", False)):
+        m = CONCRETE if name == "콘크리트" else FINISH_MATERIALS[name]
         t, uv = next((t, uv) for n, t, uv, _ in groups if n == name)
         k = np.linspace(0, len(t) - 1, 40).astype(int)              # 표본 40개
         n = np.cross(t[k, 1] - t[k, 0], t[k, 2] - t[k, 0])

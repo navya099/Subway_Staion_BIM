@@ -116,7 +116,8 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
     cfg = engine.cfg
     doc = engine.build_3d_doc()
     mat_of = {}
-    for e in engine.finishes.all_elements():
+    tactile = getattr(engine, "tactiles", None)
+    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []):
         m = finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m

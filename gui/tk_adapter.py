@@ -11,6 +11,7 @@ from gui.opening_draft import OpeningDrafts
 from gui.passage_draft import PassageDrafts
 from gui.print_draft import PrintDraft
 from gui.room_draft import RoomDrafts
+from gui.tactile_draft import TactileDrafts
 from gui.stair_draft import StairDrafts
 from gui.vent_draft import VentDrafts
 from platforms.platform_params import PlatformParameters
@@ -48,6 +49,10 @@ def _int(entries, key) -> int:
         return int(text)
     except ValueError:
         raise ValueError(f"{LABELS.get(key, key)}: 정수가 아닙니다 ('{text}')") from None
+
+
+_NO_TACTILE = TactileDrafts()
+_NO_TACTILE.settings.enabled = False      # 점자블록 탭이 없으면(탭 단독 테스트 등) 만들지 않음
 
 
 class TkAdapter:
@@ -96,7 +101,8 @@ class TkAdapter:
         cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings,
                                    stairs=stairs, escalators=escalators, passages=passages, entrances=entrances, vents=vents,
                                    elevators=elevators, rooms=rooms, room_settings=room_settings,
-                                   finish_settings=(entries.get("finish_drafts") or FinishDrafts()).to_settings())
+                                   finish_settings=(entries.get("finish_drafts") or FinishDrafts()).to_settings(),
+                                   tactile_settings=(entries.get("tactile_drafts") or _NO_TACTILE).to_settings(station_p.start_station))
         cfg.validate()
         return cfg
 

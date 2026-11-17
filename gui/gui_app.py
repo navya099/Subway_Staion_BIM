@@ -17,6 +17,7 @@ from gui.print_tab import PrintTab
 from gui.room_tab import RoomTab
 from gui.project_file import FILETYPES, LIST_DRAFTS, SUFFIX, ProjectState, RecentProjects, open_project, save_project
 from gui.stair_tab import StairTab
+from gui.tactile_tab import TactileTab
 from gui.vent_tab import VentTab
 from gui.station_tab import StationTab
 from gui.tk_adapter import TkAdapter
@@ -26,7 +27,7 @@ from gui.preview_window import PreviewWindow
 APP_TITLE = "지하철 개착정거장 자동 설계 (BIM Engine)"
 FLOOR_KEYS = ("floor_height_", "wall_t_")       # 층수에 따라 다시 만들어지는 입력칸
 DRAFT_TABS = ("column_tab", "room_tab", "opening_tab", "stair_tab", "escalator_tab", "elevator_tab", "passage_tab", "entrance_tab",
-              "vent_tab")
+              "vent_tab", "tactile_tab")
 
 
 class StationBIMApp:
@@ -134,9 +135,15 @@ class StationBIMApp:
         self.vent_tab = VentTab(tab_vent, self.entries)
         self.vent_tab.build()
 
-        # 탭 13: 출력 설정
+        # 탭 13: 점자블록
+        tab_tactile = ttk.Frame(notebook)
+        notebook.add(tab_tactile, text="13.점자")
+        self.tactile_tab = TactileTab(tab_tactile, self.entries)
+        self.tactile_tab.build()
+
+        # 탭 14: 출력 설정
         tab_print = ttk.Frame(notebook)
-        notebook.add(tab_print, text="13.출력")
+        notebook.add(tab_print, text="14.출력")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
 
@@ -176,6 +183,8 @@ class StationBIMApp:
         if hasattr(self, 'vent_tab'):
             self.vent_tab.update_floor_ui()
             self.vent_tab.refresh_info()
+        if hasattr(self, 'tactile_tab'):
+            self.tactile_tab.update_floor_ui()
         if hasattr(self, 'print_tab'):
             self.print_tab.update_floor_ui()
             self.print_tab.refresh_info()
@@ -289,6 +298,7 @@ class StationBIMApp:
         st.room_settings = copy.deepcopy(self.room_tab.drafts.settings)
         st.finish_enabled = bool(self.finish_tab.drafts.enabled)
         st.finish_drafts = copy.deepcopy(self.finish_tab.drafts.items)
+        st.tactile_settings = copy.deepcopy(self.tactile_tab.drafts.settings)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -321,6 +331,7 @@ class StationBIMApp:
         floors.update(copy.deepcopy(st.column_floors))                      # 상태(예: 새 프로젝트 기본값)는 그대로 두고 복사본을 편집
         for name in LIST_DRAFTS:
             self.entries[name].items[:] = copy.deepcopy(getattr(st, name))
+        self.tactile_tab.drafts.settings = copy.deepcopy(st.tactile_settings)     # 경로 목록은 LIST_DRAFTS, 탭 render 전에
         for name in DRAFT_TABS:
             tab = getattr(self, name)
             n = getattr(tab, "floor_count", 0)

@@ -36,6 +36,7 @@ class RoomFinishLayout:
     finish: object               # FinishType
     floor_top: list = field(default_factory=list)      # 바닥 마감재 [(s0, s1, t0, t1, z0, z1)]
     floor_fill: list = field(default_factory=list)     # 바닥 채움(몰탈)
+    tactile: list = field(default_factory=list)        # 바닥 마감재를 대체한 점자블록 [(s0, s1, t0, t1, z0, z1, 종류)]
     walls: list = field(default_factory=list)          # 벽 마감 (본체 벽·칸막이벽 면)
     columns: list = field(default_factory=list)        # 사각 기둥·승강로 둘레 마감
     rings: list = field(default_factory=list)          # 원기둥 둘레 마감 BoxPiece (세계 좌표)
@@ -173,10 +174,11 @@ def _boundary(rects):
 
 
 def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns: list, openings: list,
-                         stairs: list, escalators: list, elevators: list) -> list:
+                         stairs: list, escalators: list, elevators: list, tactile: list = ()) -> list:
     """실마다 RoomFinishLayout.
     floors: FloorRoomsLayout 목록, room_specs: 실 이름 → RoomSpec (덮어쓸 마감 종류), columns: [(층, s, t, 반폭 s, 반폭 t, 반지름|None)],
-    openings: 슬래브 오프닝 OpeningSpec 목록 (수동 + 자동), stairs / escalators / elevators: 배치 결과"""
+    openings: 슬래브 오프닝 OpeningSpec 목록 (수동 + 자동), stairs / escalators / elevators: 배치 결과,
+    tactile: 점자블록 TactileBlock 목록 — 바닥 마감재 자리에서 빼고 같은 높이·두께의 블록으로 (RoomFinishLayout.tactile)"""
     st, pl = cfg.station, cfg.platform
     L, hw = st.length, st.width / 2.0
     clear = (0.0, L, -hw, hw)
@@ -228,7 +230,17 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                     area = [r for r in (_inter(rr, (0.0, L, p0, p1)) for rr in room.rects) if r]
                     area = _minus(area, obstacles + stair_fp + below)
                     z_top = zb + ft.ffl
-                    rf.floor_top += _with_z(area, z_top - ft.floor_t, z_top)
+                    blocks = [b for b in tactile if b.floor == n]
+                    if blocks and ft.floor_t > _EPS:
+                        for b in blocks:
+                            for r in area:
+                                c = _inter(r, b.rect)
+                                if c:
+                                    rf.tactile.append((*c, z_top - ft.floor_t, z_top, b.kind))
+                        area_top = _minus(area, [b.rect for b in blocks])
+                    else:
+                        area_top = area
+                    rf.floor_top += _with_z(area_top, z_top - ft.floor_t, z_top)
                     if ft.floor_fill == FILL_MORTAR:
                         rf.floor_fill += _with_z(area, zb, z_top - ft.floor_t)
 

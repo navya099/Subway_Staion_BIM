@@ -1,5 +1,6 @@
 import dataclasses
 import math
+from typing import Optional
 
 
 DEFAULT_WALL_T = 1.0           # 외벽 두께 기본값 (m)
@@ -33,6 +34,8 @@ class StationParameters:
         mid_t: 중간층 바닥 슬래브 두께 (m) (층 사이의 슬래브, 층수 2 이상일 때)
         roof_t: 본체 천장 슬래브 두께 (m) (최상층 위)
         sta_tick: 평면도 측점 표기 간격 (m)
+        ground_el: 지표면 절대 표고 (m, 정거장 공통 — 평탄 지표). None = 지표 없음. 수직구로 끝나는 환기구 상단
+            (= 지표 + 지상 돌출 높이)과 출입구(따로 주지 않으면)의 기준
     """
     start_station: float = 0.0
     length: float = 200.0          # L (m) 내공 길이
@@ -44,6 +47,7 @@ class StationParameters:
     mid_t: float = 1.0             # 중간층 바닥 슬래브 두께 (m)
     roof_t: float = 1.0            # 본체 천장 슬래브 두께 (m)
     sta_tick: float = 20.0         # 평면도 측점 표기 간격 (m)
+    ground_el: Optional[float] = None   # 지표면 절대 표고 (m), None = 지표 없음
 
     def __post_init__(self):
         if not self.wall_ts:                    # 층별 외벽 두께를 주지 않으면 모든 층 기본 두께
@@ -104,6 +108,8 @@ class StationParameters:
             _positive(h, f"{self.level_name(n)} 층 높이")
         if not (math.isfinite(self.start_station) and math.isfinite(self.offset)):
             raise ValueError("시작 측점/오프셋이 유한한 숫자가 아닙니다")
+        if self.ground_el is not None and not math.isfinite(self.ground_el):
+            raise ValueError(f"지표 EL 이 유한한 숫자가 아닙니다 ({self.ground_el})")
         if len(self.wall_ts) != len(self.floor_heights):
             raise ValueError(f"층별 외벽 두께 개수({len(self.wall_ts)})가 층수({self.floors})와 다릅니다")
         for n, wt in enumerate(self.wall_ts, start=1):

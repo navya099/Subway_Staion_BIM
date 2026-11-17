@@ -12,7 +12,7 @@ def check_entrance_spec(spec, name: str):
         raise ValueError(f"출입구 {name}: 제원 형식이 올바르지 않습니다 ({spec!r})")
     if not str(spec.passage).strip():
         raise ValueError(f"출입구 {name}: 이어 붙일 출구통로를 지정하세요")
-    if not math.isfinite(spec.ground_el):
+    if spec.ground_el is not None and not math.isfinite(spec.ground_el):
         raise ValueError(f"출입구 {name}: 지표 EL 이 숫자가 아닙니다 ({spec.ground_el})")
     if spec.escalator_side not in (1, -1):
         raise ValueError(f"출입구 {name}: 에스컬레이터 쪽은 +1(왼쪽) 또는 -1(오른쪽) 이어야 합니다 ({spec.escalator_side!r})")

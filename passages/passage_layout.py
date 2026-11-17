@@ -91,9 +91,10 @@ def _auto_side(cfg, spec, name: str, what: str) -> int:
     return 1 if t > 0 else -1
 
 
-def resolve_vertices(cfg, spec, name: str, what: str = "출구통로") -> tuple[list, int, float]:
+def resolve_vertices(cfg, spec, name: str, what: str = "출구통로", last_z=None) -> tuple[list, int, float]:
     """꼭짓점을 세계 좌표·절대 표고로 해석하고 접합부 조건 검사. (꼭짓점, side, 접합부 FL 표고). what = 오류 문구의 구조물 이름.
-    첫 꼭짓점(선형 상대)의 t 가 None 이면 그 층 외벽 바깥면(측벽은 두 번째 꼭짓점 t 의 부호)에 붙인다"""
+    첫 꼭짓점(선형 상대)의 t 가 None 이면 그 층 외벽 바깥면(측벽은 두 번째 꼭짓점 t 의 부호)에 붙인다.
+    last_z: 주면 마지막 꼭짓점 높이가 None 일 때 쓸 절대 표고 (환기구: 지표 EL + 지상 돌출 높이)"""
     st = cfg.station
     k = spec.floor
     t_face = st.width / 2.0 + st.wall_t_at(k)
@@ -120,9 +121,12 @@ def resolve_vertices(cfg, spec, name: str, what: str = "출구통로") -> tuple[
     out = []
     for i, ((x, y, s, t), v) in enumerate(zip(raw, spec.path), start=1):
         if v.z is None:
-            if i > 1:
+            if i == len(spec.path) and i > 1 and last_z is not None:
+                z = last_z
+            elif i > 1:
                 raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 바닥 높이를 입력하세요")
-            z = e0
+            else:
+                z = e0
         else:
             z = e0 + v.z if v.mode == STATION else v.z
             if i == 1 and abs(z - e0) > _Z_TOL:

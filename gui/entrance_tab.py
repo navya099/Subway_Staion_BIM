@@ -29,7 +29,7 @@ class EntranceTab:
                  fg="#6A1B9A").pack(anchor="w", padx=15, pady=(12, 2))
         tk.Label(self.parent, justify="left", fg="#555555", font=("Malgun Gothic", 8), wraplength=430,
                  text="• 출구통로 끝(마지막 꼭짓점)에 이어 통로 방향으로 지표까지 오름\n"
-                      "• 지표 EL 만 주면 계단·에스컬레이터·박스 길이·천장 높이 자동\n"
+                      "• 지표 EL 만 주면 계단·에스컬레이터·박스 길이·천장 높이 자동 (비우면 정거장 공통 지표 EL)\n"
                       "• 천장은 지표에 닿는 곳에서 끝나고 그 뒤는 개구부 (측벽은 지표 + 파라펫)\n"
                       "• 계단 시작 조정을 비우면 자동 (바닥 아래로 가면 하부 쪽으로 앞당김)").pack(anchor="w", padx=15)
         bar = tk.Frame(self.parent)

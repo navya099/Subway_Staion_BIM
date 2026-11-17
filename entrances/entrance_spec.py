@@ -17,7 +17,7 @@ class EntranceSpec:
 
     Attributes:
         passage: 이어 붙일 출구통로 이름
-        ground_el: 지상 도착부 지표면 절대 표고 (m)
+        ground_el: 지상 도착부 지표면 절대 표고 (m). None 이면 정거장 공통 지표 EL (StationParameters.ground_el)
         stair_width / partition_t / escalator_zone: 계단 폭, 칸막이벽 두께, 에스컬레이터 구역 폭 (m)
         escalator: 에스컬레이터를 둘지 (False 면 내공 폭 = 계단 폭, 칸막이벽 없음)
         escalator_side: 에스컬레이터 쪽 +1 = 오르는 방향 왼쪽(+t), -1 = 오른쪽
@@ -33,7 +33,7 @@ class EntranceSpec:
         name: 비우면 EN + 일련번호
     """
     passage: str = ""
-    ground_el: float = 0.0
+    ground_el: Optional[float] = None
     stair_width: float = 1.75
     partition_t: float = 0.2
     escalator_zone: float = 3.31

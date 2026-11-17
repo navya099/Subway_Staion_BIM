@@ -18,7 +18,8 @@ NUM_FIELDS = [("cell_width", "칸 내공 폭", "pos"), ("cell_height", "칸 내�
               ("floor_t", "바닥 두께", "pos"), ("roof_t", "천장 두께", "pos"),
               ("haunch_w", "헌치 폭", "nonneg"), ("haunch_h", "헌치 높이", "nonneg"),
               ("grill_t", "그릴 두께", "pos"), ("grill_frame", "그릴 테두리", "pos"),
-              ("grill_bar", "그릴 살 폭", "pos"), ("grill_gap", "그릴 살 간격", "pos")]
+              ("grill_bar", "그릴 살 폭", "pos"), ("grill_gap", "그릴 살 간격", "pos"),
+              ("protrusion", "지상 돌출 높이", "nonneg")]
 
 
 @dataclass
@@ -41,6 +42,7 @@ class VentDraft:
     grill_frame: str = f"{_SPEC.grill_frame:g}"
     grill_bar: str = f"{_SPEC.grill_bar:g}"
     grill_gap: str = f"{_SPEC.grill_gap:g}"
+    protrusion: str = f"{_SPEC.protrusion:g}"
     vertices: list = field(default_factory=list)
 
     def to_spec(self, where: str, start_station: float) -> VentSpec:
@@ -56,7 +58,8 @@ class VentDraft:
                 y = None                                   # 비우면 외벽 바깥면에 붙임 (resolve_vertices)
             else:
                 y = _num(v.y, w, cols[1])
-            z = None if j == 1 and not str(v.z).strip() else _num(v.z, w, cols[2])
+            blank = not str(v.z).strip() and (j == 1 or j == len(self.vertices))   # 마지막 = 지표 EL + 돌출 (수직구 끝)
+            z = None if blank else _num(v.z, w, cols[2])
             path.append(PathVertex(mode, x - start_station if mode == STATION else x, y, z))
         try:
             cells = int(str(self.cells).strip())
@@ -113,4 +116,6 @@ def preview(it: VentDraft, start_station: float) -> str:
             f"(외곽 {2 * sp.half_out:g}m)\n   꼭짓점 {len(pts)}개, 수직 구간 {len(vertical)}곳, 그릴: {end} {sp.cells}개")
     if pts and pts[0].y is None:
         text += "\n   첫 꼭짓점 t = 외벽 바깥면 (자동)"
+    if len(pts) > 1 and pts[-1].z is None:
+        text += f"\n   수직구 상단 = 지표 EL + 지상 돌출 {sp.protrusion:g}m (자동)"
     return text

@@ -1818,3 +1818,19 @@ def test_stair_and_escalator_side_clear_fields(app):
     app.escalator_tab._vars[(0, "t_center")].set("-6.5")          # 기본 위치는 기본 계단과 겹침
     cfg = TkAdapter.collect_entries(app.entries)
     assert cfg.stairs[0].side_clear == 0.3 and cfg.escalators[0].side_clear == 0.2
+
+
+def test_station_ground_el_field(app):
+    """1.선형 탭 지표 EL: 비우면 없음(None), 값은 config 로, 프로젝트 상태로 저장·복원"""
+    assert app.entries["ground_el"].get() == ""
+    assert TkAdapter.collect_entries(app.entries).station.ground_el is None
+    set_entry(app, "ground_el", "120.5")
+    assert TkAdapter.collect_entries(app.entries).station.ground_el == 120.5
+    st = app.collect_state()
+    assert st.fields["ground_el"] == "120.5"
+    set_entry(app, "ground_el", "")
+    app.apply_state(st)
+    assert app.entries["ground_el"].get() == "120.5"
+    set_entry(app, "ground_el", "abc")
+    with pytest.raises(ValueError, match="지표 EL"):
+        TkAdapter.collect_entries(app.entries)

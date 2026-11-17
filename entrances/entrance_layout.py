@@ -133,7 +133,10 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
     va, vb = pl.vertices[-2], pl.vertices[-1]
     L = math.hypot(vb.x - va.x, vb.y - va.y)
     frame = EntranceFrame(vb.x, vb.y, (vb.x - va.x) / L, (vb.y - va.y) / L)
-    zp, G = vb.z, spec.ground_el
+    G = spec.ground_el if spec.ground_el is not None else cfg.station.ground_el
+    if G is None:
+        raise ValueError(f"출입구 {name}: 지표 EL 을 입력하세요 (출입구마다 또는 정거장 공통 지표 EL)")
+    zp = vb.z
     hp, a_p = pl.spec.inner_height, pl.spec.half_in
     T = spec.wall_t
     W = spec.inner_width

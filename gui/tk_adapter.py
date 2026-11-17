@@ -20,7 +20,7 @@ from platforms.platform_type import PlatformType
 LABELS = {
     "bp_x": "BP X", "bp_y": "BP Y", "bp_z": "BP Z", "ep_x": "EP X", "ep_y": "EP Y", "ep_z": "EP Z",
     "bp_station": "선형 시작 측점", "start_station": "정거장 시작 측점", "length": "정거장 내공 길이",
-    "width": "정거장 내공 폭", "offset": "기준선~바닥 상단 오프셋", "floors": "층수",
+    "width": "정거장 내공 폭", "offset": "기준선~바닥 상단 오프셋", "ground_el": "지표 EL", "floors": "층수",
     "floor_t": "본체 바닥 슬래브 두께", "mid_t": "중간층 바닥 슬래브 두께", "roof_t": "본체 천장 슬래브 두께",
     "track_spacing": "선로 간격", "plat_offset": "선로중심~승강장 끝단 거리", "plat_thick": "승강장 슬래브 두께",
     "plat_height": "승강장 높이", "support_t": "승강장 지지벽체 두께",
@@ -67,6 +67,7 @@ class TkAdapter:
             length=_float(entries, "length"),
             width=_float(entries, "width"),
             offset=_float(entries, "offset"),
+            ground_el=None if "ground_el" not in entries or not _text(entries, "ground_el") else _float(entries, "ground_el"),
             floor_heights=floor_heights,
             wall_ts=wall_ts,
             floor_t=_float(entries, "floor_t"),

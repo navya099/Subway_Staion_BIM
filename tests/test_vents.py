@@ -186,6 +186,75 @@ def test_thicker_lower_wall_trims_first_duct_floor(tmp_path, pts):
         assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=1e-6), e.name
 
 
+# ===================================================== 지표 EL · 지상 돌출 높이
+def ground_cfg(points, ground_rel=15.0, **kw):
+    """최상층(3) 접합부 FL 표고 + ground_rel 을 지표 EL 로 둔 설정"""
+    cfg = make_cfg(user_example())
+    cfg.vents = [vent(points, **kw)]
+    e0 = cfg.lv(50.0) - cfg.station.offset + cfg.station.floor_level(3)
+    cfg.station.ground_el = e0 + ground_rel
+    return cfg, e0
+
+
+@pytest.mark.parametrize("protrusion", [2.0, 0.0, 1.2])
+def test_blank_top_is_ground_plus_protrusion(tmp_path, protrusion):
+    """수직구로 끝나는 환기구의 마지막 높이를 비우면 지표 EL + 지상 돌출 높이 (그릴 윗면)"""
+    cfg, e0 = ground_cfg([(50, 10, None), (50, 30, 0), (50, 30, None)], protrusion=protrusion)
+    eng = StationCADEngine(cfg)
+    vt = the_vent(eng)
+    top = cfg.station.ground_el + protrusion
+    assert vt.vertices[-1].z == pytest.approx(top)
+    grill_top = max(z for g in vt.grills for p in g.pieces for f in p.faces() for (_, _, z) in f)
+    assert grill_top == pytest.approx(top)
+    h = top - (e0 + 3.0 + 0.6)                                       # 수직구 = 아래 덕트 천장 상면 ~ 상단
+    assert vt.element("V1_WALL_B").volume == pytest.approx(0.6 * 12.4 * h)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "v.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for e in vt.elements + vt.grills:
+        assert sum(PM.mesh_volume(p.faces()) for p in e.pieces) == pytest.approx(e.volume, rel=1e-7), e.name
+        assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=1e-6), e.name
+
+
+def test_given_top_must_match_ground():
+    cfg, _ = ground_cfg([(50, 10, None), (50, 30, 0), (50, 30, 17.0)])         # 지표 +15, 돌출 2 → 17
+    assert the_vent(StationCADEngine(cfg)).vertices[-1].z == pytest.approx(cfg.station.ground_el + 2.0)
+    cfg, _ = ground_cfg([(50, 10, None), (50, 30, 0), (50, 30, 24.0)])         # 실무 샘플: 지표보다 9m 위
+    with pytest.raises(ValueError, match="지표 EL"):
+        StationCADEngine(cfg)
+    cfg, _ = ground_cfg(DUCT_END)                                              # 덕트 끝 그릴은 지표와 무관
+    StationCADEngine(cfg)
+
+
+@pytest.mark.parametrize("pts,ground,kw,msg", [
+    ([(50, 10, None), (50, 30, 0), (50, 30, None)], False, {}, "공통 지표 EL"),
+    ([(50, 10, None), (50, 30, None)], True, {}, "수직구로 끝날 때"),
+    ([(50, 10, None), (50, 30, 0), (50, 30, None)], True, {"protrusion": -0.5}, "지상 돌출 높이"),
+    ([(50, 10, None), (50, 30, 0), (50, 30, None)], True, {"protrusion": 30.0}, None),
+])
+def test_ground_top_errors(pts, ground, kw, msg):
+    cfg, _ = ground_cfg(pts, **kw)
+    if not ground:
+        cfg.station.ground_el = None
+    if msg is None:
+        StationCADEngine(cfg)                                                  # 높게 솟아도 규칙대로면 허용
+        return
+    with pytest.raises(ValueError, match=msg):
+        StationCADEngine(cfg)
+
+
+def test_ground_below_duct_roof_makes_shaft_too_low():
+    cfg, _ = ground_cfg([(50, 10, None), (50, 30, 0), (50, 30, None)], ground_rel=1.0, protrusion=0.0)
+    with pytest.raises(ValueError, match="너무 낮습니다"):
+        StationCADEngine(cfg)
+
+
+def test_station_ground_el_must_be_finite():
+    cfg, _ = ground_cfg(SHAFT_END)
+    cfg.station.ground_el = float("nan")
+    with pytest.raises(ValueError, match="지표 EL"):
+        cfg.validate()
+
+
 def test_ifc_structure(tmp_path):
     eng = eng_with(vent(SHAFT_END))
     f = ifcopenshell.open(eng.generate_ifc(tmp_path / "v.ifc"))
@@ -250,6 +319,21 @@ def test_draft_converts_and_preview():
     assert "6련 × 2.5×3" in preview(d, 0.0) and "수직 구간 1곳" in preview(d, 0.0) and "수직구 상단 6개" in preview(d, 0.0)
     d.vertices = d.vertices[:2]
     assert "덕트 끝 단면" in preview(d, 0.0)
+
+
+def test_draft_blank_top_and_protrusion():
+    d = default_draft(3, 50.0, 10.0)
+    assert d.protrusion == "2" and d.to_spec("", 0.0).protrusion == 2.0
+    d.vertices[2].z, d.protrusion = "", "1.5"
+    sp = d.to_spec("", 0.0)
+    assert sp.path[2].z is None and sp.protrusion == 1.5
+    assert "지표 EL + 지상 돌출 1.5m (자동)" in preview(d, 0.0)
+    d.vertices[1].z = ""                                                       # 중간 꼭짓점은 비울 수 없음
+    with pytest.raises(ValueError, match="꼭짓점 2"):
+        d.to_spec("", 0.0)
+    d.vertices[1].z, d.protrusion = "0", "-1"
+    with pytest.raises(ValueError, match="지상 돌출 높이"):
+        d.to_spec("", 0.0)
 
 
 @pytest.mark.parametrize("field,value,msg", [

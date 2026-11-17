@@ -27,6 +27,8 @@ class VentSpec:
         haunch_w / haunch_h: 칸마다 상부 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         shaft_depth: 수직구 칸 내공 깊이 (아래 덕트 방향, m). None 이면 cell_height (덕트 단면을 눕힌 크기)
         grill_t / grill_frame / grill_bar / grill_gap: 그릴 두께, 테두리 폭, 살 폭, 살 사이 간격 (m)
+        protrusion: 지상 돌출 높이 (m) — 수직구로 끝나는 환기구의 상단(그릴 윗면) = 정거장 지표 EL + 이 값.
+            마지막 꼭짓점 높이를 비우면 이 높이로 정하고, 값을 주면 같아야 한다 (지표 EL 이 있을 때)
         name: 비우면 VS + 일련번호
     """
     floor: int = 1
@@ -45,6 +47,7 @@ class VentSpec:
     grill_frame: float = 0.1
     grill_bar: float = 0.03
     grill_gap: float = 0.1
+    protrusion: float = 2.0
     name: str = ""
 
     @property

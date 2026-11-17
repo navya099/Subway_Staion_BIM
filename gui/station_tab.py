@@ -91,6 +91,7 @@ class StationTab:
             ("width", "정거장 내공 폭 (W, m):", str(SP.width)),
             ("start_station", "정거장 시작 측점 STA(m):", str(SP.start_station)),
             ("offset", "기준선 ~ 바닥 상단 오프셋 (m):", str(SP.offset)),
+            ("ground_el", "지표 EL (m, 비우면 없음):", "" if SP.ground_el is None else str(SP.ground_el)),
             ("floors", "층수:", str(SP.floors)),
             ("floor_t", "본체 바닥 슬래브 두께:", str(SP.floor_t)),
             ("mid_t", "중간층 바닥 슬래브 두께:", str(SP.mid_t)),

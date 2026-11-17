@@ -242,6 +242,21 @@ def test_no_entrances_keeps_outputs():
     assert eng.entrances.entrances == []
 
 
+# ===================================================== 정거장 공통 지표 EL
+def test_blank_ground_uses_station_ground_el():
+    cfg = cfg_with()
+    G = cfg.entrances[0].ground_el
+    ref = lay_of(cfg)
+    cfg.entrances[0].ground_el = None
+    with pytest.raises(ValueError, match="지표 EL 을 입력하세요"):
+        cfg.entrance_layouts()
+    cfg.station.ground_el = G
+    lay = lay_of(cfg)
+    assert lay.ground == pytest.approx(G) and lay.u == pytest.approx(ref.u)
+    cfg.entrances[0].ground_el = G + 1.0                                       # 출입구마다 덮어쓰기
+    assert lay_of(cfg).ground == pytest.approx(G + 1.0)
+
+
 # ===================================================== 입력 초안
 from gui.entrance_draft import SIDE_RIGHT, EntranceDraft, EntranceDrafts, preview
 
@@ -253,6 +268,9 @@ def test_draft_converts():
     assert (sp.name, sp.passage, sp.escalator_side, sp.ground_el, sp.tread, sp.stair_offset) == ("A", "EX2", -1, 109.3, 0.28, None)
     d.items[0].stair_offset = "-2"
     assert d.to_specs()[0].stair_offset == -2.0
+    d.items[0].ground_el = " "
+    assert d.to_specs()[0].ground_el is None and "정거장 공통 지표 EL" in preview(d.items[0])
+    assert EntranceDraft().ground_el == ""
 
 
 @pytest.mark.parametrize("field,value,msg", [

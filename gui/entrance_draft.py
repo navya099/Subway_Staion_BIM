@@ -27,7 +27,7 @@ class EntranceDraft:
     passage: str = "EX1"
     escalator: bool = True
     side: str = SIDE_LEFT
-    ground_el: str = "0"
+    ground_el: str = ""                  # 비우면 정거장 공통 지표 EL
     stair_width: str = f"{_SPEC.stair_width:g}"
     partition_t: str = f"{_SPEC.partition_t:g}"
     escalator_zone: str = f"{_SPEC.escalator_zone:g}"
@@ -52,6 +52,9 @@ class EntranceDraft:
             raise ValueError(f"{where}: 이어 붙일 출구통로 이름을 입력하세요")
         vals = {}
         for attr, label, rule in NUM_FIELDS:
+            if attr == "ground_el" and not str(self.ground_el).strip():
+                vals[attr] = None                        # 정거장 공통 지표 EL
+                continue
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
@@ -84,5 +87,6 @@ def preview(it: EntranceDraft) -> str:
     else:
         parts = f"계단 {sp.stair_width:g}"
     return (f"→ 내공 폭 {sp.inner_width:g}m = {parts}\n"
-            f"   통로 {sp.passage} 끝에서 지표 EL {sp.ground_el:g} 까지 자동 계산"
+            f"   통로 {sp.passage} 끝에서 " + ("정거장 공통 지표 EL" if sp.ground_el is None else f"지표 EL {sp.ground_el:g}")
+            + " 까지 자동 계산"
             + ("" if sp.stair_offset is None else f", 계단 시작 조정 {sp.stair_offset:g}m"))

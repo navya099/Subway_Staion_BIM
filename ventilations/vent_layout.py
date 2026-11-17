@@ -82,12 +82,28 @@ def _bars(lo, hi, bar, gap):
     return [(lo + clear * (k + 1) + bar * k, lo + clear * (k + 1) + bar * (k + 1)) for k in range(n)]
 
 
+_TOP_TOL = 0.005            # 수직구 상단 높이 허용 오차 (m)
+
+
 def layout_vent(cfg, spec, name: str) -> VentLayout:
     """환기구 1개의 배치 (spec 의 기본 범위 검사는 vent_check.check_vent_spec 이 먼저 한다)"""
     st = cfg.station
     k = spec.floor
-    vs, side, e0 = resolve_vertices(cfg, spec, name, "환기구")
+    ground = st.ground_el
+    top_auto = len(spec.path) > 1 and spec.path[-1].z is None          # 마지막 꼭짓점 높이 비움 = 지표 + 돌출
+    if top_auto and ground is None:
+        raise ValueError(f"환기구 {name}: 마지막 꼭짓점 높이를 비우려면 정거장 공통 지표 EL 을 입력하세요 "
+                         "(수직구 상단 = 지표 EL + 지상 돌출 높이)")
+    top_el = None if ground is None else ground + spec.protrusion
+    vs, side, e0 = resolve_vertices(cfg, spec, name, "환기구", last_z=top_el)
     nseg = len(vs) - 1
+    ends_vertical = math.hypot(vs[-1].x - vs[-2].x, vs[-1].y - vs[-2].y) < 1e-3
+    if top_auto and not ends_vertical:
+        raise ValueError(f"환기구 {name}: 마지막 꼭짓점 높이를 비울 수 있는 것은 수직구로 끝날 때뿐입니다 "
+                         "(덕트 끝 그릴은 높이를 입력하세요)")
+    if ends_vertical and not top_auto and top_el is not None and abs(vs[-1].z - top_el) > _TOP_TOL:
+        raise ValueError(f"환기구 {name}: 수직구 상단(EL {vs[-1].z:.3f})이 지표 EL {ground:g} + 지상 돌출 "
+                         f"{spec.protrusion:g} = {top_el:.3f} 과 다릅니다 (마지막 꼭짓점 높이를 비우면 자동)")
 
     # ---- 구간 분류: ('H', ux, uy, L) 덕트 / ('V', dz) 수직
     segs = []

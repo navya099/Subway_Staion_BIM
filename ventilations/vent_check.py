@@ -53,6 +53,8 @@ def check_vent_spec(station, spec, name: str):
     if spec.cell_height > clear + _EPS:
         raise ValueError(f"환기구 {name}: 칸 내공 높이({spec.cell_height:g}m)가 {station.level_name(k)} 내공 높이"
                          f"({clear:g}m)보다 큽니다 (측벽 오프닝이 위 슬래브에 닿음)")
+    if not (math.isfinite(spec.protrusion) and spec.protrusion >= 0):
+        raise ValueError(f"환기구 {name}: 지상 돌출 높이는 0 이상이어야 합니다 ({spec.protrusion})")
     wt = station.wall_t_at(k)          # 아래층 외벽이 더 두꺼우면 그 턱 위의 바닥 슬래브를 뺀다 (passage_layout.lower_ledge)
     top = station.floor_level(k) + spec.cell_height + spec.roof_t
     if k < floors and top > station.floor_level(k + 1) + _EPS and station.wall_t_at(k + 1) > wt + _EPS:

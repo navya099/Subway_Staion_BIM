@@ -210,12 +210,13 @@ class StationBIMApp:
             out_dir = filedialog.askdirectory(title="성과물 저장 폴더 선택")
             if not out_dir:
                 return
-            paths = BIMEngine.build(cfg, out_dir, opt)
+            notes = []
+            paths = BIMEngine.build(cfg, out_dir, opt, notes)
         except Exception as e:
             traceback.print_exc()
             messagebox.showerror('에러', f"{type(e).__name__}: {e}")
             return
-        messagebox.showinfo('완료', "생성된 파일:\n" + "\n".join(paths))
+        messagebox.showinfo('완료', "생성된 파일:\n" + "\n".join(paths) + ("\n\n" + "\n".join(notes) if notes else ""))
 
 
     def on_preview(self):

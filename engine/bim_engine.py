@@ -3,13 +3,15 @@ from pathlib import Path
 from config.master_config import StationProjectConfig
 from config.output_config import OutputOptions
 from engine.cad_engine import StationCADEngine
+from exporter.dae_exporter import dae_notes
 
 
 class BIMEngine:
     @staticmethod
-    def build(cfg: StationProjectConfig, out_dir, options: OutputOptions = None) -> list[str]:
+    def build(cfg: StationProjectConfig, out_dir, options: OutputOptions = None, notes: list = None) -> list[str]:
         """설정으로 성과물을 out_dir 에 생성하고 파일 경로 목록을 반환.
-        options(출력 탭)로 무엇을 출력할지(3D DXF · 횡단 · 평면 · 종단 · IFC)와 세부 옵션을 정함 (기본: 모두)"""
+        options(출력 탭)로 무엇을 출력할지(3D DXF · 횡단 · 평면 · 종단 · IFC · 텍스처 DAE)와 세부 옵션을 정함 (기본: 텍스처 DAE 외 모두).
+        notes 에 목록을 주면 알릴 내용(텍스처 DAE 의 원점·텍스처 이미지가 없는 재질)을 덧붙임"""
         opt = options or OutputOptions()
         opt.validate(cfg)                       # 파일을 만들기 전에 검사
         out = Path(out_dir)
@@ -26,4 +28,8 @@ class BIMEngine:
             paths.append(engine.generate_profile_dxf(out / "정거장종단면도.dxf", offsets=opt.profile_offsets))
         if opt.ifc:
             paths.append(engine.generate_ifc(out / "station_model.ifc"))
+        if opt.dae:
+            paths.append(engine.generate_dae(out / "정거장3d모델.dae"))
+            if notes is not None:
+                notes.extend(dae_notes(engine.dae_result))
         return paths

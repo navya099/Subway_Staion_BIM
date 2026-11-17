@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 827개 통과** (GUI 118개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 838개 통과** (GUI 119개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -63,9 +63,11 @@ helper/                     prism_member.py(각기둥/스윕 기하), strip_memb
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, build_*_doc = 저장 없는 DXF 문서), bim_engine.py(BIMEngine.build)
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
+exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
+assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / print_tab (탭 1~13, 제목은 짧게 '1.선형' …, 창 폭 600),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -162,7 +164,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 불러온 선형 파일은 **원본 내용 + 읽기 옵션을 포함**(zlib+base64, 선형 JSON 이 참조하는 points/landxml 파일도 함께, 참조는 파일 이름으로 바꿈). 열 때 임시 폴더에 풀어 다시 읽음, 실패하면 BP/EP 직선으로 열고 경고. `AlignmentSource.embedded` 는 불러올 때 만듦.
   - 복원 순서(`StationBIMApp.apply_state`): 선형 초기화 → 층별이 아닌 입력칸 → 층수 반영(`_on_floors_changed`) → 층별 입력칸 → 초안 교체(복사본) → 탭 render → 선형. 초안은 화면이 계속 고치므로 수집·복원 모두 deepcopy.
   - 변경 표시: 저장 시점 `ProjectState.key()` 와 비교(700ms 주기, 선형은 지문). 제목 "이름 * — 앱", 새 프로젝트·열기·종료(창 닫기 포함) 전에 저장 확인. 저장은 임시 파일 후 교체(원자적). 최근 목록은 `%APPDATA%/subway_station_bim/recent.json`(테스트는 `recent_file` 인자로 격리, `watch=False`).
-- **출력 옵션(출력 탭, `OutputOptions`)**: '성과물 출력' 은 체크한 성과물만 출력 (3D DXF · IFC · 평면도 · 종단면도 · 단면도, 하나 이상).
+- **출력 옵션(출력 탭, `OutputOptions`)**: '성과물 출력' 은 체크한 성과물만 출력 (3D DXF · IFC · 평면도 · 종단면도 · 단면도 · 텍스처 DAE(기본 끔), 하나 이상).
   - 평면도: 출력할 층(체크, 기본 모든 층) + 절단 높이(각 층 FL 기준, 모든 층 공통, 기본 2.0, 고른 층 내공 높이 미만). 여러 층은 한 파일에 아래층부터 위로 세로 배치(첫 층만 실제 좌표), 제목에 층 이름.
   - 종단면도: 절단 축 = 선형 중심 / 왼쪽·오른쪽 선로 중심(±선로 간격/2) 체크 + 직접 offset(쉼표, 왼쪽 +). 본체 외곽 안이어야 함. 여러 축은 한 파일에 아래로 배치, 제목에 `AXIS: C.L.±x`(중심 1개면 예전 제목).
   - 단면도: 측점(절대 STA, `134.45` 또는 `0+134.45`, 쉼표) + 연속 단면(간격, 시작·끝 STA — 비우면 내공 시점·종점, 최대 500개). 정렬·1mm 중복 제거, 내공 범위 밖이면 오류. 둘 다 없으면 내공 1/4·1/2·3/4.
@@ -181,7 +183,13 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **직교 모드(F8, 기본 켬, 경로 선택만)**: 직전 점에서 커서가 더 많이 움직인 축(s 또는 t) 방향으로만 — 고정 축은 직전 값, 움직이는 축만 스냅(`ortho_snap`). 출구통로·환기구 첫 구간(본체에 직각) 을 클릭으로 만들 수 있게 함 (사용자 작동 테스트에서 없으면 불가능했음).
   - 곡선 선형은 평면이 WCS 라 클릭은 `to_station`(정확, 약 30ms), 마우스 이동은 0.5m 중심선 표본 근사(`to_st(fast=True)`).
   - 탭 연결(`gui/pick_buttons.py`, 값 계산은 `gui/pick_fill.py`): 실 '영역 선택'(RECT → 시작/끝 STA·t), 문 '선택'(POINT → 가장 가까운 실 변 + 중심, 변 범위로 자름), 오프닝 '영역 선택'(RECT → 시작 STA·길이·t 중심·폭, 평면 층 = 가장 낮은 슬래브 위층), 계단 '위치 선택'(첫 단 STA·t), ESC(하부 WP), EV(승강로 중심, 최하 정지층), 출구통로·환기구 '경로 선택'(PATH → 꼭짓점 표 교체, 높이는 같은 순번 값 유지·새 점은 첫 점 비움/나머지 0, 절대 좌표 방식이면 to_world 로 X·Y).
-- 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4.
+- **텍스처 3D 모델(COLLADA .dae, `exporter/dae_exporter.py`)**: 스케치업 기본 가져오기로 둘러보기용 (스케치업 IFC 가져오기는 텍스처를 읽지 않음, 2D 도면에는 불필요). 출력 탭 '텍스처 DAE'(기본 끔) → `정거장3d모델.dae` + 옆 `textures/` 에 이미지 복사.
+  - 기하 = `build_3d_doc` 의 3DFACE 그대로(단일 원천). 마감 부재는 그 부재의 `material`(source_element 핸들로 연결), 나머지는 레이어별 재질(`render_material.LAYER_MATERIALS`, 목록에 없는 구조 레이어 = `CONCRETE` — 텍스처 `Polished Concrete New` 2.0×2.0, 콘크리트 면처리도 같은 텍스처). **천장틀(FIN_FRAME)은 기본 제외**(면이 많고 천장판에 가림, `frames=True` 로 포함).
+  - 텍스처는 재질 이름 기준 `FINISH_MATERIALS`: 금속패널 → `metal_panel` 1.2×0.6, 화강석 → `granite` 0.6×0.6, 알루미늄 천장판 → `ceiling_panel` 0.6×0.6 (이미지 한 장의 실제 크기). 이미지(`assets/image/tile/{이름}.jpg|.jpeg|.png`, 공백 있는 이름은 URI 에서 `%20`)가 없으면 색만 + 완료 알림에 안내. 그 밖의 재질은 색만.
+  - 텍스처 좌표: 면마다 평면 투영 — 수평 면(|n_z| ≥ 0.7)은 u = 면 중심의 선형 접선(곡선은 `preview_render.station_of` 근사), v = 왼쪽 +t; 그 밖은 u = 면 안 수평, v = 면 안 위쪽. 세계 원점 기준 좌표라 이웃 면끼리 무늬가 이어짐(곡선 수평 면은 근사).
+  - 좌표는 정수 원점 기준 상대 좌표(소수 5자리, 스케치업 정밀도) — 원점은 `<asset><comments>`·완료 알림. 레이어마다 노드(스케치업 그룹), 재질마다 삼각형 묶음, double_sided.
+  - 기본 마감 재질 이름 변경: 바닥 기본 `석재` → **화강석**, 벽 기본 `패널` → **금속패널**(FinishType·마감 탭 초안). 옛 프로젝트 파일의 마감표는 저장된 이름 그대로라 텍스처를 쓰려면 마감 탭에서 이름을 바꿔야 함.
+- 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE.
 
 ## 5. 테스트 작성 규약
 

@@ -30,9 +30,9 @@ class FinishType:
     ffl: float = 0.1
     floor_t: float = 0.03
     floor_fill: str = FILL_MORTAR
-    floor_material: str = "석재"
+    floor_material: str = "화강석"
     wall_t: float = 0.05
-    wall_material: str = "패널"
+    wall_material: str = "금속패널"
     ceiling: bool = True
     ceiling_h: float = 3.0
     board_t: float = 0.01

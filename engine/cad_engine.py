@@ -6,6 +6,7 @@ from columns.column_engine import ColumnEngine
 from config.cadconfig import LAYER_DEFINITIONS
 from config.master_config import StationProjectConfig
 from config.output_config import PLAN_CUT_H
+from exporter.dae_exporter import export_dae
 from exporter.ifc_exporter import IFCExporter
 from helper.view_item import ViewItem, draw_view_items
 from platforms.platform_engine import PlatformEngine
@@ -264,6 +265,12 @@ class StationCADEngine:
             axis = "" if t == 0 and len(offsets) == 1 else f", AXIS: C.L.{t:+.3f}m" if t else ", AXIS: C.L."
             msp.add_text(f"STATION PROFILE VIEW ({label}: {self.cfg.grade_permil(0.0):.2f}‰{axis})", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0 + dv))
         return doc
+
+    def generate_dae(self, filename="output/정거장3d모델.dae", texture_dir=None) -> str:
+        """텍스처 3D 모델 (COLLADA, 스케치업 둘러보기용). 결과 요약(원점·재질·텍스처 없는 재질)은 self.dae_result"""
+        kw = {} if texture_dir is None else {"texture_dir": texture_dir}
+        self.dae_result = export_dae(self, filename, **kw)
+        return self.dae_result.path
 
     def generate_ifc(self, output_path: str = "output/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)

@@ -25,9 +25,9 @@ class FinishTypeDraft:
     ffl: str = "0.1"
     floor_t: str = "0.03"
     fill: str = "몰탈 채움"
-    floor_material: str = "석재"
+    floor_material: str = "화강석"
     wall_t: str = "0.05"
-    wall_material: str = "패널"
+    wall_material: str = "금속패널"
     wall_face: str = ""                 # 구조체 면 → 벽 마감 표면 거리 (비우면 마감 두께와 같음 = 이격 없음)
     ceiling: bool = True
     ceiling_h: str = "3"

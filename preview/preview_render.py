@@ -130,7 +130,7 @@ def _clip(f, col, lim, sign):
     return np.array(out) if len(out) >= 3 else None
 
 
-def _station_of(cfg, pts_xy: np.ndarray, lo: float, hi: float):
+def station_of(cfg, pts_xy: np.ndarray, lo: float, hi: float):
     """세계 평면 좌표 → 정거장 로컬 s 근사 (1m 간격 중심선 표본 중 가장 가까운 점 + 접선 방향 투영)"""
     ss = np.arange(lo, hi + 1e-9, 1.0)
     c = np.array([cfg.to_world(s, 0.0) for s in ss])
@@ -176,7 +176,7 @@ def mesh_from_doc(doc, cfg=None) -> Mesh3D:
         ext = np.full((len(pts), 5), np.nan)
         ext[:, :3] = pts - o
         if cfg is not None:
-            s = _station_of(cfg, pts[:, :2], lo, hi)
+            s = station_of(cfg, pts[:, :2], lo, hi)
             ext[:, 3] = s
             ext[:, 4] = pts[:, 2] - np.interp(s, sq, flq)
         k, out = 0, []

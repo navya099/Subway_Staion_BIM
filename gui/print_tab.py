@@ -8,7 +8,8 @@ FONT_B = ("Malgun Gothic", 9, "bold")
 SMALL = ("Malgun Gothic", 8)
 
 # 체크박스: (초안 속성, 라벨)
-OUTPUTS = [("dxf3d", "3D DXF"), ("ifc", "IFC"), ("plan", "평면도"), ("profile", "종단면도"), ("section", "단면도")]
+OUTPUTS = [("dxf3d", "3D DXF"), ("ifc", "IFC"), ("plan", "평면도"), ("profile", "종단면도"), ("section", "단면도"),
+           ("dae", "텍스처 DAE")]
 PROFILE_AXES = [("profile_center", "선형 중심 (0)"), ("profile_track_l", "왼쪽 선로 중심 (+D/2)"),
                 ("profile_track_r", "오른쪽 선로 중심 (−D/2)")]
 
@@ -32,7 +33,9 @@ class PrintTab:
         tk.Label(self.parent, justify="left", fg="#555555", font=SMALL, wraplength=430,
                  text="• '성과물 출력' 을 누르면 체크한 성과물만 아래 옵션대로 출력합니다\n"
                       "• 측점은 절대 STA (134.45 또는 0+134.45), 여러 개는 쉼표로 구분\n"
-                      "• offset 은 선형 중심에서의 직교 거리 (진행방향 왼쪽 +, m)").pack(anchor="w", padx=15)
+                      "• offset 은 선형 중심에서의 직교 거리 (진행방향 왼쪽 +, m)\n"
+                      "• 텍스처 DAE = 스케치업 둘러보기용 3D (COLLADA). 텍스처 이미지는 assets/image/tile/ 의 "
+                      "metal_panel(벽 금속패널)·granite(바닥 화강석)·ceiling_panel(알루미늄 천장판) .jpg/.png").pack(anchor="w", padx=15)
 
         box = self._frame(" 출력할 성과물 ")
         row = tk.Frame(box)

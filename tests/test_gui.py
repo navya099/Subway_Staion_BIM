@@ -1322,6 +1322,18 @@ def test_generate_uses_print_options(app, monkeypatch, tmp_path):
     assert sorted(os.listdir(tmp_path)) == ["정거장단면도.dxf", "정거장평면도.dxf"] and d.calls[-1][0] == "info"
 
 
+def test_generate_texture_dae_only(app, monkeypatch, tmp_path):
+    """출력 탭 '텍스처 DAE' 만 켜면 .dae 만 출력하고 완료 알림에 원점·텍스처 안내를 덧붙임"""
+    d = patch_dialogs(monkeypatch, directory=str(tmp_path))
+    assert app.print_tab._vars["dae"].get() is False
+    for k in ("dxf3d", "ifc", "plan", "profile", "section"):
+        app.print_tab._vars[k].set(False)
+    app.print_tab._vars["dae"].set(True)
+    app.on_generate()
+    assert d.calls[-1][0] == "info" and "정거장3d모델.dae" in os.listdir(tmp_path)
+    assert "텍스처 DAE: 원점" in d.calls[-1][2]
+
+
 def test_generate_rejects_bad_print_options_before_asking_folder(app, monkeypatch, tmp_path):
     d = patch_dialogs(monkeypatch, directory=str(tmp_path / "out"))
     app.print_tab._vars["section_stations"].set("99999")

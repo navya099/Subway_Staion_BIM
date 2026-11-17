@@ -48,6 +48,9 @@ LAYER_DEFINITIONS = {
     "FIN_WALL": {"color": 43},           # 벽·기둥·승강로 마감
     "FIN_CEILING": {"color": 151},       # 천장판
     "FIN_FRAME": {"color": 8},           # 천장틀 (M/T바, 캐링 채널)
+    "FIN_TACTILE": {"color": 2},         # 점자블록 (점형·선형)
+    "SEC_TACTILE": {"color": 2},         # 횡단·종단면도 점자블록
+    "PLAN_TACTILE": {"color": 2},        # 평면도 점자블록
     "SEC_FINISH": {"color": 43},         # 횡단면도 마감
     "PROF_FINISH": {"color": 43},        # 종단면도 마감
     "PLAN_FINISH": {"color": 43},        # 평면도 벽·기둥 마감

@@ -27,6 +27,7 @@ from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
 from gui.room_draft import DoorDraft, RoomDraft, RoomDrafts, RoomSettingsDraft
 from gui.stair_draft import StairDraft, StairDrafts
+from gui.tactile_draft import TactileDrafts, TactilePathDraft, TactilePointDraft, TactileSettingsDraft
 from gui.vent_draft import VentDraft, VentDrafts
 
 FORMAT = "subway_station_bim_project"
@@ -36,12 +37,14 @@ FILETYPES = [("정거장 BIM 프로젝트", "*" + SUFFIX), ("모든 파일", "*.
 
 # 목록 필드의 원소 형식 (dataclass 필드 형식이 그냥 list 라서 따로 둠)
 _NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft, (PassageDraft, "vertices"): VertexDraft,
-           (VentDraft, "vertices"): VertexDraft, (RoomDraft, "doors"): DoorDraft}
+           (VentDraft, "vertices"): VertexDraft, (RoomDraft, "doors"): DoorDraft,
+           (TactilePathDraft, "vertices"): TactilePointDraft}
 # 목록형 탭: 상태 필드 이름 → (초안 묶음, 원소 형식)
 LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": (StairDrafts, StairDraft),
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),
                "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft),
-               "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "room_drafts": (RoomDrafts, RoomDraft)}
+               "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "room_drafts": (RoomDrafts, RoomDraft),
+               "tactile_drafts": (TactileDrafts, TactilePathDraft)}
 
 
 # ====================================================================== 초안 dataclass ↔ JSON
@@ -204,6 +207,8 @@ class ProjectState:
     room_settings: RoomSettingsDraft = field(default_factory=RoomSettingsDraft)   # 칸막이벽 두께·층별 기본 실
     finish_enabled: bool = True                                                   # 마감 생성
     finish_drafts: list = field(default_factory=default_drafts)                  # 마감표 (FinishTypeDraft)
+    tactile_drafts: list = field(default_factory=list)                           # 유도블록 경로 (TactilePathDraft)
+    tactile_settings: TactileSettingsDraft = field(default_factory=TactileSettingsDraft)   # 점자블록 공통·자동 경고
     alignment: Optional[EmbeddedAlignment] = None
 
     def to_dict(self) -> dict:
@@ -215,6 +220,7 @@ class ProjectState:
         d["room_settings"] = _plain(self.room_settings)
         d["finish_enabled"] = bool(self.finish_enabled)
         d["finish_drafts"] = _plain(self.finish_drafts)
+        d["tactile_settings"] = _plain(self.tactile_settings)
         d["alignment"] = _alignment_plain(self.alignment)
         return d
 
@@ -246,6 +252,8 @@ class ProjectState:
         if d.get("room_settings") is not None:
             st.room_settings = _build(RoomSettingsDraft, d["room_settings"], "실 설정")
             st.room_settings.default_uses = {str(k): str(v) for k, v in (st.room_settings.default_uses or {}).items()}
+        if d.get("tactile_settings") is not None:                  # 옛 파일에는 없음 → 기본 (켬)
+            st.tactile_settings = _build(TactileSettingsDraft, d["tactile_settings"], "점자블록 설정")
         if d.get("print_draft") is not None:
             st.print_draft = _build(PrintDraft, d["print_draft"], "출력 옵션")
         st.alignment = _alignment_build(d.get("alignment"))

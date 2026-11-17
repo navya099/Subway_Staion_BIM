@@ -14,6 +14,7 @@ from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
 from rooms.room_data import RoomBox, RoomPiece
 from rooms.room_layout import resolve_room_names
+from tactiles.tactile_layout import layout_tactile
 
 # 부재 코드 → (IFC 엔티티, PredefinedType, 이름 꼬리, 레이어)
 KINDS = {"FLOOR": ("IfcCovering", "FLOORING", "바닥 마감재", "FIN_FLOOR"),
@@ -47,9 +48,33 @@ class RoomFinishData(CommonBIMData):
     ffl_rel: float = 0.0
     ceiling_rel: float = 0.0
     elements: list = field(default_factory=list)
+    tactile: list = field(default_factory=list)      # 바닥 마감재를 대체한 점자블록 [(s0, s1, t0, t1, z0, z1, 종류)]
 
     def element(self, code: str):
         return next((e for e in self.elements if e.code == code), None)
+
+
+def room_piece(cfg, name, s0, s1, t0, t1, z0, z1) -> RoomPiece:
+    """정거장 로컬 사각 조각 (s0..s1 × t0..t1, FL 기준 z0..z1) → 선형 각기둥 (하면이 종단을 따름)"""
+    off = cfg.station.offset
+    mid = (s0 + s1) / 2.0
+    return RoomPiece(name=name, pos_x=mid, pos_y=(t0 + t1) / 2.0, pos_z=cfg.lv(mid) - off + z0,
+                     shape=RoomBox(length=s1 - s0, width=t1 - t0, height=z1 - z0, rise=cfg.lv(s1) - cfg.lv(s0),
+                                   curve_factor=PM.curve_factor(cfg, s0, s1, (t0 + t1) / 2.0)))
+
+
+def column_footprints(cfg, column_engine) -> list:
+    """기둥 평면 [(층, s, t, 반폭 s, 반폭 t, 반지름|None)] (마감·점자블록 배치가 기둥을 피할 때)"""
+    if column_engine is None:
+        return []
+    sp = cfg.station
+    floor_no = {sp.level_name(n): n for n in range(1, sp.floors + 1)}
+    out = []
+    for pk in column_engine.column_packages:
+        for c in pk.columns:
+            rad = getattr(c.shape, "radius", None)
+            out.append((floor_no[pk.level], c.pos_x, c.pos_y, c.shape.half_s, c.shape.half_t, rad))
+    return out
 
 
 class FinishEngine:
@@ -60,31 +85,20 @@ class FinishEngine:
         self._build(column_engine)
 
     def _columns(self, column_engine) -> list:
-        if column_engine is None:
-            return []
-        floor_no = {self.sp.level_name(n): n for n in range(1, self.sp.floors + 1)}
-        out = []
-        for pk in column_engine.column_packages:
-            for c in pk.columns:
-                rad = getattr(c.shape, "radius", None)
-                out.append((floor_no[pk.level], c.pos_x, c.pos_y, c.shape.half_s, c.shape.half_t, rad))
-        return out
+        return column_footprints(self.cfg, column_engine)
 
     def _piece(self, name, s0, s1, t0, t1, z0, z1) -> RoomPiece:
-        cfg, off = self.cfg, self.sp.offset
-        mid = (s0 + s1) / 2.0
-        return RoomPiece(name=name, pos_x=mid, pos_y=(t0 + t1) / 2.0, pos_z=cfg.lv(mid) - off + z0,
-                         shape=RoomBox(length=s1 - s0, width=t1 - t0, height=z1 - z0, rise=cfg.lv(s1) - cfg.lv(s0),
-                                       curve_factor=PM.curve_factor(cfg, s0, s1, (t0 + t1) / 2.0)))
+        return room_piece(self.cfg, name, s0, s1, t0, t1, z0, z1)
 
     def _build(self, column_engine):
         cfg = self.cfg
         if not cfg.finish_settings.enabled:
             return
         specs = dict(zip(resolve_room_names(cfg, cfg.rooms), cfg.rooms))
-        layouts = layout_room_finishes(cfg, cfg.finish_settings, cfg.room_layouts(), specs, self._columns(column_engine),
+        columns = self._columns(column_engine)
+        layouts = layout_room_finishes(cfg, cfg.finish_settings, cfg.room_layouts(), specs, columns,
                                        cfg.all_openings(), cfg.stair_layouts(), cfg.escalator_layouts(),
-                                       cfg.elevator_layouts())
+                                       cfg.elevator_layouts(), layout_tactile(cfg, columns))
         for rf in layouts:
             level = self.sp.level_name(rf.floor)
             ft = rf.finish
@@ -105,7 +119,7 @@ class FinishEngine:
                     material=material, code=code, room=rf.room, pieces=pieces, boxes=list(boxes)))
             self.rooms.append(RoomFinishData(name=f"FIN_{rf.room}", family_name="실 마감", type_name=ft.name, level=level,
                                              room=rf.room, use=rf.use, floor=rf.floor, finish=ft, ffl_rel=rf.ffl_rel,
-                                             ceiling_rel=rf.ceiling_rel, elements=elements))
+                                             ceiling_rel=rf.ceiling_rel, elements=elements, tactile=list(rf.tactile)))
 
     def all_elements(self) -> list:
         return [e for r in self.rooms for e in r.elements]

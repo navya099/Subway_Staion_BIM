@@ -33,6 +33,8 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("몰탈", (0.70, 0.70, 0.68)),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
+    RenderMaterial("점자블록 점형", (0.96, 0.80, 0.10), "tactile_warning", 0.3, 0.3),
+    RenderMaterial("점자블록 선형", (0.96, 0.80, 0.10), "tactile_guide", 0.3, 0.3),
     RenderMaterial("M바 천장틀", (0.60, 0.60, 0.60)),
     RenderMaterial("T바 천장틀", (0.60, 0.60, 0.60)),
 )}

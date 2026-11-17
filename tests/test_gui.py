@@ -801,12 +801,12 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
     assert {o.ObjectType for o in f.by_type("IfcOpeningElement")} == {"STAIR", "ELEV"}
 
 
-def test_thirteen_tabs_fit_in_window_width(app):
-    """탭 13개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+def test_all_tabs_fit_in_window_width(app):
+    """탭 14개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 13
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 14
 
 
 # ---------------- 계단 탭 ----------------
@@ -1846,3 +1846,37 @@ def test_station_ground_el_field(app):
     set_entry(app, "ground_el", "abc")
     with pytest.raises(ValueError, match="지표 EL"):
         TkAdapter.collect_entries(app.entries)
+
+
+# ---------------- 점자블록 탭 ----------------
+def test_tactile_tab_pick_path_collect_and_project_roundtrip(app, monkeypatch, tmp_path):
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    tt = app.tactile_tab
+    assert tt.drafts.settings.enabled is True and tt.floor_count == 2
+    tt._set_vars["edge_offset"].set("0.5")
+    tt.add_path()
+    tt.set_floor(0, 2)
+    base = float(app.entries["start_station"].get())
+    tt.pick_path(0)
+    pv = app.preview
+    pv.add_pick_point(30.0, 2.0)
+    pv.add_pick_point(50.0, 2.0)
+    pv.add_pick_point(50.0, -2.0)
+    pv._on_click(_Ev(pv.plan.ax, 0, 0, button=3))               # 오른쪽 클릭 = 끝
+    vs = tt.drafts.items[0].vertices
+    assert [float(c) for v in vs for c in (v.x, v.y)] == pytest.approx([base + 30, 2, base + 50, 2, base + 50, -2])
+    cfg = TkAdapter.collect_entries(app.entries)
+    ts = cfg.tactile_settings
+    assert ts.enabled and ts.edge_offset == 0.5 and ts.paths[0].floor == 2
+    assert [c for p in ts.paths[0].points for c in p] == pytest.approx([30, 2, 50, 2, 50, -2])
+    eng = pv.engine
+    assert {e.name for e in eng.tactiles.elements} >= {"TB_B1F_WARN", "TB_B1F_GUIDE"}
+    # 프로젝트 저장 → 새 프로젝트 → 다시 열기
+    from gui.project_file import ProjectState
+    st = app.collect_state()
+    app.apply_state(ProjectState())
+    assert app.tactile_tab.drafts.items == [] and app.tactile_tab._set_vars["edge_offset"].get() == "0.6"
+    app.apply_state(st)
+    assert app.tactile_tab._set_vars["edge_offset"].get() == "0.5"
+    assert [(v.x, v.y) for v in app.tactile_tab.drafts.items[0].vertices] == [(v.x, v.y) for v in vs]
+    assert app.tactile_tab._vars[(0, "v", 2, "y")].get() == "-2"

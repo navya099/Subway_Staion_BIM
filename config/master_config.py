@@ -17,6 +17,8 @@ from rooms.room_check import check_room_layouts, layout_rooms
 from rooms.room_spec import RoomSettings, snap_rooms_to_clear
 from stairs.stair_check import check_stair_layouts, layout_stairs
 from ventilations.vent_check import check_vent_layouts, layout_vents
+from tactiles.tactile_layout import check_tactile
+from tactiles.tactile_spec import TactileSettings
 
 
 @dataclasses.dataclass
@@ -35,6 +37,7 @@ class StationProjectConfig:
     rooms: list = dataclasses.field(default_factory=list)         # list[RoomSpec]: 실(구획) — 나머지는 층별 기본 실, 경계 칸막이벽 자동
     room_settings: RoomSettings = dataclasses.field(default_factory=RoomSettings)
     finish_settings: FinishSettings = dataclasses.field(default_factory=FinishSettings)   # 용도별 마감표
+    tactile_settings: TactileSettings = dataclasses.field(default_factory=TactileSettings)   # 점자블록 (자동 경고 + 유도 경로)
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
 
     def __post_init__(self):
@@ -72,6 +75,7 @@ class StationProjectConfig:
         check_elevator_layouts(self, evs, stairs, escs)
         check_room_layouts(self, layout_rooms(self), all_ops, stairs, escs, evs)
         check_finishes(self)
+        check_tactile(self)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)

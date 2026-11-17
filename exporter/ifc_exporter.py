@@ -689,6 +689,24 @@ class IFCExporter:
             f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                             RelatingStructure=self.storeys[level], RelatedElements=els)
 
+    def export_tactiles(self, tactile_engine):
+        """점자블록: 층·종류(점형/선형)마다 IfcCovering(FLOORING, ObjectType = 점자블록 점형|선형), 재질, 층 storey 에 포함.
+        형상은 마감과 같은 면 집합 (곡선은 중심점 4분할 삼각형)"""
+        f = self.file
+        by_level: dict = {}
+        for e in tactile_engine.elements:
+            items = [self._face_set(self._finish_faces(p)) for p in e.pieces]
+            el = f.create_entity(
+                "IfcCovering", GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                Description=f"{e.level} {e.material} ({len(e.pieces)}조각, {e.area:.2f}m²)", ObjectType=e.material,
+                ObjectPlacement=self._placement(), Representation=self._product_shape(items, "Tessellation"),
+                PredefinedType="FLOORING")
+            self._assign_material(el, e.material)
+            by_level.setdefault(e.level, []).append(el)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+
     _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
                     VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),
                     VentPartKind.END_WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.SHAFT_WALL: ("IfcWall", "SOLIDWALL"),

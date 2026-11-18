@@ -707,6 +707,45 @@ class IFCExporter:
             f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                             RelatingStructure=self.storeys[level], RelatedElements=els)
 
+    def export_psds(self, psd_engine):
+        """스크린도어: 선로마다 IfcElementAssembly(USERDEFINED: PLATFORM_SCREEN_DOOR) ⊃ POST(IfcColumn), 구동부(IfcMember
+        USERDEFINED PSD_HEADER), 가동문(IfcDoor SLIDING_TO_LEFT/RIGHT), 비상문 겸용 고정부(IfcDoor SINGLE_SWING), 고정부·채움 패널
+        (IfcPlate CURTAIN_PANEL). 형상 = 조각(프레임 + 유리) 면 집합, 최하층 storey"""
+        f = self.file
+        if not psd_engine.elements:
+            return
+        level = psd_engine.elements[0].level
+        asms = []
+        for track in sorted({e.track for e in psd_engine.elements}):
+            asm = f.create_entity("IfcElementAssembly", GlobalId=ifcopenshell.guid.new(), Name=f"PSD_{track}",
+                                  Description=f"스크린도어 ({track} 선로)", ObjectType="PLATFORM_SCREEN_DOOR",
+                                  ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+            parts = []
+            for e in (e for e in psd_engine.elements if e.track == track):
+                kw = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
+                          Description=f"스크린도어 {e.type_name}" + (f" (유닛 {e.unit})" if e.unit else ""),
+                          ObjectPlacement=self._placement(),
+                          Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces],
+                                                             "Tessellation"))
+                s0, s1 = e.s_range
+                if e.kind == "POST":
+                    el = f.create_entity("IfcColumn", PredefinedType="COLUMN", **kw)
+                elif e.kind == "HEADER":
+                    kw["ObjectType"] = "PSD_HEADER"
+                    el = f.create_entity("IfcMember", PredefinedType="USERDEFINED", **kw)
+                elif e.kind in ("DOOR", "EMERGENCY"):
+                    op = ("SLIDING_TO_LEFT" if e.name.endswith("_N") else "SLIDING_TO_RIGHT") if e.kind == "DOOR" else "SINGLE_SWING_LEFT"
+                    el = f.create_entity("IfcDoor", PredefinedType="DOOR", OperationType=op, OverallWidth=float(s1 - s0),
+                                         OverallHeight=float(e.height), **kw)
+                else:
+                    el = f.create_entity("IfcPlate", PredefinedType="CURTAIN_PANEL", **kw)
+                self._assign_material(el, e.material)
+                parts.append(el)
+            f.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm, RelatedObjects=parts)
+            asms.append(asm)
+        f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                        RelatingStructure=self.storeys[level], RelatedElements=asms)
+
     _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
                     VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),
                     VentPartKind.END_WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.SHAFT_WALL: ("IfcWall", "SOLIDWALL"),

@@ -48,6 +48,10 @@ LAYER_DEFINITIONS = {
     "FIN_WALL": {"color": 43},           # 벽·기둥·승강로 마감
     "FIN_CEILING": {"color": 151},       # 천장판
     "FIN_FRAME": {"color": 8},           # 천장틀 (M/T바, 캐링 채널)
+    "STRUCT_PSD": {"color": 252},        # 스크린도어 프레임·POST·구동부
+    "STRUCT_PSD_GLASS": {"color": 151},  # 스크린도어 유리
+    "SEC_PSD": {"color": 252},           # 횡단·종단면도 스크린도어
+    "PLAN_PSD": {"color": 252},          # 평면도 스크린도어
     "FIN_TACTILE": {"color": 2},         # 점자블록 (점형·선형)
     "SEC_TACTILE": {"color": 2},         # 횡단·종단면도 점자블록
     "PLAN_TACTILE": {"color": 2},        # 평면도 점자블록

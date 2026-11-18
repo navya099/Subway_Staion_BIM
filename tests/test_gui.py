@@ -1045,7 +1045,7 @@ def test_generate_with_path_passages_end_to_end(app, tmp_path):
     cfg = TkAdapter.collect_entries(app.entries)
     paths = BIMEngine.build(cfg, tmp_path)
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
-    assert len(f.by_type("IfcElementAssembly")) == 2
+    assert len([a for a in f.by_type("IfcElementAssembly") if a.ObjectType == "EXIT_PASSAGE"]) == 2   # GUI 기본은 PSD 도 켬
     assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == ["OPEN_EX1_WALL_B1F_R", "OPEN_EX2_WALL_B1F_L"]
 
 
@@ -1899,3 +1899,21 @@ def test_platform_tab_train_section(app):
     assert pt._train_vars["cars"].get() == "8" and pt._train_vars["l_stop"].get() is True
     app.apply_state(st)
     assert pt._train_vars["cars"].get() == "6" and pt.train_draft.l_stop is False
+
+
+def test_platform_tab_psd_section(app):
+    pt = app.platform_tab
+    assert pt.psd_draft is app.entries["psd_draft"] and pt.psd_draft.enabled is True
+    pt._psd_vars["edge_offset"].set("0.4")
+    pt._psd_combo.set("없음")
+    pt._psd_combo.event_generate("<<ComboboxSelected>>")
+    app.root.update()
+    assert pt.psd_draft.emergency == "없음" and "유닛 4.8m" in pt.psd_info.get()
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.psd_settings.enabled and cfg.psd_settings.edge_offset == 0.4 and cfg.psd_settings.emergency == ""
+    from gui.project_file import ProjectState
+    st = app.collect_state()
+    app.apply_state(ProjectState())
+    assert pt._psd_vars["edge_offset"].get() == "0.3" and pt._psd_combo.get() == "+s 쪽"
+    app.apply_state(st)
+    assert pt._psd_vars["edge_offset"].get() == "0.4" and pt.psd_draft.emergency == "없음"

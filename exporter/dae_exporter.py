@@ -159,8 +159,10 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             r, g, b = m.color
             diffuse = f"<color>{r:.3f} {g:.3f} {b:.3f} 1</color>"
             params = ""
+        trans = (f'<transparent opaque="A_ONE"><color>1 1 1 1</color></transparent>'      # 불투명도 = alpha (유리)
+                 f'<transparency><float>{m.alpha:.3f}</float></transparency>') if m.alpha < 1.0 else ""
         lib_fx.append(f'<effect id="{i}-fx"><profile_COMMON>{params}<technique sid="common"><lambert><diffuse>{diffuse}'
-                      f'</diffuse></lambert></technique></profile_COMMON><extra><technique profile="GOOGLEEARTH">'
+                      f'</diffuse>{trans}</lambert></technique></profile_COMMON><extra><technique profile="GOOGLEEARTH">'
                       f'<double_sided>1</double_sided></technique></extra></effect>')
 
     # 기하: 레이어마다 노드, (레이어, 재질)마다 기하 1개

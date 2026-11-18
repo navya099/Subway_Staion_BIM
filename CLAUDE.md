@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 884개 통과** (GUI 121개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 908개 통과** (GUI 122개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -33,7 +33,7 @@ python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ �
 
 **슬래브 번호(오프닝용)**: `0` = 본체 바닥, `i`(1..floors-1) = i층/i+1층 사이 중간 슬래브, `floors` = 본체 천장. 슬래브 객체 이름은 `SLAB_{level}_{FLOOR|MID|ROOF}`.
 
-**부재 = 각기둥(prism)**: 벽체·슬래브·승강장·지지벽체는 `(s 구간)×(t 구간)×(연직 두께)` + 종단구배(`rise`). 직선 선형이면 경사 각기둥 1개(DXF 6면, IFC `SweptSolid`), 곡선이면 표본 측점마다 단면을 이은 스윕(`helper/prism_member.py`, IFC `Tessellation`/IfcPolygonalFaceSet). 곡선 체적은 `curve_factor`(= (1/L)∫(1−κ·t)ds)로 보정.
+**부재 = 각기둥(prism)**: 벽체·슬래브·승강장·지지벽체는 `(s 구간)×(t 구간)×(연직 두께)` + 종단구배(`rise`). **3D 면은 모두 바깥 법선**(꼭짓점 반시계 — (s, t 왼쪽 +, z) 는 오른손 좌표계, `tests/test_curved.py::test_all_3d_objects_face_outward` 가 부재마다 부호 있는 체적 > 0 으로 검사. 예전 직선 각기둥 `create_sloped_box_faces_global` 은 안쪽을 향해 스케치업에서 뒷면이 보였음). 직선 선형이면 경사 각기둥 1개(DXF 6면, IFC `SweptSolid`), 곡선이면 표본 측점마다 단면을 이은 스윕(`helper/prism_member.py`, IFC `Tessellation`/IfcPolygonalFaceSet). 곡선 체적은 `curve_factor`(= (1/L)∫(1−κ·t)ds)로 보정.
 
 ## 3. 구조 (BIM 객체 패턴)
 
@@ -52,6 +52,7 @@ config/                     모델·선형
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), check(마감표 검증), engine
+psds/                       스크린도어: spec(PsdSettings), layout(열차 문마다 유닛·POST·구동부·채움 패널 조각 + 검증), engine
 trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
 tactiles/                   점자블록: spec(TactileSettings·TactilePathSpec), layout(자동 점형·유도 경로 → 층별 겹치지 않는 평면 사각형 + 검증), engine
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
@@ -68,8 +69,8 @@ exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프�
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab (탭 1~14, 제목은 짧게 '1.선형' …, 창 폭 600),
-                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_gui
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -118,7 +119,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - `layout_trains(cfg)` → `TrainPlacement`(차량별 앞·뒤 끝 s, `DoorPosition`(선로, 차량 번호(선두 1), 문 번호(차량 앞끝 1), 문 중심 s = 차량 앞끝 − direction × offset, 폭, `label` '차량-문')). 이후 스크린도어(PSD) 가동문도 이 문 위치를 쓸 예정.
   - 검증 `check_train`: 차량 1량 이상·길이·문 폭 > 0, 문이 차량 안·앞끝 기준 오름차순으로 안 겹침, 선로 L/R·중복, 방향 ±1, 정차한 열차가 내공 길이 안, 표시 폭 > 0.
   - GUI: 2.승강장 탭 '열차 (승하차 위치)' — 차량 수·길이·문 폭·표시 폭, 문 위치(쉼표)·선두 차량 문 위치(비우면 같음), 선로별 정차·진행방향·선두 STA. `TrainDraft`, 프로젝트 파일 `train_draft`.
-  - 다음 후보: 스크린도어(PSD 고정벽·가동문·비상문), 평면도 열차 윤곽, 열차 3D(차체), 차종별 제원.
+  - 다음 후보: 평면도 열차 윤곽, 열차 3D(차체), 차종별 제원.
+- **스크린도어 PSD(`psds/`)**: `cfg.psd_settings = PsdSettings`(모델 기본 끔, GUI 2.승강장 탭 '스크린도어' 묶음은 켬 — 옛 프로젝트도 켬). **열차를 써야 함**(정차 선로마다 한 줄). 치수는 실무 입면 상세도(UNIT 4,800 = 고정부 1,350 | 가동문 1,050 × 2 | 고정부 1,350(한쪽 비상문 겸용), 문 높이 2,000 + 구동부 400) + 단면은 일반값 예시(POST 0.2×0.2, 구동부 깊이 0.35, 프레임 0.05×0.05, 하부 레일 0.1, 유리 8mm), 모두 입력.
+  - 배치(`layout_psds`): 유닛 중심(두 가동문 사이) = 열차 문 중심. POST 는 유닛 양옆, 이웃 유닛 POST 가 같은 자리면(문 간격 = 유닛 + POST = 5.0, 기본 20m 4도어와 같음) 하나로 공유. 유닛 사이가 벌어지면 채움 고정 패널(한 장 ≤ `fill_max` 1.5, 여러 장이면 사이 POST) + 구동부, 열차 바깥은 없음. 내공 [0, L] 밖으로 나간 조각은 잘라냄(열차가 승강장 끝에 붙은 실무 샘플). 오류: 유닛 겹침(간격 < 유닛 폭), POST 일부 겹침(공유도 아니고 떨어지지도 않음), 채움 패널이 너무 좁음.
+  - 위치: PSD 중심선 |t| = 승강장 끝단(D/2 + 끝단 거리) + `edge_offset` 0.3, 그 선로 승강장 쪽. 바닥 = 그 자리 실의 바닥 마감면(`platform_base`, 마감 끔·마감 없으면 승강장 상면). 연단 점자블록(끝단 + 0.6~1.2)과 겹치지 않음.
+  - 부재(정거장 로컬 상자 → RoomPiece): 패널(고정부·가동문·채움) = 양옆 기둥·위 레일(frame_w)·하부 레일(kick_h) 프레임 + 가운데 유리, 구동부 = 문 위 header_h × header_d, POST = 바닥 ~ 구동부 위. 이름 `PSD_{선로}_{차량-문}_FIX_N/DOOR_N/DOOR_P/FIX_P/HEADER`, `PSD_{선로}_P{k}`, 채움 `F{k}`/`FH{k}`. 비상문 겸용 = `emergency` 쪽 고정부(+s/−s/없음). 문은 닫힌 상태. 전광판·표시등·패닉바·도어록은 생략.
+  - 출력: 3D DXF STRUCT_PSD(프레임·POST·구동부) / STRUCT_PSD_GLASS(유리), 미리보기 '스크린도어' 묶음, 횡단·종단 SEC_PSD(윤곽), 평면 PLAN_PSD(최하층, 절단 높이를 지나는 조각), IFC 선로마다 `IfcElementAssembly`(PLATFORM_SCREEN_DOOR, 최하층 storey) ⊃ POST `IfcColumn` · 구동부 `IfcMember`(PSD_HEADER) · 가동문 `IfcDoor`(SLIDING_TO_LEFT/RIGHT) · 비상문 겸용 `IfcDoor`(SINGLE_SWING_LEFT) · 고정부/채움 `IfcPlate`(CURTAIN_PANEL), DAE 유리 반투명(`RenderMaterial.alpha` 0.3 → `<transparency>`).
+  - 성능: 실무 샘플(12량 × 2선로, 유닛 96개) IFC 출력 약 8초 → 25초 (면 집합). 직선이면 압출 솔리드로 줄일 수 있음(후보).
+  - 다음 후보: 가동문 열림 상태, 전광판·표시등·도어록·패닉바, 단부 고정벽(열차 바깥 ~ 승강장 끝), 승강장 끝 점검문, 실무 단면 상세 반영, IFC 압출 솔리드.
 - **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
 - **직선 계단(1단계)**: `StairSpec`(시작 층 k → k+1, 첫 단 STA + 오르는 방향 ±s, t 중심·폭, 단높이 상한·단너비·런 높이 상한·계단참 길이·슬래브 두께·머리 높이).
   - 단수 = 올림(실제 표고차 / 단높이 상한), 실제 단높이 = 표고차 / 단수 (종단구배 반영, 모든 단 동일). 디딤판·계단참 상면은 수평(절대 표고).

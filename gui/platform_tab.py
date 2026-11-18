@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.psd_draft import EMERGENCY_LABELS, PsdDraft
+from gui.psd_draft import NUM_FIELDS as PSD_FIELDS
+from gui.psd_draft import preview as psd_preview
 from gui.train_draft import DIRS, TrainDraft
 from gui.train_draft import preview as train_preview
 
@@ -62,6 +65,7 @@ class PlatformTab:
 
         self.entries['platform_type'] = self.station_type_var
         self.build_train()
+        self.build_psd()
 
     # ------------------------------------------------------------------ 열차 (승하차 위치)
     def build_train(self):
@@ -137,3 +141,48 @@ class PlatformTab:
             start = 0.0
         if hasattr(self, "train_info"):
             self.train_info.set(train_preview(self.train_draft, start))
+
+    # ------------------------------------------------------------------ 스크린도어 (PSD)
+    def build_psd(self):
+        """스크린도어: 열차 문마다 유닛(고정부 | 가동문 2 | 고정부) + POST + 구동부"""
+        font = ("Malgun Gothic", 9)
+        self.psd_draft = PsdDraft()
+        self.entries['psd_draft'] = self.psd_draft
+        self._psd_vars = {}
+        box = tk.LabelFrame(self.parent, text=" 스크린도어 (PSD, 열차 문마다 유닛) ", font=("Malgun Gothic", 9, "bold"), padx=6, pady=4)
+        box.pack(fill="x", padx=15, pady=(0, 6))
+        top = tk.Frame(box)
+        top.pack(fill="x")
+        var = tk.BooleanVar(value=self.psd_draft.enabled)
+        self._psd_vars["enabled"] = var
+        var.trace_add("write", lambda *_: self._set_psd("enabled", var.get()))
+        tk.Checkbutton(top, text="스크린도어", variable=var, font=font).pack(side="left")
+        tk.Label(top, text="비상문 겸용", font=font).pack(side="left", padx=(12, 2))
+        c = ttk.Combobox(top, values=EMERGENCY_LABELS, state="readonly", width=6, font=font)
+        c.set(self.psd_draft.emergency)
+        c.bind("<<ComboboxSelected>>", lambda e: self._set_psd("emergency", c.get()))
+        c.pack(side="left")
+        self._psd_combo = c
+        grid = tk.Frame(box)
+        grid.pack(fill="x")
+        for k, (attr, label, _) in enumerate(PSD_FIELDS):
+            r, col = divmod(k, 3)
+            tk.Label(grid, text=label, font=font).grid(row=r, column=col * 2, sticky="w")
+            v = tk.StringVar(value=getattr(self.psd_draft, attr))
+            self._psd_vars[attr] = v
+            v.trace_add("write", lambda *_, a=attr, vv=v: self._set_psd(a, vv.get()))
+            tk.Entry(grid, textvariable=v, width=6, font=font).grid(row=r, column=col * 2 + 1, padx=(2, 8), pady=1)
+        self.psd_info = tk.StringVar(value=psd_preview(self.psd_draft))
+        tk.Label(box, textvariable=self.psd_info, font=font, fg="#1565C0", anchor="w", justify="left").pack(fill="x")
+
+    def _set_psd(self, attr, value):
+        setattr(self.psd_draft, attr, value)
+        self.psd_info.set(psd_preview(self.psd_draft))
+
+    def render_psd(self):
+        for attr, var in self._psd_vars.items():
+            v = getattr(self.psd_draft, attr)
+            if var.get() != v:
+                var.set(v)
+        self._psd_combo.set(self.psd_draft.emergency)
+        self.psd_info.set(psd_preview(self.psd_draft))

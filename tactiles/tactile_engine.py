@@ -11,11 +11,12 @@ from finishes.finish_engine import column_footprints, room_piece
 from helper import prism_member as PM
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
-from tactiles.tactile_layout import layout_tactile, minus
-from tactiles.tactile_spec import GUIDE, KIND_LABEL, WARNING
+from tactiles.tactile_layout import board_blocks, layout_tactile, minus
+from tactiles.tactile_spec import BOARD, GUIDE, KIND_LABEL, WARNING
 
-MATERIALS = {WARNING: "점자블록 점형", GUIDE: "점자블록 선형"}
-CODES = {WARNING: "WARN", GUIDE: "GUIDE"}
+MATERIALS = {WARNING: "점자블록 점형", GUIDE: "점자블록 선형", BOARD: "승하차위치표시"}
+CODES = {WARNING: "WARN", GUIDE: "GUIDE", BOARD: "BOARD"}
+LABEL_H = 0.3                    # 평면도 승하차 위치 번호 글자 높이
 
 
 @dataclass
@@ -38,6 +39,7 @@ class TactileEngine:
     def __init__(self, config, column_engine=None, finish_engine=None):
         self.cfg = config
         self.elements: list[TactileElementData] = []
+        self.labels: list = []                                # 승하차 위치 번호 [(층, s, t, '차량-문')] (평면도 글자)
         self._build(column_engine, finish_engine)
 
     def _build(self, column_engine, finish_engine):
@@ -46,6 +48,8 @@ class TactileEngine:
         blocks = layout_tactile(cfg, column_footprints(cfg, column_engine))
         if not blocks:
             return
+        if any(b.kind == BOARD for b in blocks):
+            self.labels = [(1, (r[0] + r[1]) / 2.0, (r[2] + r[3]) / 2.0, lb) for _, r, lb in board_blocks(cfg, ts)]
         covered = {}                                          # 층 → [(s0, s1, t0, t1, z0, z1, 종류)] 마감재 대체 조각
         for r in (finish_engine.rooms if finish_engine is not None else []):
             covered.setdefault(r.floor, []).extend(r.tactile)
@@ -88,6 +92,11 @@ class TactileEngine:
                 if CommonHelper.cut_by_t(*PM.t_range(p), t_cut)]
 
     def plan_items(self, cut_h, floor=1):
-        """평면도(floor 층): 그 층 점자블록 윤곽 (절단 높이와 관계없이 바닥 패턴으로 표시)"""
-        return [ViewItem.rect(e.name, "PLAN_TACTILE", *PM.s_range(p), *PM.t_range(p))
-                for e in self.elements if e.floor == floor for p in e.pieces]
+        """평면도(floor 층): 그 층 점자블록 윤곽 (절단 높이와 관계없이 바닥 패턴으로 표시) + 승하차 위치 번호 '차량-문'"""
+        items = [ViewItem.rect(e.name, "PLAN_TACTILE", *PM.s_range(p), *PM.t_range(p))
+                 for e in self.elements if e.floor == floor for p in e.pieces]
+        for n, s, t, text in self.labels:
+            if n == floor:
+                items.append(ViewItem(f"BOARD_{text}", "PLAN_TACTILE", u0=s, u1=s, pts=[],
+                                      label=(text, s - 0.15 * LABEL_H * len(text) * 2, t - LABEL_H / 2, LABEL_H, "PLAN_TACTILE")))
+        return items

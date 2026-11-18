@@ -2,6 +2,7 @@
 
 - 점형(경고) 블록: 승강장 연단, 계단·에스컬레이터 시작·끝 앞, 엘리베이터 문 앞 (자동), 유도 경로의 시작·끝·꺾임 점
 - 선형(유도) 블록: 유도 경로 (정거장 로컬 (s, t) 꼭짓점, 선분은 s 또는 t 방향만)
+- 승하차 위치 표시: 열차(cfg.train_settings)를 쓰면 연단 경고블록 띠 중 문 앞 구간 (문 중심 ± 표시 폭/2), 번호 '차량-문'
 기본값은 일반값 예시이며 점자블록 탭에서 고친다 (실무 기준이 있으면 그 값으로).
 """
 import dataclasses
@@ -9,7 +10,8 @@ from typing import Optional
 
 WARNING = "warning"              # 점형 (경고)
 GUIDE = "guide"                  # 선형 (유도)
-KIND_LABEL = {WARNING: "점형", GUIDE: "선형"}
+BOARD = "board"                  # 승하차 위치 표시 (연단 경고블록 띠 중 열차 문 앞 구간)
+KIND_LABEL = {WARNING: "점형", GUIDE: "선형", BOARD: "승하차위치"}
 
 
 @dataclasses.dataclass

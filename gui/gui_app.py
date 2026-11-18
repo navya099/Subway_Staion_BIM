@@ -299,6 +299,7 @@ class StationBIMApp:
         st.finish_enabled = bool(self.finish_tab.drafts.enabled)
         st.finish_drafts = copy.deepcopy(self.finish_tab.drafts.items)
         st.tactile_settings = copy.deepcopy(self.tactile_tab.drafts.settings)
+        st.train_draft = copy.deepcopy(self.platform_tab.train_draft)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -331,6 +332,9 @@ class StationBIMApp:
         floors.update(copy.deepcopy(st.column_floors))                      # 상태(예: 새 프로젝트 기본값)는 그대로 두고 복사본을 편집
         for name in LIST_DRAFTS:
             self.entries[name].items[:] = copy.deepcopy(getattr(st, name))
+        td = self.platform_tab.train_draft                      # 초안 객체는 그대로 두고 내용만 교체 (entries 가 참조)
+        td.__dict__.update(copy.deepcopy(st.train_draft).__dict__)
+        self.platform_tab.render_train()
         self.tactile_tab.drafts.settings = copy.deepcopy(st.tactile_settings)     # 경로 목록은 LIST_DRAFTS, 탭 render 전에
         for name in DRAFT_TABS:
             tab = getattr(self, name)

@@ -2,7 +2,8 @@
 
 - 자동 점형: 승강장 연단(최하층), 계단·에스컬레이터 아래층 시작 앞·위층 도착 뒤, 엘리베이터 정지층 문 앞
 - 유도 경로: 꼭짓점마다 점형 정사각형(폭 × 폭), 꼭짓점 사이는 선형 띠 (점형 정사각형 사이)
-- 겹침: 점형이 선형보다 우선, 같은 종류는 먼저 놓인 것 우선 (서로 빼서 겹치지 않게)
+- 승하차 위치(열차를 쓸 때): 연단 경고블록 띠(같은 t 범위) 중 문 중심 ± mark_width/2 → 그 구간은 승하차 위치 블록
+- 겹침: 승하차 위치 > 점형 > 선형, 같은 종류는 먼저 놓인 것 우선 (서로 빼서 겹치지 않게)
 - 기준 바닥: 그 층 FL, 최하층은 승강장 슬래브 위(t 범위)만 + 승강장 상면 (선로부에는 놓지 않음)
 - 빼는 것: 칸막이벽·구획분리 벽, 사각 기둥, 그 층을 지나는 승강로, 그 층에서 오르는 계단·에스컬레이터 평면, 아래 슬래브 오프닝
 높이(z)는 여기서 정하지 않는다: 바닥 마감이 있으면 그 마감재를 대체(finish_layout), 없으면 기준 바닥 위 block_t (엔진).
@@ -11,7 +12,8 @@ import math
 from dataclasses import dataclass
 
 from openings import decompose
-from tactiles.tactile_spec import GUIDE, WARNING
+from tactiles.tactile_spec import BOARD, GUIDE, WARNING
+from trains.train_layout import layout_trains
 
 _EPS = 1e-6
 
@@ -22,7 +24,8 @@ class TactileBlock:
     kind: str                    # WARNING | GUIDE
     rect: tuple                  # (s0, s1, t0, t1) 정거장 로컬
     base: float                  # 놓이는 바닥 높이 (본체 FL 기준: 층 FL 또는 승강장 상면)
-    source: str                  # 출처 (EDGE, 계단·에스컬레이터·엘리베이터·경로 이름)
+    source: str                  # 출처 (EDGE, 계단·에스컬레이터·엘리베이터·경로 이름, 승하차 위치는 TRAIN_{선로})
+    label: str = ""              # 승하차 위치 번호 '차량-문'
 
 
 def _inter(a, b):
@@ -79,9 +82,7 @@ def _auto_blocks(cfg, ts, n: int, stairs, escs, evs) -> list:
     st, pl = cfg.station, cfg.platform
     out = []
     if ts.edge and n == 1 and pl.exists:
-        edge = pl.track_spacing / 2.0 + pl.plat_offset           # 선로 쪽 끝단 |t|
-        a, b = edge + ts.edge_offset, edge + ts.edge_offset + ts.edge_width
-        out += [("EDGE", (0.0, st.length, -b, -a)), ("EDGE", (0.0, st.length, a, b))]
+        out += [("EDGE", (0.0, st.length, *edge_band(cfg, ts, s))) for s in (-1, 1)]
     if ts.stair:
         for lay in stairs:
             c, d = ts.stair_clear, ts.stair_depth
@@ -118,6 +119,26 @@ def _auto_blocks(cfg, ts, n: int, stairs, escs, evs) -> list:
     return out
 
 
+def edge_band(cfg, ts, side: int) -> tuple:
+    """연단 경고블록 띠의 t 범위 (side = +1: +t 승강장, −1: −t 승강장)"""
+    pl = cfg.platform
+    edge = pl.track_spacing / 2.0 + pl.plat_offset
+    a, b = edge + ts.edge_offset, edge + ts.edge_offset + ts.edge_width
+    return (a, b) if side > 0 else (-b, -a)
+
+
+def board_blocks(cfg, ts) -> list:
+    """승하차 위치 [(출처, 사각형, 번호)] — 열차를 쓰고 최하층 승강장이 있을 때"""
+    if not cfg.platform.exists:
+        return []
+    out = []
+    mw = cfg.train_settings.mark_width / 2.0
+    for p in layout_trains(cfg):
+        t0, t1 = edge_band(cfg, ts, p.side)
+        out += [(f"TRAIN_{p.track}", (d.s - mw, d.s + mw, t0, t1), d.label) for d in p.doors]
+    return out
+
+
 def layout_tactile(cfg, columns=()) -> list:
     """TactileBlock 목록 (층마다 서로 겹치지 않음). columns: [(층, s, t, 반폭 s, 반폭 t, 반지름|None)] — 사각 기둥만 뺌"""
     ts = getattr(cfg, "tactile_settings", None)
@@ -131,13 +152,14 @@ def layout_tactile(cfg, columns=()) -> list:
     out = []
     for n in range(1, st.floors + 1):
         warn = _auto_blocks(cfg, ts, n, stairs, escs, evs)
+        board = board_blocks(cfg, ts) if n == 1 else []
         guide = []
         for k, sp in enumerate(ts.paths, start=1):
             if sp.floor != n:
                 continue
             for kind, r in path_blocks(sp, ts.size):
                 (warn if kind == WARNING else guide).append((path_name(k, sp), r))
-        if not warn and not guide:
+        if not warn and not guide and not board:
             continue
         fl = rooms.get(n)
         holes = [p[:4] for pw in (fl.partitions if fl else []) for p in pw.pieces]
@@ -146,15 +168,15 @@ def layout_tactile(cfg, columns=()) -> list:
         holes += [(*x.s_range, *x.t_range) for x in stairs + escs if x.lower_floor == n]
         holes += [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
         placed = []                                       # 이미 놓은 사각형 (뒤에 오는 블록에서 뺌)
-        for kind, items in ((WARNING, warn), (GUIDE, guide)):
-            for src, r in items:
-                for t0, t1, base in zones(cfg, n):
-                    zr = _inter(r, (0.0, L, t0, t1))
-                    if zr is None:
-                        continue
-                    for piece in minus([zr], holes + placed):
-                        out.append(TactileBlock(n, kind, piece, base, src))
-                        placed.append(piece)
+        items = [(BOARD, src, r, lb) for src, r, lb in board] + [(WARNING, src, r, "") for src, r in warn] +                 [(GUIDE, src, r, "") for src, r in guide]
+        for kind, src, r, lb in items:
+            for t0, t1, base in zones(cfg, n):
+                zr = _inter(r, (0.0, L, t0, t1))
+                if zr is None:
+                    continue
+                for piece in minus([zr], holes + placed):
+                    out.append(TactileBlock(n, kind, piece, base, src, lb))
+                    placed.append(piece)
     return out
 
 

@@ -1880,3 +1880,22 @@ def test_tactile_tab_pick_path_collect_and_project_roundtrip(app, monkeypatch, t
     assert app.tactile_tab._set_vars["edge_offset"].get() == "0.5"
     assert [(v.x, v.y) for v in app.tactile_tab.drafts.items[0].vertices] == [(v.x, v.y) for v in vs]
     assert app.tactile_tab._vars[(0, "v", 2, "y")].get() == "-2"
+
+
+def test_platform_tab_train_section(app):
+    pt = app.platform_tab
+    assert pt.train_draft is app.entries["train_draft"] and pt.train_draft.enabled is True
+    pt._train_vars["cars"].set("6")
+    pt._train_vars["l_stop"].set(False)
+    base = float(app.entries["start_station"].get())
+    pt._train_vars["r_front"].set(f"{base + 150:g}")
+    assert "6량 편성" in pt.train_info.get()
+    cfg = TkAdapter.collect_entries(app.entries)
+    ts = cfg.train_settings
+    assert ts.enabled and ts.train.total_cars == 6 and [(s.track, s.front_s) for s in ts.stops] == [("R", pytest.approx(150.0))]
+    from gui.project_file import ProjectState
+    st = app.collect_state()
+    app.apply_state(ProjectState())
+    assert pt._train_vars["cars"].get() == "8" and pt._train_vars["l_stop"].get() is True
+    app.apply_state(st)
+    assert pt._train_vars["cars"].get() == "6" and pt.train_draft.l_stop is False

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 865개 통과** (GUI 120개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 884개 통과** (GUI 121개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -52,6 +52,7 @@ config/                     모델·선형
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), check(마감표 검증), engine
+trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
 tactiles/                   점자블록: spec(TactileSettings·TactilePathSpec), layout(자동 점형·유도 경로 → 층별 겹치지 않는 평면 사각형 + 검증), engine
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
 stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
@@ -67,8 +68,8 @@ exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프�
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab (탭 1~14, 제목은 짧게 '1.선형' …, 창 폭 600),
-                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_gui
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -110,7 +111,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 높이: **바닥 마감이 있으면 그 마감재를 대체**(`layout_room_finishes(tactile=…)` 가 마감재 사각형에서 빼고 같은 z(마감면 − floor_t ~ 마감면)로 `RoomFinishLayout.tactile`/`RoomFinishData.tactile` — 몰탈 채움은 그대로), 마감이 없는 곳(마감 끔, 기계실 등 바닥 마감 없는 실)은 기준 바닥 위 `block_t` 0.03.
   - BIM: 층·종류마다 `TactileElementData`(이름 `TB_{층}_WARN|GUIDE`, 재질 `점자블록 점형|선형`, 조각 = RoomPiece 선형 각기둥, 곡선 스윕). 3D DXF FIN_TACTILE(미리보기 '바닥·벽 마감' 묶음), 횡단·종단 SEC_TACTILE(윤곽), 평면 PLAN_TACTILE(그 층 블록 윤곽, 절단 높이 무관), IFC `IfcCovering`(FLOORING, ObjectType = 재질 이름, 재질, 층 storey), 텍스처 DAE `tactile_warning`/`tactile_guide` 0.3×0.3(노란색).
   - 공용 도우미: `finishes.finish_engine.room_piece`(사각 조각 → RoomPiece), `column_footprints`(기둥 평면).
+  - **승하차 위치 표시(2단계, 열차 연계)**: 열차를 쓰면 연단 경고블록 띠(같은 t 범위) 중 문 중심 ± `mark_width`/2(기본 1.8) 구간을 종류 `BOARD`(재질 `승하차위치표시`, 분홍, DAE 텍스처 `tactile_boarding`)로 — 우선순위 BOARD > 점형 > 선형. 요소 `TB_{층}_BOARD`, 평면도 PLAN_TACTILE 에 번호 글자 '차량-문'(`TactileEngine.labels`). 연단 경고블록을 꺼도 승하차 위치는 놓임(점자블록 탭은 켜져 있어야 함). 삼각형·번호판은 텍스처/평면 글자로만(형상 없음).
   - 다음 후보: 유도 경로 자동(출입구 → 개찰구 → 승강장), 사선 경로, 블록 줄눈에 맞춘 텍스처 원점, 실무 기준(연단 이격·띠 폭) 반영, 계단참 점형.
+- **열차(`trains/`)**: `cfg.train_settings = TrainSettings(enabled, train, stops, mark_width)`(모델 기본 끔, GUI 2.승강장 탭 '열차' 묶음은 켬 — 옛 프로젝트도 켬). 사용자 정의 구조: `Train(cars)`·`total_cars`·`length`, `Car(length 20, doors, is_first)`(cars[0] = 선두), `CarDoor(offset = 차량 앞끝(진행방향)에서 문 중심, width 1.2)`. 기본 = 8량 × 20m, 문 4개 2.5/7.5/12.5/17.5 (예시, `default_doors` = 길이를 문 수로 고르게 나눈 칸 가운데). `make_train(n, 길이, doors, first_doors)` 는 선두 차량만 다른 문 배치 가능.
+  - 정차 `TrainStop(track 'L'(t = +D/2) | 'R'(−D/2), direction ±1, front_s)`: **선두 정지 위치**(GUI 는 STA, 비우면 열차 중심 = 내공 중심). 기본 R 선로 +s, L 선로 −s. 각 선로의 승강장 = 같은 t 부호 쪽.
+  - `layout_trains(cfg)` → `TrainPlacement`(차량별 앞·뒤 끝 s, `DoorPosition`(선로, 차량 번호(선두 1), 문 번호(차량 앞끝 1), 문 중심 s = 차량 앞끝 − direction × offset, 폭, `label` '차량-문')). 이후 스크린도어(PSD) 가동문도 이 문 위치를 쓸 예정.
+  - 검증 `check_train`: 차량 1량 이상·길이·문 폭 > 0, 문이 차량 안·앞끝 기준 오름차순으로 안 겹침, 선로 L/R·중복, 방향 ±1, 정차한 열차가 내공 길이 안, 표시 폭 > 0.
+  - GUI: 2.승강장 탭 '열차 (승하차 위치)' — 차량 수·길이·문 폭·표시 폭, 문 위치(쉼표)·선두 차량 문 위치(비우면 같음), 선로별 정차·진행방향·선두 STA. `TrainDraft`, 프로젝트 파일 `train_draft`.
+  - 다음 후보: 스크린도어(PSD 고정벽·가동문·비상문), 평면도 열차 윤곽, 열차 3D(차체), 차종별 제원.
 - **슬래브 오프닝(1단계)**: 직사각형만 (계단/에스컬레이터/엘리베이터/환기·설비). 오프닝이 있는 슬래브는 직사각형 조각(`SlabPiece`)으로 분해 — 슬래브는 여전히 BIM 객체 1개(`shape` = 뚫기 전 전체, `net_volume` = 순 체적). 슬래브·오프닝 검증: 내공 영역 안, 같은 슬래브에서 상호 비겹침, 기둥 비관통(`SlabEngine.check_columns`, 슬래브 k 는 k층·k+1층 기둥과 검사). 3D DXF·단면·종단·IFC(IfcSlab 1개 + IfcOpeningElement/IfcRelVoidsElement) 반영.
 - **직선 계단(1단계)**: `StairSpec`(시작 층 k → k+1, 첫 단 STA + 오르는 방향 ±s, t 중심·폭, 단높이 상한·단너비·런 높이 상한·계단참 길이·슬래브 두께·머리 높이).
   - 단수 = 올림(실제 표고차 / 단높이 상한), 실제 단높이 = 표고차 / 단수 (종단구배 반영, 모든 단 동일). 디딤판·계단참 상면은 수평(절대 표고).

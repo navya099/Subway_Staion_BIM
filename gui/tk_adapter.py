@@ -12,6 +12,7 @@ from gui.passage_draft import PassageDrafts
 from gui.print_draft import PrintDraft
 from gui.room_draft import RoomDrafts
 from gui.tactile_draft import TactileDrafts
+from gui.train_draft import TrainDraft
 from gui.stair_draft import StairDrafts
 from gui.vent_draft import VentDrafts
 from platforms.platform_params import PlatformParameters
@@ -102,7 +103,8 @@ class TkAdapter:
                                    stairs=stairs, escalators=escalators, passages=passages, entrances=entrances, vents=vents,
                                    elevators=elevators, rooms=rooms, room_settings=room_settings,
                                    finish_settings=(entries.get("finish_drafts") or FinishDrafts()).to_settings(),
-                                   tactile_settings=(entries.get("tactile_drafts") or _NO_TACTILE).to_settings(station_p.start_station))
+                                   tactile_settings=(entries.get("tactile_drafts") or _NO_TACTILE).to_settings(station_p.start_station),
+                                   train_settings=(entries.get("train_draft") or TrainDraft(enabled=False)).to_settings(station_p.start_station))
         cfg.validate()
         return cfg
 

@@ -35,6 +35,7 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
     RenderMaterial("점자블록 점형", (0.96, 0.80, 0.10), "tactile_warning", 0.3, 0.3),
     RenderMaterial("점자블록 선형", (0.96, 0.80, 0.10), "tactile_guide", 0.3, 0.3),
+    RenderMaterial("승하차위치표시", (0.86, 0.40, 0.75), "tactile_boarding", 0.3, 0.3),
     RenderMaterial("M바 천장틀", (0.60, 0.60, 0.60)),
     RenderMaterial("T바 천장틀", (0.60, 0.60, 0.60)),
 )}

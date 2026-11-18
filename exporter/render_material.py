@@ -20,6 +20,8 @@ class RenderMaterial:
     size_u: float = 1.0                 # 이미지 한 장의 실제 가로 (m)
     size_v: float = 1.0                 # 이미지 한 장의 실제 세로 (m)
     alpha: float = 1.0                  # 불투명도 (1 = 불투명, 유리는 작게)
+    image: str = ""                     # 이미지 파일 경로 (생성 이미지 — texture 대신, 반복 없이 frame 에 한 장)
+    frame: tuple = None                 # (왼쪽 아래 세계 좌표, 오른쪽 단위 벡터, 위쪽 단위 벡터, 폭, 높이, 구배) — 이미지 한 장을 면에 맞춤
 
 
 # 마감 재질 이름 → 보기 재질. 텍스처: 벽 금속패널, 바닥 화강석, 천장 패널(알루미늄 천장판)
@@ -53,6 +55,8 @@ LAYER_MATERIALS = {
     "STRUCT_DOOR": RenderMaterial("문", (0.45, 0.50, 0.55)),
     "STRUCT_GRILL": RenderMaterial("그릴", (0.30, 0.30, 0.32)),
     "STRUCT_PSD": RenderMaterial("PSD 프레임", (0.42, 0.44, 0.47)),
+    "STRUCT_SIGN": RenderMaterial("사인 본체", (0.30, 0.31, 0.33)),
+    "STRUCT_SIGN_FACE": RenderMaterial("사인 면", (0.95, 0.95, 0.95)),
     "STRUCT_PSD_GLASS": RenderMaterial("PSD 유리", (0.70, 0.85, 0.92), alpha=0.3),
 }
 

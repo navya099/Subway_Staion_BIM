@@ -28,6 +28,7 @@ from gui.print_draft import PrintDraft
 from gui.room_draft import DoorDraft, RoomDraft, RoomDrafts, RoomSettingsDraft
 from gui.stair_draft import StairDraft, StairDrafts
 from gui.psd_draft import PsdDraft
+from gui.sign_draft import ExitDraft, SignDraft
 from gui.train_draft import TrainDraft
 from gui.tactile_draft import TactileDrafts, TactilePathDraft, TactilePointDraft, TactileSettingsDraft
 from gui.vent_draft import VentDraft, VentDrafts
@@ -40,7 +41,7 @@ FILETYPES = [("정거장 BIM 프로젝트", "*" + SUFFIX), ("모든 파일", "*.
 # 목록 필드의 원소 형식 (dataclass 필드 형식이 그냥 list 라서 따로 둠)
 _NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft, (PassageDraft, "vertices"): VertexDraft,
            (VentDraft, "vertices"): VertexDraft, (RoomDraft, "doors"): DoorDraft,
-           (TactilePathDraft, "vertices"): TactilePointDraft}
+           (TactilePathDraft, "vertices"): TactilePointDraft, (SignDraft, "exits"): ExitDraft}
 # 목록형 탭: 상태 필드 이름 → (초안 묶음, 원소 형식)
 LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": (StairDrafts, StairDraft),
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),
@@ -209,6 +210,7 @@ class ProjectState:
     room_settings: RoomSettingsDraft = field(default_factory=RoomSettingsDraft)   # 칸막이벽 두께·층별 기본 실
     finish_enabled: bool = True                                                   # 마감 생성
     finish_drafts: list = field(default_factory=default_drafts)                  # 마감표 (FinishTypeDraft)
+    sign_draft: SignDraft = field(default_factory=SignDraft)                      # 역명판·안내사인 (사인 탭)
     psd_draft: PsdDraft = field(default_factory=PsdDraft)                         # 스크린도어 (승강장 탭)
     train_draft: TrainDraft = field(default_factory=TrainDraft)                   # 열차 편성·정차 (승강장 탭)
     tactile_drafts: list = field(default_factory=list)                           # 유도블록 경로 (TactilePathDraft)
@@ -227,6 +229,7 @@ class ProjectState:
         d["tactile_settings"] = _plain(self.tactile_settings)
         d["train_draft"] = _plain(self.train_draft)
         d["psd_draft"] = _plain(self.psd_draft)
+        d["sign_draft"] = _plain(self.sign_draft)
         d["alignment"] = _alignment_plain(self.alignment)
         return d
 
@@ -258,6 +261,8 @@ class ProjectState:
         if d.get("room_settings") is not None:
             st.room_settings = _build(RoomSettingsDraft, d["room_settings"], "실 설정")
             st.room_settings.default_uses = {str(k): str(v) for k, v in (st.room_settings.default_uses or {}).items()}
+        if d.get("sign_draft") is not None:                        # 옛 파일에는 없음 → 기본 (사용)
+            st.sign_draft = _build(SignDraft, d["sign_draft"], "사인")
         if d.get("psd_draft") is not None:                         # 옛 파일에는 없음 → 기본 (사용)
             st.psd_draft = _build(PsdDraft, d["psd_draft"], "스크린도어")
         if d.get("train_draft") is not None:                       # 옛 파일에는 없음 → 기본 (사용)

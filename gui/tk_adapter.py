@@ -13,6 +13,7 @@ from gui.print_draft import PrintDraft
 from gui.room_draft import RoomDrafts
 from gui.tactile_draft import TactileDrafts
 from gui.psd_draft import PsdDraft
+from gui.sign_draft import SignDraft
 from gui.train_draft import TrainDraft
 from gui.stair_draft import StairDrafts
 from gui.vent_draft import VentDrafts
@@ -106,7 +107,8 @@ class TkAdapter:
                                    finish_settings=(entries.get("finish_drafts") or FinishDrafts()).to_settings(),
                                    tactile_settings=(entries.get("tactile_drafts") or _NO_TACTILE).to_settings(station_p.start_station),
                                    train_settings=(entries.get("train_draft") or TrainDraft(enabled=False)).to_settings(station_p.start_station),
-                                   psd_settings=(entries.get("psd_draft") or PsdDraft(enabled=False)).to_settings())
+                                   psd_settings=(entries.get("psd_draft") or PsdDraft(enabled=False)).to_settings(),
+                                   sign_settings=(entries.get("sign_draft") or SignDraft(enabled=False)).to_settings())
         cfg.validate()
         return cfg
 

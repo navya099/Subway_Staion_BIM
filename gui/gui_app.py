@@ -16,6 +16,7 @@ from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
 from gui.room_tab import RoomTab
 from gui.project_file import FILETYPES, LIST_DRAFTS, SUFFIX, ProjectState, RecentProjects, open_project, save_project
+from gui.sign_tab import SignTab
 from gui.stair_tab import StairTab
 from gui.tactile_tab import TactileTab
 from gui.vent_tab import VentTab
@@ -36,7 +37,7 @@ class StationBIMApp:
         self.floor_col_frame = None
         self.entries = {}
         self.root = root
-        self.root.geometry("600x1024")
+        self.root.geometry("680x1024")
         self.root.resizable(False, True)
         self.project_path = None
         self.recent = RecentProjects(recent_file)
@@ -55,7 +56,7 @@ class StationBIMApp:
             self._watch()
 
     def _build_ui(self):
-        # 전체 메인 탭 노트북 생성 (탭 13개가 창 폭 600 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
+        # 전체 메인 탭 노트북 생성 (탭 15개가 창 폭 680 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
         ttk.Style(self.root).configure("TNotebook.Tab", padding=(1, 2), font=("Malgun Gothic", 8))
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -146,6 +147,12 @@ class StationBIMApp:
         notebook.add(tab_print, text="14.출력")
         self.print_tab = PrintTab(tab_print, self.entries)
         self.print_tab.build()
+
+        # 탭 15: 사인 (역명판·안내사인)
+        tab_sign = ttk.Frame(notebook)
+        notebook.add(tab_sign, text="15.사인")
+        self.sign_tab = SignTab(tab_sign, self.entries)
+        self.sign_tab.build()
 
         # 하단 공통 실행 버튼 패널 (어떤 탭에 있든 항상 실행 가능)
         btn_frame = tk.Frame(self.root, bg="#ECEFF1", relief="groove", bd=1)
@@ -301,6 +308,7 @@ class StationBIMApp:
         st.tactile_settings = copy.deepcopy(self.tactile_tab.drafts.settings)
         st.train_draft = copy.deepcopy(self.platform_tab.train_draft)
         st.psd_draft = copy.deepcopy(self.platform_tab.psd_draft)
+        st.sign_draft = copy.deepcopy(self.sign_tab.draft)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -338,6 +346,7 @@ class StationBIMApp:
         self.platform_tab.render_train()
         self.platform_tab.psd_draft.__dict__.update(copy.deepcopy(st.psd_draft).__dict__)
         self.platform_tab.render_psd()
+        self.sign_tab.draft.__dict__.update(copy.deepcopy(st.sign_draft).__dict__)
         self.tactile_tab.drafts.settings = copy.deepcopy(st.tactile_settings)     # 경로 목록은 LIST_DRAFTS, 탭 render 전에
         for name in DRAFT_TABS:
             tab = getattr(self, name)
@@ -354,6 +363,7 @@ class StationBIMApp:
         pd.__dict__.update(copy.deepcopy(st.print_draft).__dict__)
         pd.ensure_floors(self.print_tab._read_floor_count() or 1, 0)
         self.print_tab.render()
+        self.sign_tab.render()
         if st.alignment is not None:
             try:
                 a = st.alignment.load()

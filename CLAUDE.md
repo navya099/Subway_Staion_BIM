@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 908개 통과** (GUI 122개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 925개 통과** (GUI 123개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -52,6 +52,7 @@ config/                     모델·선형
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), check(마감표 검증), engine
+signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 psds/                       스크린도어: spec(PsdSettings), layout(열차 문마다 유닛·POST·구동부·채움 패널 조각 + 검증), engine
 trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
 tactiles/                   점자블록: spec(TactileSettings·TactilePathSpec), layout(자동 점형·유도 경로 → 층별 겹치지 않는 평면 사각형 + 검증), engine
@@ -68,9 +69,9 @@ preview/                    preview_render.py(미리보기 작도, 화면 비의
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
-gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab (탭 1~14, 제목은 짧게 '1.선형' …, 창 폭 600),
-                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_gui
+gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -120,6 +121,17 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 검증 `check_train`: 차량 1량 이상·길이·문 폭 > 0, 문이 차량 안·앞끝 기준 오름차순으로 안 겹침, 선로 L/R·중복, 방향 ±1, 정차한 열차가 내공 길이 안, 표시 폭 > 0.
   - GUI: 2.승강장 탭 '열차 (승하차 위치)' — 차량 수·길이·문 폭·표시 폭, 문 위치(쉼표)·선두 차량 문 위치(비우면 같음), 선로별 정차·진행방향·선두 STA. `TrainDraft`, 프로젝트 파일 `train_draft`.
   - 다음 후보: 평면도 열차 윤곽, 열차 3D(차체), 차종별 제원.
+- **역명판·안내사인(`signs/`)**: `cfg.sign_settings = SignSettings`(모델 기본 끔, GUI **15.사인** 탭은 켬 — 옛 프로젝트도 켬). 창 폭 600 → 680 (탭 15개).
+  - 역 정보 `StationInfo`(한글·영문·한자·일문 역명, 역번호, 노선색, `plus`/`minus` = +s(종점)·−s(시점) 방향 이웃 역 `StationRef`).
+  - **이미지(`signs/nameplate.py`)**: 역명판 생성기(buttaiwan.github.io/eki)와 같은 구조 — 스타일 등록부 `STYLES`(`@define_style(id, 라벨, 쓰는 항목)`) + 공통 입력 `NameplateInput` + 스타일별 그리기 함수 → Pillow 이미지. 기준 단위 좌표·글자 크기를 `MASTER_SCALE`(3) 배로 그림, 글꼴은 운영체제 글꼴(맑은 고딕·Yu Gothic·MS YaHei·Arial, 없으면 Pillow 기본). **생성기 저장소에 라이선스가 없어 코드는 옮기지 않고 새로 작성**. 스타일: `seoul`(서울 지하철형 — 노선색 둥근 테두리·역번호 원·아래 띠에 ◀/▶ 이웃 역), `korail`(코레일형 — 짙은 녹색, 가운데 큰 역명·가로줄·영문/한자·아래 이웃 역). 안내사인: `render_boarding`(남색, ↓ 타는 곳 Platform + 방면), `render_exit`(노란 바탕, 검정 상자 출구 번호 + 출구 Exit + 목적지 3줄). 사인 크기 비율로 그림.
+  - 배치(`layout_signs` → `SignPlacement`(중심 s, t(벽 부착은 뒷면), 앞면 법선(축 방향), 폭·높이·두께, 하단 z, 부착/매달림)):
+    - 역명판 `NP_{L|R}_{k}`: 최하층 승강장 양쪽 뒤 측벽 — 면 = 내공면 − 벽 마감 표면 거리(`FinishType.face`), s = 내공 가운데에서 `plate_interval` 40 간격 대칭, 하단 = 승강장 바닥 마감면 + `plate_bottom` 2.0, 높이 `plate_h` 0.8·폭 = 이미지 비율, 두께 0.05. 측벽 오프닝(통로·환기구) 높이 구간과 겹치면 그 자리 건너뜀. 이미지 좌우 이웃 역 = 보는 사람 기준 실제 방향(+t 벽을 보면 오른쪽 = +s → 오른쪽 자리에 plus 역).
+    - 타는 곳 `BD_{계단/ESC 이름}`: 승강장(1층)으로 내려가는 계단·ESC(lower_floor = 1)의 위층 도착 끝(계단 `length`, ESC `u_range[1]`) + `hang_offset` 1.5, 그 계단 t 중심, 앞면 = 오르는 방향(걸어오는 사람 쪽). 방면 = 계단 t 부호 쪽 선로(+t = L → `dest_l`). 하단 = 그 층 바닥 마감면 + `hang_bottom` 2.5, 2.4 × 0.45 × 0.1.
+    - 출구 `EX_{통로 이름}`: 출구통로 측벽 접합부 중심 s, 측벽 면에서 `hang_offset` 안쪽, 앞면 = 정거장 안쪽. 번호·목적지 = `exit_info`(통로 이름별, 번호 비우면 통로 순번).
+    - 높이 기준·천장은 그 자리 실의 마감표(`finish_at` / `floor_and_ceiling`: 바닥 마감면, 천장판 하면 또는 위 슬래브 하면). 검증: 치수·스타일, 사인 윗면 ≤ 천장, 내공 길이 안.
+  - BIM `SignElementData`: 본체 판(STRUCT_SIGN) + 앞면 이미지 면(두께 2mm, STRUCT_SIGN_FACE), RoomPiece(종단구배 따름). 미리보기 '사인' 묶음, 횡단·종단 SEC_SIGN, 평면 PLAN_SIGN(윤곽 + 문구, 매달림 사인도 그 층에 표시), IFC `IfcBuildingElementProxy`(USERDEFINED, ObjectType SIGNAGE, Description = 문구, Pset `SSBIM_Sign` Kind·Text, 그 층 storey).
+  - **텍스처 DAE**: 사인마다 이미지를 그려 `textures/sign_{k:03d}.png` 저장, 이미지 면에 **한 장을 맞춤**(`RenderMaterial.image` + `frame` = 왼쪽 아래·오른쪽·위쪽·폭·높이·구배 → `frame_uv`, 판이 종단구배를 따르므로 v 를 구배만큼 보정). 2D 도면·IFC 에는 이미지 없음(문구만).
+  - 다음 후보: 양면 매달림 사인, 기둥 부착 역명판, 승강장 출구 안내·환승 안내, 사인 위치 직접 입력, 스타일 추가(부산·인천 등).
 - **스크린도어 PSD(`psds/`)**: `cfg.psd_settings = PsdSettings`(모델 기본 끔, GUI 2.승강장 탭 '스크린도어' 묶음은 켬 — 옛 프로젝트도 켬). **열차를 써야 함**(정차 선로마다 한 줄). 치수는 실무 입면 상세도(UNIT 4,800 = 고정부 1,350 | 가동문 1,050 × 2 | 고정부 1,350(한쪽 비상문 겸용), 문 높이 2,000 + 구동부 400) + 단면은 일반값 예시(POST 0.2×0.2, 구동부 깊이 0.35, 프레임 0.05×0.05, 하부 레일 0.1, 유리 8mm), 모두 입력.
   - 배치(`layout_psds`): 유닛 중심(두 가동문 사이) = 열차 문 중심. POST 는 유닛 양옆, 이웃 유닛 POST 가 같은 자리면(문 간격 = 유닛 + POST = 5.0, 기본 20m 4도어와 같음) 하나로 공유. 유닛 사이가 벌어지면 채움 고정 패널(한 장 ≤ `fill_max` 1.5, 여러 장이면 사이 POST) + 구동부, 열차 바깥은 없음. 내공 [0, L] 밖으로 나간 조각은 잘라냄(열차가 승강장 끝에 붙은 실무 샘플). 오류: 유닛 겹침(간격 < 유닛 폭), POST 일부 겹침(공유도 아니고 떨어지지도 않음), 채움 패널이 너무 좁음.
   - 위치: PSD 중심선 |t| = 승강장 끝단(D/2 + 끝단 거리) + `edge_offset` 0.3, 그 선로 승강장 쪽. 바닥 = 그 자리 실의 바닥 마감면(`platform_base`, 마감 끔·마감 없으면 승강장 상면). 연단 점자블록(끝단 + 0.6~1.2)과 겹치지 않음.

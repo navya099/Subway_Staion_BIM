@@ -746,6 +746,28 @@ class IFCExporter:
         f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                         RelatingStructure=self.storeys[level], RelatedElements=asms)
 
+    def export_signs(self, sign_engine):
+        """역명판·안내사인: 사인마다 IfcBuildingElementProxy(USERDEFINED, ObjectType SIGNAGE) — 본체 + 이미지 면, 재질,
+        속성 세트 SSBIM_Sign(종류·문구), 그 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for e in sign_engine.elements:
+            el = f.create_entity(
+                "IfcBuildingElementProxy", GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                Description=e.text, ObjectType="SIGNAGE", ObjectPlacement=self._placement(),
+                Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces], "Tessellation"),
+                PredefinedType="USERDEFINED")
+            self._assign_material(el, e.material)
+            props = [f.create_entity("IfcPropertySingleValue", Name=n, NominalValue=f.create_entity("IfcLabel", v))
+                     for n, v in (("Kind", e.type_name), ("Text", e.text))]
+            pset = f.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(), Name="SSBIM_Sign", HasProperties=props)
+            f.create_entity("IfcRelDefinesByProperties", GlobalId=ifcopenshell.guid.new(), RelatedObjects=[el],
+                            RelatingPropertyDefinition=pset)
+            by_level.setdefault(e.level, []).append(el)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+
     _VENT_ENTITY = {VentPartKind.FLOOR: ("IfcSlab", "FLOOR"), VentPartKind.ROOF: ("IfcSlab", "ROOF"),
                     VentPartKind.WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.MID_WALL: ("IfcWall", "SOLIDWALL"),
                     VentPartKind.END_WALL: ("IfcWall", "SOLIDWALL"), VentPartKind.SHAFT_WALL: ("IfcWall", "SOLIDWALL"),

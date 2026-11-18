@@ -18,7 +18,7 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-from exporter.render_material import TEXTURE_DIR, find_image, finish_material, layer_material
+from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material
 from preview.preview_render import station_of
 
 HORIZONTAL_NZ = 0.7          # 이 이상이면 바닥·천장처럼 수평 면으로 보고 선형 방향에 맞춰 텍스처를 깜
@@ -75,6 +75,15 @@ def _heading(cfg, cxy: np.ndarray) -> np.ndarray:
     return np.interp(s, sq, th)
 
 
+def frame_uv(frame, rel: np.ndarray, origin) -> np.ndarray:
+    """이미지 한 장을 면에 맞춘 텍스처 좌표 (사인): frame = (왼쪽 아래 세계 좌표, 오른쪽, 위쪽, 폭, 높이, 구배)
+    구배 = 오른쪽 1m 당 판 하단 상승 (판이 종단구배를 따름)"""
+    o, u, v, w, h, k = frame
+    d = rel - (np.asarray(o, dtype=float) - origin)
+    du = d @ np.asarray(u)
+    return np.stack([du / w, (d @ np.asarray(v) - k * du) / h], axis=2)
+
+
 def texture_uv(cfg, tris: np.ndarray, rel: np.ndarray, size_u: float, size_v: float) -> np.ndarray:
     """삼각형 (N, 3, 3) 세계 좌표 + 원점 기준 상대 좌표 rel → 꼭짓점 텍스처 좌표 (N, 3, 2)"""
     n = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
@@ -121,12 +130,22 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
         m = finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m
+    path = Path(path)
+    os.makedirs(path.parent.resolve(), exist_ok=True)
+    signs = getattr(engine, "signs", None)
+    if signs is not None and signs.elements:                         # 사인 이미지: 그려서 textures/ 에 저장, 면에 한 장 맞춤
+        tex_dir = path.parent / TEXTURE_FOLDER
+        tex_dir.mkdir(exist_ok=True)
+        for k, e in enumerate(signs.elements, start=1):
+            img_path = tex_dir / f"sign_{k:03d}.png"
+            signs.image(e).save(img_path)
+            m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
+            for ent in e.face_entities:
+                mat_of[ent.dxf.handle] = m
     groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"})
     first = next((t[0][0] for t in groups.values() if t), (0.0, 0.0, 0.0))
     origin = np.floor(np.array(first, dtype=float))
 
-    path = Path(path)
-    os.makedirs(path.parent.resolve(), exist_ok=True)
     res = DaeResult(path=str(path.resolve()), origin=tuple(float(x) for x in origin))
 
     # 재질 (이름 순서 고정)
@@ -134,7 +153,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
     mat_id, images = {}, {}
     for k, m in enumerate(mats):
         mat_id[m] = f"mat{k}"
-        img = find_image(m.texture, texture_dir)
+        img = Path(m.image) if m.image else find_image(m.texture, texture_dir)
         if img is not None:
             images[m] = img
             res.textured.append(m.name)
@@ -144,7 +163,8 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
         tex_dir = path.parent / TEXTURE_FOLDER
         tex_dir.mkdir(exist_ok=True)
         for img in set(images.values()):
-            shutil.copyfile(img, tex_dir / img.name)
+            if img.resolve() != (tex_dir / img.name).resolve():
+                shutil.copyfile(img, tex_dir / img.name)
 
     lib_img, lib_fx, lib_mat = [], [], []
     for m in mats:
@@ -181,7 +201,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
                f'<param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>')
         inputs = f'<input semantic="VERTEX" source="#{gid}-vtx" offset="0"/>'
         if m in images:
-            uv = texture_uv(cfg, t, rel, m.size_u, m.size_v)
+            uv = frame_uv(m.frame, rel, origin) if m.frame else texture_uv(cfg, t, rel, m.size_u, m.size_v)
             src += (f'<source id="{gid}-uv"><float_array id="{gid}-uv-array" count="{nv * 2}">{_floats_uv(uv)}</float_array>'
                     f'<technique_common><accessor source="#{gid}-uv-array" count="{nv}" stride="2"><param name="S" type="float"/>'
                     f'<param name="T" type="float"/></accessor></technique_common></source>')

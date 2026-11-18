@@ -48,6 +48,10 @@ LAYER_DEFINITIONS = {
     "FIN_WALL": {"color": 43},           # 벽·기둥·승강로 마감
     "FIN_CEILING": {"color": 151},       # 천장판
     "FIN_FRAME": {"color": 8},           # 천장틀 (M/T바, 캐링 채널)
+    "STRUCT_SIGN": {"color": 8},         # 사인 본체 (역명판·매달림 사인)
+    "STRUCT_SIGN_FACE": {"color": 5},    # 사인 이미지 면
+    "SEC_SIGN": {"color": 5},            # 횡단·종단면도 사인
+    "PLAN_SIGN": {"color": 5},           # 평면도 사인 + 문구
     "STRUCT_PSD": {"color": 252},        # 스크린도어 프레임·POST·구동부
     "STRUCT_PSD_GLASS": {"color": 151},  # 스크린도어 유리
     "SEC_PSD": {"color": 252},           # 횡단·종단면도 스크린도어

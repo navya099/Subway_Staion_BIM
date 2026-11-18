@@ -802,11 +802,11 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
 
 
 def test_all_tabs_fit_in_window_width(app):
-    """탭 14개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+    """탭 15개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 14
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 15
 
 
 # ---------------- 계단 탭 ----------------
@@ -1917,3 +1917,25 @@ def test_platform_tab_psd_section(app):
     assert pt._psd_vars["edge_offset"].get() == "0.3" and pt._psd_combo.get() == "+s 쪽"
     app.apply_state(st)
     assert pt._psd_vars["edge_offset"].get() == "0.4" and pt.psd_draft.emergency == "없음"
+
+
+def test_sign_tab_exits_follow_passages_and_roundtrip(app):
+    st_tab = app.sign_tab
+    assert st_tab.draft is app.entries["sign_draft"] and st_tab.draft.enabled is True
+    add_passage(app, floor=2, vertices=[("184.45", "", ""), ("184.45", "25", "0")])
+    app.passage_tab.drafts.items[-1].name = "EXA"
+    st_tab.render_exits()
+    st_tab._vars[("exit", "EXA", "number")].set("4")
+    st_tab._vars[("exit", "EXA", "destinations")].set("가 / 나")
+    st_tab._vars["kname"].set("검단3동")
+    st_tab._vars["dest_l"].set("아라 방면")
+    cfg = TkAdapter.collect_entries(app.entries)
+    ss = cfg.sign_settings
+    assert ss.enabled and ss.station.kname == "검단3동" and ss.dest_l == "아라 방면"
+    assert [(e.passage, e.number, e.destinations) for e in ss.exit_info] == [("EXA", "4", "가\n나")]
+    from gui.project_file import ProjectState
+    state = app.collect_state()
+    app.apply_state(ProjectState())
+    assert st_tab._vars["kname"].get() == "정거장"
+    app.apply_state(state)
+    assert st_tab._vars["kname"].get() == "검단3동" and st_tab._vars[("exit", "EXA", "number")].get() == "4"

@@ -300,6 +300,7 @@ class StationBIMApp:
         st.finish_drafts = copy.deepcopy(self.finish_tab.drafts.items)
         st.tactile_settings = copy.deepcopy(self.tactile_tab.drafts.settings)
         st.train_draft = copy.deepcopy(self.platform_tab.train_draft)
+        st.psd_draft = copy.deepcopy(self.platform_tab.psd_draft)
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -335,6 +336,8 @@ class StationBIMApp:
         td = self.platform_tab.train_draft                      # 초안 객체는 그대로 두고 내용만 교체 (entries 가 참조)
         td.__dict__.update(copy.deepcopy(st.train_draft).__dict__)
         self.platform_tab.render_train()
+        self.platform_tab.psd_draft.__dict__.update(copy.deepcopy(st.psd_draft).__dict__)
+        self.platform_tab.render_psd()
         self.tactile_tab.drafts.settings = copy.deepcopy(st.tactile_settings)     # 경로 목록은 LIST_DRAFTS, 탭 render 전에
         for name in DRAFT_TABS:
             tab = getattr(self, name)

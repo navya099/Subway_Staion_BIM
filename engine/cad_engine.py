@@ -17,6 +17,7 @@ from elevators.elevator_engine import ElevatorEngine
 from escalators.escalator_engine import EscalatorEngine
 from finishes.finish_engine import FinishEngine
 from passages.passage_engine import PassageEngine
+from psds.psd_engine import PsdEngine
 from stairs.stair_engine import StairEngine
 from tactiles.tactile_engine import TactileEngine
 from ventilations.vent_engine import VentEngine
@@ -42,11 +43,12 @@ class StationCADEngine:
         self.rooms = RoomEngine(config)
         self.finishes = FinishEngine(config, self.columns)
         self.tactiles = TactileEngine(config, self.columns, self.finishes)
+        self.psds = PsdEngine(config)
         self.slabs.check_columns(self.columns)
         self.stairs.check_columns(self.columns)
         self.escalators.check_columns(self.columns)
         self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs, self.escalators, self.elevators,
-                            self.passages, self.entrances, self.vents, self.rooms, self.finishes, self.tactiles]
+                            self.passages, self.entrances, self.vents, self.rooms, self.finishes, self.tactiles, self.psds]
     @staticmethod
     def _save(doc, filename):
         filename = str(filename)
@@ -104,6 +106,8 @@ class StationCADEngine:
                 engine.add_entrance_mesh(msp)
             if hasattr(engine, 'add_tactile_mesh'):
                 engine.add_tactile_mesh(msp)
+            if hasattr(engine, 'add_psd_mesh'):
+                engine.add_psd_mesh(msp)
         return doc
 
     # --- [2D 공통] ---
@@ -290,6 +294,7 @@ class StationCADEngine:
         exporter.export_rooms(self.rooms)
         exporter.export_finishes(self.finishes)
         exporter.export_tactiles(self.tactiles)
+        exporter.export_psds(self.psds)
         exporter.export_entrances(self.entrances)
         exporter.save(str(output_path))
         return os.path.abspath(output_path)

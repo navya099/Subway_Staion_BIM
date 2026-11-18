@@ -78,12 +78,13 @@ class CommonHelper:
             xg, yg = world(s, t)
             p_global.append((xg, yg, z))
 
-        # 3. 변환된 3D Face 6개 면 반환
+        # 3. 변환된 3D Face 6개 면 반환 — 법선이 바깥(꼭짓점 반시계, (s, t 왼쪽 +, z) 는 오른손 좌표계).
+        #    예전 순서는 t 를 오른쪽 + 로 본 순서라 모든 면이 안쪽을 향해 스케치업 등에서 뒷면이 보였음
         return [
-            (p_global[0], p_global[1], p_global[2], p_global[3]),
-            (p_global[4], p_global[7], p_global[6], p_global[5]),
-            (p_global[0], p_global[4], p_global[5], p_global[1]),
-            (p_global[1], p_global[5], p_global[6], p_global[2]),
-            (p_global[2], p_global[6], p_global[7], p_global[3]),
-            (p_global[3], p_global[7], p_global[4], p_global[0])
+            (p_global[3], p_global[2], p_global[1], p_global[0]),
+            (p_global[5], p_global[6], p_global[7], p_global[4]),
+            (p_global[1], p_global[5], p_global[4], p_global[0]),
+            (p_global[2], p_global[6], p_global[5], p_global[1]),
+            (p_global[3], p_global[7], p_global[6], p_global[2]),
+            (p_global[0], p_global[4], p_global[7], p_global[3])
         ]

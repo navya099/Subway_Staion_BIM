@@ -27,6 +27,7 @@ from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
 from gui.room_draft import DoorDraft, RoomDraft, RoomDrafts, RoomSettingsDraft
 from gui.stair_draft import StairDraft, StairDrafts
+from gui.psd_draft import PsdDraft
 from gui.train_draft import TrainDraft
 from gui.tactile_draft import TactileDrafts, TactilePathDraft, TactilePointDraft, TactileSettingsDraft
 from gui.vent_draft import VentDraft, VentDrafts
@@ -208,6 +209,7 @@ class ProjectState:
     room_settings: RoomSettingsDraft = field(default_factory=RoomSettingsDraft)   # 칸막이벽 두께·층별 기본 실
     finish_enabled: bool = True                                                   # 마감 생성
     finish_drafts: list = field(default_factory=default_drafts)                  # 마감표 (FinishTypeDraft)
+    psd_draft: PsdDraft = field(default_factory=PsdDraft)                         # 스크린도어 (승강장 탭)
     train_draft: TrainDraft = field(default_factory=TrainDraft)                   # 열차 편성·정차 (승강장 탭)
     tactile_drafts: list = field(default_factory=list)                           # 유도블록 경로 (TactilePathDraft)
     tactile_settings: TactileSettingsDraft = field(default_factory=TactileSettingsDraft)   # 점자블록 공통·자동 경고
@@ -224,6 +226,7 @@ class ProjectState:
         d["finish_drafts"] = _plain(self.finish_drafts)
         d["tactile_settings"] = _plain(self.tactile_settings)
         d["train_draft"] = _plain(self.train_draft)
+        d["psd_draft"] = _plain(self.psd_draft)
         d["alignment"] = _alignment_plain(self.alignment)
         return d
 
@@ -255,6 +258,8 @@ class ProjectState:
         if d.get("room_settings") is not None:
             st.room_settings = _build(RoomSettingsDraft, d["room_settings"], "실 설정")
             st.room_settings.default_uses = {str(k): str(v) for k, v in (st.room_settings.default_uses or {}).items()}
+        if d.get("psd_draft") is not None:                         # 옛 파일에는 없음 → 기본 (사용)
+            st.psd_draft = _build(PsdDraft, d["psd_draft"], "스크린도어")
         if d.get("train_draft") is not None:                       # 옛 파일에는 없음 → 기본 (사용)
             st.train_draft = _build(TrainDraft, d["train_draft"], "열차")
         if d.get("tactile_settings") is not None:                  # 옛 파일에는 없음 → 기본 (켬)

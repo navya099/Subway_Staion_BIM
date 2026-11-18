@@ -454,13 +454,14 @@ def _snapshot(cfg, tmp_path):
     return hashlib.sha256(json.dumps([faces, places, storeys, texts], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-GOLDEN_STRAIGHT = "709eccaf7555a0ef437312a43709ec926c823ad30b47401fc8776209e18b67a5"
+GOLDEN_STRAIGHT = "0b041e4a82b80ca714682255652663de6ce766bf3699862d33f41434c9edf412"
 
 
 def test_straight_alignment_output_is_unchanged(tmp_path):
     """직선 선형(사용자 예시 배치)의 3D 면 4,140개 · IFC 배치 · 층 표고 · 도면 라벨을 해시로 고정.
     (층별 높이/슬래브 3종 도입 때 한 번, 층별 외벽 두께 도입 때 한 번, 안쪽 면 고정으로 바꿀 때 한 번 갱신: 길이·폭이 내공 치수가 되어 시점(s=0) 기준이 안쪽 면으로 옮겨감.
-    벽 두께가 모든 층 같으면 내공 198×18(시점 +1m)은 이전 외곽 200×20과 세계 좌표에서 동일 — 별도로 확인함)"""
+    벽 두께가 모든 층 같으면 내공 198×18(시점 +1m)은 이전 외곽 200×20과 세계 좌표에서 동일 — 별도로 확인함.
+    직선 각기둥 3DFACE 의 꼭짓점 순서를 바깥 법선으로 뒤집을 때 한 번 더 갱신: 좌표·면은 같고 꼭짓점 순서만 바뀜)"""
     assert _snapshot(make_cfg(user_example()), tmp_path) == GOLDEN_STRAIGHT
 
 
@@ -548,3 +549,47 @@ def test_cubic_alignment_builds_a_clean_model():
     for m in members(eng):
         assert PM.mesh_volume(PM.sweep_quads(PM.rings(cfg, m))) == pytest.approx(m.shape.volume, rel=1e-3), m.name
     assert interference_pairs(eng) == []
+
+
+
+# ===================================================== 3D 면 방향 (스케치업 등에서 앞면이 보이도록 바깥 법선)
+@pytest.mark.parametrize("curved", [False, True])
+def test_all_3d_objects_face_outward(curved):
+    """부재마다 3DFACE 의 부호 있는 체적(발산 정리)이 양수 = 면이 바깥을 향함. 직선 각기둥이 모두 안쪽을 향하던 문제"""
+    from finishes.finish_spec import FinishSettings
+    from psds.psd_spec import PsdSettings
+    from tactiles.tactile_spec import TactileSettings
+    from trains.train_spec import TrainSettings
+    cfg = curved_cfg() if curved else make_cfg(user_example())
+    cfg.finish_settings = FinishSettings(enabled=True)
+    cfg.tactile_settings = TactileSettings(enabled=True)
+    cfg.train_settings = TrainSettings(enabled=True)
+    cfg.psd_settings = PsdSettings(enabled=True)
+    eng = StationCADEngine(cfg)
+    eng.build_3d_doc()
+    owners, seen = [], set()
+
+    def walk(o, depth=0):
+        if depth > 5 or id(o) in seen:
+            return
+        seen.add(id(o))
+        se = getattr(o, "source_element", None)
+        if isinstance(se, list) and se:
+            owners.append(o)
+        for v in (vars(o).values() if hasattr(o, "__dict__") else []):
+            if isinstance(v, list):
+                for x in v:
+                    if hasattr(x, "__dict__"):
+                        walk(x, depth + 1)
+    for e in eng.sub_engines:
+        walk(e)
+    layers = set()
+    for o in owners:
+        fs = []
+        for ent in o.source_element:
+            d = ent.dxf
+            v = [tuple(d.vtx0), tuple(d.vtx1), tuple(d.vtx2), tuple(d.vtx3)]
+            fs.append(v[:3] if v[3] == v[2] else v)
+        layers.add(o.source_element[0].dxf.layer)
+        assert PM.mesh_volume(fs) > 0, (o.source_element[0].dxf.layer, getattr(o, "name", "?"))
+    assert {"STRUCT_WALL", "STRUCT_SLAB", "STRUCT_COLUMN", "FIN_FLOOR", "FIN_TACTILE", "STRUCT_PSD"} <= layers

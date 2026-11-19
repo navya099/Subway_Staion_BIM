@@ -1939,3 +1939,46 @@ def test_sign_tab_exits_follow_passages_and_roundtrip(app):
     assert st_tab._vars["kname"].get() == "정거장"
     app.apply_state(state)
     assert st_tab._vars["kname"].get() == "검단3동" and st_tab._vars[("exit", "EXA", "number")].get() == "4"
+
+
+def test_passage_tab_branch_parent(app):
+    pt = app.passage_tab
+    add_passage(app, floor=2, vertices=[("184.45", "", ""), ("184.45", "30", "0")])
+    add_passage(app, vertices=[("184.45", "", ""), ("174.45", "20", "0")])
+    combo = pt._combos[(1, "parent")]
+    assert list(combo.cget("values")) == ["본체", "EX1"]
+    combo.set("EX1")
+    combo.event_generate("<<ComboboxSelected>>")
+    app.root.update()
+    assert pt.drafts.items[1].parent == "EX1"
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.passages[1].parent == "EX1"
+    lay = {l.name: l for l in cfg.passage_layouts()}["EX2"]
+    assert lay.parent == "EX1" and lay.floor == 2
+    combo.set("본체")
+    combo.event_generate("<<ComboboxSelected>>")
+    app.root.update()
+    assert pt.drafts.items[1].parent == ""
+
+
+def test_mouse_wheel_does_not_change_comboboxes(app):
+    """스크롤하다가 콤보박스 값(분기·층 등)이 바뀌지 않도록 ttk 콤보박스 휠 바인딩을 지움"""
+    assert app.root.bind_class("TCombobox", "<MouseWheel>") == ""
+    pt = app.passage_tab
+    add_passage(app, vertices=[("184.45", "", ""), ("184.45", "30", "0")])
+    add_passage(app, vertices=[("184.45", "", ""), ("174.45", "20", "0")])
+    combo = pt._combos[(1, "parent")]
+    combo.event_generate("<MouseWheel>", delta=-120)
+    app.root.update()
+    assert combo.get() == "본체" and pt.drafts.items[1].parent == ""
+
+
+def test_passage_tab_close_end_checkbox(app):
+    pt = app.passage_tab
+    add_passage(app, vertices=[("184.45", "", ""), ("184.45", "30", "0")])
+    assert pt.drafts.items[0].close_end is False
+    pt._vars[(0, "close_end")].set(True)
+    assert pt.drafts.items[0].close_end is True
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.passages[0].close_end is True
+    assert any(e.code == "S1_END" for e in cfg.passage_layouts()[0].elements)

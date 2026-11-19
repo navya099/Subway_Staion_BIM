@@ -139,7 +139,7 @@ class StationProjectConfig:
     def wall_openings(self) -> list:
         """본체 측벽 오프닝 [(이름, 층, side, s0, s1, z_rel0, z_rel1, 종류)]: 출구통로 접합부 + 환기구 칸별
         (z_rel = 바닥 슬래브 상면 기준, 종류 = 'PASSAGE' | 'VENT_DUCT')"""
-        out = [(*lay.wall_opening, "PASSAGE") for lay in self.passage_layouts()]
+        out = [(*lay.wall_opening, "PASSAGE") for lay in self.passage_layouts() if lay.wall_opening]   # 분기 통로는 없음
         return out + [o for lay in self.vent_layouts() for o in lay.wall_openings]
 
     def platform_holes(self) -> list:

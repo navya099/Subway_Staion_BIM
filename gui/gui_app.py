@@ -39,6 +39,10 @@ class StationBIMApp:
         self.root = root
         self.root.geometry("680x1024")
         self.root.resizable(False, True)
+        # 콤보박스 위에서 휠을 굴리면 ttk 기본 동작이 값을 바꾸고 <<ComboboxSelected>> 까지 보냄 — 스크롤하다가 분기·층 같은
+        # 선택이 몰래 바뀌던 문제. 휠은 탭 스크롤(bind_all)에만 쓰도록 콤보박스 클래스 바인딩을 지움
+        for ev in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.root.unbind_class("TCombobox", ev)
         self.project_path = None
         self.recent = RecentProjects(recent_file)
         self.preview = None                          # 미리보기 창 (PreviewWindow)

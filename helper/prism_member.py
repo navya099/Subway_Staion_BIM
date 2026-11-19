@@ -15,7 +15,21 @@ def s_range(m) -> tuple[float, float]:
 
 
 def t_range(m) -> tuple[float, float]:
+    """t 범위 (사다리꼴 부재는 양 끝을 모두 담는 범위)"""
+    trap = getattr(m, "trap", None)
+    if trap:
+        return min(trap[0], trap[2]), max(trap[1], trap[3])
     return m.pos_y - m.shape.width / 2.0, m.pos_y + m.shape.width / 2.0
+
+
+def t_range_at(m, s: float) -> tuple[float, float]:
+    """측점 s 에서의 t 범위. 사다리꼴 부재(trap = (t0, t1 @ s0, t0, t1 @ s1), 확폭 전이부)는 직선 보간"""
+    trap = getattr(m, "trap", None)
+    if not trap:
+        return t_range(m)
+    s0, s1 = s_range(m)
+    k = 0.0 if s1 - s0 < 1e-12 else min(1.0, max(0.0, (s - s0) / (s1 - s0)))
+    return trap[0] + (trap[2] - trap[0]) * k, trap[1] + (trap[3] - trap[1]) * k
 
 
 def z_off(cfg, m) -> float:
@@ -56,7 +70,7 @@ def section_rect(cfg, m, sta: float):
     s0, s1 = s_range(m)
     if not CommonHelper.cut_by_s(sta, s0, s1, cfg.station.length):
         return None
-    t0, t1 = t_range(m)
+    t0, t1 = t_range_at(m, sta)
     return t0, t1, z_at(cfg, m, sta)
 
 
@@ -81,11 +95,11 @@ def profile_view(cfg, m, layer: str, **kw) -> ViewItem:
 
 # ---------------- 3D ----------------
 def rings(cfg, m) -> list[list[tuple[float, float, float]]]:
-    """표본 측점마다의 단면 링: [t0 하단, t1 하단, t1 상단, t0 상단] (WCS 좌표)"""
-    t0, t1 = t_range(m)
+    """표본 측점마다의 단면 링: [t0 하단, t1 하단, t1 상단, t0 상단] (WCS 좌표). 사다리꼴 부재는 측점마다 t 범위 보간"""
     v = m.shape.vertical
     out = []
     for s in samples(cfg, m):
+        t0, t1 = t_range_at(m, s)
         zb = z_at(cfg, m, s)
         (xa, ya), (xb, yb) = cfg.to_world(s, t0), cfg.to_world(s, t1)
         out.append([(xa, ya, zb), (xb, yb, zb), (xb, yb, zb + v), (xa, ya, zb + v)])
@@ -129,8 +143,8 @@ def sweep_quads(rs) -> list[tuple]:
 
 
 def mesh_faces(cfg, m) -> list[tuple]:
-    """DXF 3DFACE 용 면. 직선은 기존과 같은 6면 각기둥, 곡선은 스윕 면"""
-    if len(samples(cfg, m)) == 2:
+    """DXF 3DFACE 용 면. 직선은 기존과 같은 6면 각기둥, 곡선·사다리꼴(확폭 전이부)은 스윕 면"""
+    if len(samples(cfg, m)) == 2 and not getattr(m, "trap", None):
         s0, s1, t0, t1, z0, z1 = corners(cfg, m)
         v = m.shape.vertical
         return CommonHelper.create_sloped_box_faces_global(s0, s1, t0, t1, z0, z1, z0 + v, z1 + v, cfg.to_world)

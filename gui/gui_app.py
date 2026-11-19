@@ -352,6 +352,7 @@ class StationBIMApp:
         self.platform_tab.render_psd()
         self.sign_tab.draft.__dict__.update(copy.deepcopy(st.sign_draft).__dict__)
         self.tactile_tab.drafts.settings = copy.deepcopy(st.tactile_settings)     # 경로 목록은 LIST_DRAFTS, 탭 render 전에
+        self.station_tab.render_widenings()
         for name in DRAFT_TABS:
             tab = getattr(self, name)
             n = getattr(tab, "floor_count", 0)

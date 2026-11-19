@@ -1982,3 +1982,60 @@ def test_passage_tab_close_end_checkbox(app):
     cfg = TkAdapter.collect_entries(app.entries)
     assert cfg.passages[0].close_end is True
     assert any(e.code == "S1_END" for e in cfg.passage_layouts()[0].elements)
+
+
+def test_station_tab_widenings(app):
+    st = app.station_tab
+    assert st.widen_drafts is app.entries["widen_drafts"] and st.widen_drafts.items == []
+    st.add_widening()
+    base = float(app.entries["start_station"].get())
+    st._widen_vars[(0, "s_start")].set(f"{base + 50:g}")
+    st._widen_vars[(0, "s_end")].set(f"{base + 80:g}")
+    st._widen_vars[(0, "floors")].set("B1F")
+    combo = st._widen_vars[(0, "side")]
+    combo.set("−t (오른쪽)")
+    combo.event_generate("<<ComboboxSelected>>")
+    app.root.update()
+    cfg = TkAdapter.collect_entries(app.entries)
+    (w,) = cfg.widenings
+    assert (w.side, w.floors, w.s_start, w.s_end, w.amount) == (-1, [2], pytest.approx(50.0), pytest.approx(80.0), 2.0)
+    from gui.project_file import ProjectState
+    state = app.collect_state()
+    app.apply_state(ProjectState())
+    assert st.widen_drafts.items == []
+    app.apply_state(state)
+    assert st._widen_vars[(0, "floors")].get() == "B1F" and st._widen_vars[(0, "side")].get() == "−t (오른쪽)"
+
+
+def test_widening_pick_floor_and_sta_from_preview(app, monkeypatch):
+    """확폭 '선택': 지금 보는 평면 층에서 시작·끝 두 점 → 층·시작/끝 STA·쪽"""
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    st = app.station_tab
+    st.add_widening()
+    base = float(app.entries["start_station"].get())
+    app.on_preview()
+    pv = app.preview
+    pv.plan_floor.set("B1F")                                    # 보고 있는 층 (선택 요청은 층을 바꾸지 않음)
+    assert st.pick_widening(0)
+    assert pv.plan_floor.get() == "B1F"
+    pv.add_pick_point(80.0, -8.5)
+    pv.add_pick_point(50.0, -8.6)                               # 두 번째 점에서 끝남 (s 순서와 상관없음)
+    assert pv.pick is None
+    v = st._widen_vars
+    assert v[(0, "floors")].get() == "B1F" and float(v[(0, "s_start")].get()) == pytest.approx(base + 50.0)
+    assert float(v[(0, "s_end")].get()) == pytest.approx(base + 80.0) and v[(0, "side")].get() == "−t (오른쪽)"
+    assert st.widen_drafts.items[0].side == "−t (오른쪽)"
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert cfg.widenings[0].floors == [2] and cfg.widenings[0].side == -1
+
+
+def test_line_pick_needs_different_sta():
+    from preview.pick import LINE, PickRequest, PickSession
+    got = []
+    sess = PickSession(PickRequest(LINE, 0, "t", got.append))
+    assert sess.add(10.0, 1.0) is False
+    with pytest.raises(ValueError, match="STA"):
+        sess.add(10.0, 3.0)
+    assert sess.add(20.0, 1.0) is True
+    sess.finish()
+    assert got == [[(10.0, 1.0), (20.0, 1.0)]]

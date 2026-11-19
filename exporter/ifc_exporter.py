@@ -236,7 +236,7 @@ class IFCExporter:
                 if not plat.shape:
                     continue
                 is_slab = plat.part == PlatformPart.SLAB
-                if is_slab and plat.pieces:                      # 에스컬레이터 피트 구멍이 있는 승강장 슬래브: 조각들
+                if plat.pieces:                                  # 피트 구멍이 있는 승강장 슬래브·확폭 조각: 조각들
                     placement, representation = self._slab_geometry(plat)
                 else:
                     placement, representation = self._member_geometry(
@@ -302,7 +302,7 @@ class IFCExporter:
         if not slab.pieces:
             return self._member_geometry(slab, "SlabProfile")
         cfg = self.config
-        if cfg.align.is_straight:
+        if cfg.align.is_straight and not any(getattr(m, "trap", None) for m in slab.pieces):   # 확폭 사다리꼴 조각은 면 집합
             s0, _, t0, _, z0, _ = PM.corners(cfg, slab)             # 슬래브 최소 모서리 = 배치 원점
             items = []
             for m in slab.pieces:

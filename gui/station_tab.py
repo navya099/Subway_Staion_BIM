@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 from dataclasses import dataclass
 from tkinter import filedialog, messagebox
 
@@ -25,6 +26,11 @@ class AlignmentSource:
     warnings: tuple = ()
     embedded: object = None            # 프로젝트 저장용으로 포함한 원본 (gui.project_file.EmbeddedAlignment)
 
+
+from gui.widen_draft import SIDES as WIDEN_SIDES
+from gui.widen_draft import WidenDraft, WidenDrafts
+from gui.pick_fill import num
+from preview.pick import LINE, PickRequest
 
 class StationTab:
     def __init__(self, parent, entries_dict, on_floors_changed_callback):
@@ -116,6 +122,94 @@ class StationTab:
             if key in ("mid_t", "roof_t", "width"):   # 슬래브 두께/정거장 폭이 바뀌면 내공 표시를 갱신
                 var.trace_add("write", lambda *a: self.refresh_heights())
         self.refresh_heights()
+        self._build_widenings()
+
+    # ------------------------------------------------------------------ 구조물 확폭
+    def _build_widenings(self):
+        """확폭 목록: 쪽 · 층(비우면 전 층) · 시작/끝 STA(비우면 끝까지) · 확폭량 · 전이 길이(비우면 45°, 0 = 직각)"""
+        self.widen_drafts = WidenDrafts()
+        self.entries['widen_drafts'] = self.widen_drafts
+        self._widen_vars = {}
+        box = tk.LabelFrame(self.parent, text=" 구조물 확폭 (측벽 내공면을 구간만 바깥으로) ", font=("Malgun Gothic", 9, "bold"),
+                            padx=6, pady=3)
+        box.pack(fill="x", padx=15, pady=(2, 6))
+        bar = tk.Frame(box)
+        bar.pack(fill="x")
+        tk.Button(bar, text="+ 확폭 추가", font=("Malgun Gothic", 9), command=self.add_widening).pack(side="left")
+        tk.Label(bar, text="층·STA 비우면 전 층·끝까지, 전이 비우면 45°(=확폭량), 0 = 직각", font=("Malgun Gothic", 8),
+                 fg="#555555").pack(side="left", padx=6)
+        self.widen_frame = tk.Frame(box)
+        self.widen_frame.pack(fill="x")
+        self.render_widenings()
+
+    def add_widening(self):
+        self.widen_drafts.items.append(WidenDraft())
+        self.render_widenings()
+
+    def remove_widening(self, i):
+        del self.widen_drafts.items[i]
+        self.render_widenings()
+
+    def render_widenings(self):
+        for w in self.widen_frame.winfo_children():
+            w.destroy()
+        self._widen_vars.clear()
+        font = ("Malgun Gothic", 9)
+        if not self.widen_drafts.items:
+            tk.Label(self.widen_frame, text="확폭 없음", font=font, fg="#888888").grid(row=0, column=0, sticky="w")
+            return
+        heads = ("쪽", "층", "시작 STA", "끝 STA", "확폭량", "전이(시작)", "전이(끝)", "")
+        for c, h in enumerate(heads):
+            tk.Label(self.widen_frame, text=h, font=("Malgun Gothic", 8), fg="#555555").grid(row=0, column=c, sticky="w")
+        for r, it in enumerate(self.widen_drafts.items, start=1):
+            combo = ttk.Combobox(self.widen_frame, values=WIDEN_SIDES, state="readonly", width=9, font=font)
+            combo.set(it.side)
+            combo.bind("<<ComboboxSelected>>", lambda e, o=it, cb=combo: setattr(o, "side", cb.get()))
+            combo.grid(row=r, column=0, padx=1, pady=1)
+            self._widen_vars[(r - 1, "side")] = combo
+            for c, (attr, w) in enumerate((("floors", 7), ("s_start", 9), ("s_end", 9), ("amount", 5),
+                                           ("taper_in", 6), ("taper_out", 6)), start=1):
+                var = tk.StringVar(value=getattr(it, attr))
+                self._widen_vars[(r - 1, attr)] = var
+                var.trace_add("write", lambda *_, o=it, a=attr, v=var: setattr(o, a, v.get()))
+                tk.Entry(self.widen_frame, textvariable=var, width=w, font=font).grid(row=r, column=c, padx=1, pady=1)
+            tk.Button(self.widen_frame, text="−", font=font, width=2,
+                      command=lambda k=r - 1: self.remove_widening(k)).grid(row=r, column=7)
+            tk.Button(self.widen_frame, text="선택", font=font, bg="#FFF3E0",
+                      command=lambda k=r - 1: self.pick_widening(k)).grid(row=r, column=8, padx=(2, 0))
+
+    def pick_widening(self, i) -> bool:
+        """미리보기 평면에서 확폭 구간 선택: 보고 있는 층에서 시작·끝 두 점 → 층·시작/끝 STA·쪽(두 점 t 평균의 부호)"""
+        fn = self.entries.get("pick")
+        if fn is None:
+            return False
+        it = self.widen_drafts.items[i]
+        holder = []
+
+        def done(pts):
+            req = holder[0]
+            try:
+                base = float(self.entries["start_station"].get())
+            except (KeyError, ValueError):
+                base = 0.0
+            (s0, t0), (s1, t1) = pts[0], pts[-1]
+            n = self._read_floor_count() or 1
+            values = {"floors": level_name(n, req.floor) if req.floor else it.floors,
+                      "s_start": num(base + min(s0, s1)), "s_end": num(base + max(s0, s1))}
+            for attr, v in values.items():
+                var = self._widen_vars.get((i, attr))
+                if var is not None:
+                    var.set(v)
+                else:
+                    setattr(it, attr, v)
+            side = WIDEN_SIDES[0] if (t0 + t1) >= 0 else WIDEN_SIDES[1]
+            it.side = side
+            combo = self._widen_vars.get((i, "side"))
+            if combo is not None:
+                combo.set(side)
+        req = PickRequest(kind=LINE, floor=0, title=f"확폭 {i + 1} 구간 (지금 보는 층, 넓힐 쪽 벽 근처에서 시작·끝)", on_done=done)
+        holder.append(req)
+        return bool(fn(req))
 
     # ------------------------------------------------------------------ 층별 제원 (높이, 외벽 두께)
     def _build_floor_heights_frame(self):

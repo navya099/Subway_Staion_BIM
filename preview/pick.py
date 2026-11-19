@@ -3,7 +3,7 @@
 입력 탭의 [선택] 버튼이 PickRequest 를 만들어 미리보기 창에 넘기면, 창은 평면에서 클릭·명령줄 입력을 받아
 PickSession 에 점을 더하고, 끝나면 request.on_done(점 목록) 을 부른다. 점은 정거장 로컬 (s, t) — t 는 왼쪽 +.
 
-- 종류: POINT(점 1개) / RECT(대각 두 점) / PATH(여러 점, Enter·오른쪽 클릭으로 끝)
+- 종류: POINT(점 1개) / RECT(대각 두 점) / PATH(여러 점, Enter·오른쪽 클릭으로 끝) / LINE(시작·끝 두 점, s 가 달라야)
 - 스냅 우선순위: 부재 점(기둥 중심·실/오프닝 모서리·내공 모서리) → 부재 선(내공면·외벽 바깥면·선형 중심·내공 시점/종점, 축별) → 격자
 - 직교 모드(F8): 직전 점에서 s 방향 또는 t 방향으로만 (ortho_snap)
 - 명령줄: 'STA, offset' (절대 측점, 예 '0+134.5, 3.2' 또는 '134.5,3.2') / '@ds, dt' (직전 점 기준 상대)
@@ -12,16 +12,17 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-POINT, RECT, PATH = "point", "rect", "path"
+POINT, RECT, PATH, LINE = "point", "rect", "path", "line"
 _PROMPTS = {POINT: ("위치를 클릭하세요",), RECT: ("첫 모서리를 클릭하세요", "반대쪽 모서리를 클릭하세요"),
-            PATH: ("첫 꼭짓점을 클릭하세요", "다음 꼭짓점을 클릭하세요 (Enter·오른쪽 클릭 = 끝)")}
-MIN_POINTS = {POINT: 1, RECT: 2, PATH: 2}
+            PATH: ("첫 꼭짓점을 클릭하세요", "다음 꼭짓점을 클릭하세요 (Enter·오른쪽 클릭 = 끝)"),
+            LINE: ("시작점을 클릭하세요", "끝점을 클릭하세요")}
+MIN_POINTS = {POINT: 1, RECT: 2, PATH: 2, LINE: 2}
 
 
 @dataclass
 class PickRequest:
-    """kind: POINT | RECT | PATH, floor: 평면을 볼 층 (1 = 최하층), title: 무엇을 고르는지 (상태줄 안내),
-    on_done(points): 끝났을 때 [(s, t), ...] 로 부름. start: PATH 의 첫 점을 고정(없으면 클릭)"""
+    """kind: POINT | RECT | PATH | LINE, floor: 평면을 볼 층 (1 = 최하층, 0 = 지금 보는 층 그대로 — 끝날 때 고른 층으로 바뀜),
+    title: 무엇을 고르는지 (상태줄 안내), on_done(points): 끝났을 때 [(s, t), ...] 로 부름. start: PATH 의 첫 점을 고정(없으면 클릭)"""
     kind: str
     floor: int
     title: str
@@ -173,6 +174,9 @@ class PickSession:
             if abs(a[0] - b[0]) < 1e-3 or abs(a[1] - b[1]) < 1e-3:
                 self.points.pop()
                 raise ValueError("사각형의 두 모서리는 s·t 가 모두 달라야 합니다")
+        if self.kind == LINE and len(self.points) == 2 and abs(self.points[0][0] - self.points[1][0]) < 1e-3:
+            self.points.pop()
+            raise ValueError("시작점과 끝점의 STA 가 같습니다")
         return self.kind != PATH and len(self.points) >= MIN_POINTS[self.kind]
 
     def undo(self):

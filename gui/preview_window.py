@@ -497,7 +497,7 @@ class PreviewWindow:
         """평면 좌표 → 스냅한 (s, t, 설명). 경로 선택 중 직교 모드면 직전 점에서 s/t 축 방향으로만"""
         s, t = self.to_st(x, y, fast)
         sn = self._snapper()
-        if (self._vars["ortho"].get() and self.pick is not None and self.pick.kind == P.PATH
+        if (self._vars["ortho"].get() and self.pick is not None and self.pick.kind in (P.PATH, P.LINE)
                 and self.pick.last is not None):                     # 직교는 경로만 (사각형은 대각 두 점)
             return P.ortho_snap(sn, self.pick.last, s, t, self._tol())
         return sn.snap(s, t, self._tol())
@@ -632,6 +632,7 @@ class PreviewWindow:
             return
         sess, self.pick = self.pick, None
         self._clear_pick_artists()
+        sess.request.floor = dict(R.floor_choices(self.cfg)).get(self.plan_floor.get(), sess.request.floor)   # 고른 평면의 층
         try:
             sess.finish()
         except Exception as e:

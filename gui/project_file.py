@@ -32,6 +32,7 @@ from gui.sign_draft import ExitDraft, SignDraft
 from gui.train_draft import TrainDraft
 from gui.tactile_draft import TactileDrafts, TactilePathDraft, TactilePointDraft, TactileSettingsDraft
 from gui.vent_draft import VentDraft, VentDrafts
+from gui.widen_draft import WidenDraft, WidenDrafts
 
 FORMAT = "subway_station_bim_project"
 VERSION = 1
@@ -47,7 +48,7 @@ LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": 
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),
                "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft),
                "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "room_drafts": (RoomDrafts, RoomDraft),
-               "tactile_drafts": (TactileDrafts, TactilePathDraft)}
+               "tactile_drafts": (TactileDrafts, TactilePathDraft), "widen_drafts": (WidenDrafts, WidenDraft)}
 
 
 # ====================================================================== 초안 dataclass ↔ JSON
@@ -213,6 +214,7 @@ class ProjectState:
     sign_draft: SignDraft = field(default_factory=SignDraft)                      # 역명판·안내사인 (사인 탭)
     psd_draft: PsdDraft = field(default_factory=PsdDraft)                         # 스크린도어 (승강장 탭)
     train_draft: TrainDraft = field(default_factory=TrainDraft)                   # 열차 편성·정차 (승강장 탭)
+    widen_drafts: list = field(default_factory=list)                             # 구조물 확폭 (1.선형 탭)
     tactile_drafts: list = field(default_factory=list)                           # 유도블록 경로 (TactilePathDraft)
     tactile_settings: TactileSettingsDraft = field(default_factory=TactileSettingsDraft)   # 점자블록 공통·자동 경고
     alignment: Optional[EmbeddedAlignment] = None

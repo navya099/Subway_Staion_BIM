@@ -163,6 +163,8 @@ def layout_signs(cfg) -> list:
     if ss.exits:
         info = {e.passage.strip(): e for e in ss.exit_info if e.passage.strip()}
         for k, lay in enumerate(cfg.passage_layouts(), start=1):
+            if not lay.wall_opening:                                 # 분기 통로는 본체 측벽에 붙지 않음 (사인 없음)
+                continue
             _, n, side, s0, s1, _, _ = lay.wall_opening
             s = (s0 + s1) / 2.0
             t = side * (hw - ss.hang_offset)

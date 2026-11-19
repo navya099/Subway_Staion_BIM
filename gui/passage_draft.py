@@ -46,6 +46,8 @@ class PassageDraft:
     top_haunch_h: str = f"{_SPEC.top_haunch_h:g}"
     bottom_haunch_w: str = f"{_SPEC.bottom_haunch_w:g}"
     bottom_haunch_h: str = f"{_SPEC.bottom_haunch_h:g}"
+    parent: str = ""                       # 분기할 부모 통로 이름 ('' = 본체 측벽)
+    close_end: bool = False                # 경로 끝을 끝 벽으로 막음
     vertices: list = field(default_factory=list)
 
     def to_spec(self, where: str, start_station: float) -> PassageSpec:
@@ -71,7 +73,7 @@ class PassageDraft:
             wall_t=pos("wall_t", "벽 두께"), floor_t=pos("floor_t", "바닥 슬래브 두께"), roof_t=pos("roof_t", "천장 슬래브 두께"),
             top_haunch_w=nonneg("top_haunch_w", "상부 헌치 폭"), top_haunch_h=nonneg("top_haunch_h", "상부 헌치 높이"),
             bottom_haunch_w=nonneg("bottom_haunch_w", "하부 헌치 폭"), bottom_haunch_h=nonneg("bottom_haunch_h", "하부 헌치 높이"),
-            name=self.name.strip())
+            name=self.name.strip(), parent=self.parent.strip(), close_end=bool(self.close_end))
 
 
 def default_draft(floor: int, sta: float, t_face: float) -> PassageDraft:
@@ -114,6 +116,10 @@ def preview(it: PassageDraft, start_station: float) -> str:
     auto = bool(pts) and pts[0][1] is None
     length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]) if a[1] is not None)
     text = f"→ 꼭짓점 {len(pts)}개, 평면 길이 약 {length:.2f}m" + (" (첫 구간 제외)\n   첫 꼭짓점 t = 외벽 바깥면 (자동)" if auto else "")
+    if sp.close_end:
+        text += " · 끝 폐합"
+    if sp.parent:
+        return text + f"\n   {sp.parent} 에서 분기 (첫 꼭짓점 = 부모 측벽, 두 번째 꼭짓점에서 직각)"
     if sp.path and sp.path[0].mode == STATION:
         sta = sp.path[0].x + start_station
         text += f"\n   측벽 오프닝 STA {sta - sp.half_in:.2f} ~ {sta + sp.half_in:.2f} (폭 {sp.inner_width:g} x 높이 {sp.inner_height:g})"

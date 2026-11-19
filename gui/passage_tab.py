@@ -17,6 +17,9 @@ _FIELDS = [("내공 폭", "inner_width", "내공 높이", "inner_height"),
            ("하부 헌치 폭", "bottom_haunch_w", "하부 헌치 높이", "bottom_haunch_h")]
 
 
+
+BODY = "본체"                      # 분기 선택: 본체 측벽에 붙음
+
 class PassageTab:
     """탭 9: 출구통로 (경로 = 중심선 폴리선 꼭짓점 표)
 
@@ -44,7 +47,10 @@ class PassageTab:
                  text="• 경로 = 통로 중심선 꼭짓점 (선형 상대 STA·t·높이 또는 절대 X·Y·EL)\n"
                       "• 첫 꼭짓점은 측벽 바깥면 위(t 를 비우면 자동), 첫 구간은 본체에 직각. 첫 높이는 비우면 FL\n"
                       "• 꼭짓점 높이가 같으면 수평, 다르면 경사 (일직선 꼭짓점 = 경사 시작점)\n"
-                      "• 꺾이는 꼭짓점 앞뒤 구간은 수평, 꺾임은 임의 각도(연귀)").pack(anchor="w", padx=15)
+                      "• 꺾이는 꼭짓점 앞뒤 구간은 수평, 꺾임은 임의 각도(연귀)\n"
+                      "• 분기: '분기' 에서 부모 통로를 고르면 첫 꼭짓점은 부모 측벽에 자동(두 번째 꼭짓점에서 직각), "
+                      "층·바닥 높이는 부모를 따름\n"
+                      "• 끝 폐합: 경로 끝을 벽으로 막음 (출입구를 붙일 통로는 끔)").pack(anchor="w", padx=15)
 
         bar = tk.Frame(self.parent)
         bar.pack(fill="x", padx=15, pady=(6, 2))
@@ -138,6 +144,14 @@ class PassageTab:
         self.drafts.items[idx].floor = floor_n
         self.refresh_info()
 
+    def passage_names(self) -> list:
+        """통로 이름 (비우면 EX + 순번 — PassageSpec 이름 규칙과 같음)"""
+        return [it.name.strip() or f"EX{k + 1}" for k, it in enumerate(self.drafts.items)]
+
+    def set_parent(self, idx, label: str):
+        self.drafts.items[idx].parent = "" if label == BODY else label
+        self.refresh_info()
+
     def set_mode(self, idx, label: str):
         self.drafts.items[idx].mode = label
         self.render()                                                # 꼭짓점 표 머리글이 바뀜
@@ -179,6 +193,18 @@ class PassageTab:
         floors = self.floor_choices()
         self._combo(top, i, "floor", floors, floors[min(it.floor, len(floors)) - 1],
                     lambda c, k=i: self.set_floor(k, c.current() + 1), width=6).pack(side="left", padx=(2, 0))
+        tk.Label(top, text="분기", font=FONT).pack(side="left", padx=(8, 0))
+        names = [BODY] + [n for n in self.passage_names() if n != self.passage_names()[i]]
+        self._combo(top, i, "parent", names, it.parent if it.parent in names else BODY,
+                    lambda c, k=i: self.set_parent(k, c.get()), width=8).pack(side="left", padx=(2, 0))
+        var = tk.BooleanVar(value=bool(it.close_end))
+        self._vars[(i, "close_end")] = var
+
+        def on_close(*_, obj=it, v=var):
+            obj.close_end = v.get()
+            self.refresh_info()
+        var.trace_add("write", on_close)
+        tk.Checkbutton(top, text="끝 폐합", variable=var, font=FONT).pack(side="left", padx=(8, 0))
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_passage(i)).pack(side="right")
 
         grid = tk.Frame(box)

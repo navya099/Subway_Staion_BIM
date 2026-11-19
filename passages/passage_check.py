@@ -1,18 +1,20 @@
 import math
 
 from helper.box_piece import footprints_overlap
-from passages.passage_layout import layout_passage
+from passages.passage_layout import cut_branch_opening, layout_passage
 from passages.passage_spec import MODES, STATION, PassageSpec, PathVertex, resolve_passage_names
 
 _EPS = 1e-6
 
 
-def check_passage_spec(station, spec, name: str):
-    """입력 제원 자체의 검사 (층·경로 형식·치수·헌치, 내공 높이, 위·아래층 외벽과의 간섭)"""
+def check_passage_spec(station, spec, name: str, floor=None):
+    """입력 제원 자체의 검사 (층·경로 형식·치수·헌치, 내공 높이, 위·아래층 외벽과의 간섭).
+    floor: 분기 통로면 부모 통로의 층 (spec.floor 대신)"""
     if not isinstance(spec, PassageSpec):
         raise ValueError(f"출구통로 {name}: 제원 형식이 올바르지 않습니다 ({spec!r})")
     floors = station.floors
-    k = spec.floor
+    k = spec.floor if floor is None else floor
+    branch = floor is not None
     if not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= floors:
         raise ValueError(f"출구통로 {name}: 층 번호 {k!r} 이(가) 범위(1 ~ {floors})를 벗어납니다")
     if not isinstance(spec.path, (list, tuple)) or len(spec.path) < 2:
@@ -20,7 +22,7 @@ def check_passage_spec(station, spec, name: str):
     for i, v in enumerate(spec.path, start=1):
         if not isinstance(v, PathVertex) or v.mode not in MODES:
             raise ValueError(f"출구통로 {name}: 꼭짓점 {i} 의 형식이 올바르지 않습니다 ({v!r})")
-        auto_t = v.y is None and i == 1 and v.mode == STATION         # 첫 꼭짓점 t 비움 = 외벽 바깥면에 붙임
+        auto_t = v.y is None and i == 1 and v.mode == STATION         # 첫 꼭짓점 t 비움 = 외벽 바깥면(분기면 부모)에 붙임
         if (not math.isfinite(v.x) or (not auto_t and (v.y is None or not math.isfinite(v.y)))
                 or (v.z is not None and not math.isfinite(v.z))):
             raise ValueError(f"출구통로 {name}: 꼭짓점 {i} 의 좌표가 숫자가 아닙니다"
@@ -44,6 +46,8 @@ def check_passage_spec(station, spec, name: str):
     if spec.inner_height > clear + _EPS:
         raise ValueError(f"출구통로 {name}: 내공 높이({spec.inner_height:g}m)가 {station.level_name(k)} 내공 높이"
                          f"({clear:g}m)보다 큽니다 (측벽 오프닝이 위 슬래브에 닿음)")
+    if branch:                         # 분기 통로는 본체 측벽에 붙지 않음 (층 내공·외벽 간섭은 부모가 검사)
+        return
     wt = station.wall_t_at(k)          # 아래층 외벽이 더 두꺼우면 그 턱 위의 바닥 슬래브를 뺀다 (passage_layout.lower_ledge)
     top = station.floor_level(k) + spec.inner_height + spec.roof_t
     if k < floors and top > station.floor_level(k + 1) + _EPS and station.wall_t_at(k + 1) > wt + _EPS:
@@ -59,28 +63,71 @@ def _pieces_overlap(p, q) -> bool:
     return _vertical_overlap(p, q) and footprints_overlap(p.footprint(), q.footprint())
 
 
+def _branch_order(names: list, specs: list) -> list:
+    """부모가 먼저 오도록 통로 순번 정렬 (부모 없음·자기 자신·순환 참조는 오류)"""
+    idx = {n: i for i, n in enumerate(names)}
+    order, state = [], {}
+
+    def visit(i, trail):
+        if state.get(i) == 2:
+            return
+        if state.get(i) == 1:
+            raise ValueError("출구통로 분기가 순환합니다 (" + " → ".join(names[j] for j in trail + [i]) + ")")
+        state[i] = 1
+        parent = (getattr(specs[i], "parent", "") or "").strip()
+        if parent:
+            if parent == names[i]:
+                raise ValueError(f"출구통로 {names[i]}: 자기 자신에서 분기할 수 없습니다")
+            if parent not in idx:
+                raise ValueError(f"출구통로 {names[i]}: 분기할 통로 '{parent}' 이(가) 없습니다")
+            visit(idx[parent], trail + [i])
+        state[i] = 2
+        order.append(i)
+    for i in range(len(names)):
+        visit(i, [])
+    return order
+
+
 def layout_passages(cfg) -> list:
-    """통로마다 PassageLayout (이름 확정 + 입력 검사 + 배치 계산 + 측벽 오프닝 범위 + 경로 자기 겹침)"""
+    """통로마다 PassageLayout (이름 확정 + 입력 검사 + 배치 계산 + 측벽 오프닝 범위 + 경로 자기 겹침).
+    분기 통로는 부모 다음에 배치하고 부모 측벽에 개구부를 뚫는다. 결과는 입력 순서"""
     st = cfg.station
     names = resolve_passage_names(cfg.passages)
-    out = []
+    with_entrance = {(getattr(e, "passage", "") or "").strip() for e in getattr(cfg, "entrances", [])}
     for name, spec in zip(names, cfg.passages):
-        check_passage_spec(st, spec, name)
-        lay = layout_passage(cfg, spec, name)
-        _, _, _, s0, s1, _, _ = lay.wall_opening
-        if s0 < -_EPS or s1 > st.length + _EPS:
-            raise ValueError(f"출구통로 {name}: 측벽 오프닝 s {s0:.3f} ~ {s1:.3f} 이(가) 내공 길이(0 ~ {st.length:g}m)를 벗어납니다")
+        if getattr(spec, "close_end", False) and name in with_entrance:
+            raise ValueError(f"출구통로 {name}: 출입구가 붙은 통로는 끝을 막을 수 없습니다 (끝 폐합을 끄세요)")
+    done: dict = {}
+    for i in _branch_order(names, cfg.passages):
+        name, spec = names[i], cfg.passages[i]
+        parent_name = (getattr(spec, "parent", "") or "").strip()
+        parent = done[parent_name] if parent_name else None
+        check_passage_spec(st, spec, name, floor=parent.floor if parent is not None else None)
+        lay = layout_passage(cfg, spec, name, parent)
+        if parent is not None:
+            if spec.inner_height > parent.spec.inner_height + _EPS:
+                raise ValueError(f"출구통로 {name}: 내공 높이({spec.inner_height:g}m)가 분기하는 부모 통로 {parent.name} "
+                                 f"내공 높이({parent.spec.inner_height:g}m)보다 큽니다")
+            cut_branch_opening(parent, lay)
+        else:
+            _, _, _, s0, s1, _, _ = lay.wall_opening
+            if s0 < -_EPS or s1 > st.length + _EPS:
+                raise ValueError(f"출구통로 {name}: 측벽 오프닝 s {s0:.3f} ~ {s1:.3f} 이(가) 내공 길이(0 ~ {st.length:g}m)를 벗어납니다")
+        done[name] = lay
+    out = [done[n] for n in names]
+    for lay in out:
+        name = lay.name
         pieces = lay.pieces()
         for i, p in enumerate(pieces):                     # 이웃하지 않은 구간끼리 겹치면 경로가 스스로 교차
             for q in pieces[i + 1:]:
                 if abs(p.local["seg"] - q.local["seg"]) > 1 and _pieces_overlap(p, q):
                     raise ValueError(f"출구통로 {name}: 경로가 스스로 겹칩니다 (구간 {p.local['seg'] + 1} 와 {q.local['seg'] + 1})")
-        out.append(lay)
     return out
 
 
 def check_passage_layouts(cfg, layouts: list):
-    """통로끼리 겹치지 않을 것 (평면이 겹치고 높이 범위도 겹치는 조각이 있으면 오류)"""
+    """통로끼리 겹치지 않을 것 (평면이 겹치고 높이 범위도 겹치는 조각이 있으면 오류). 분기 통로와 부모는 접합면에서
+    맞닿을 뿐이라 같은 검사로 충분 (분기 통로가 부모 위로 되돌아가면 겹침)"""
     for i, a in enumerate(layouts):
         for b in layouts[i + 1:]:
             for p in a.pieces():

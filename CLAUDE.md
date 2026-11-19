@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 925개 통과** (GUI 123개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 950개 통과** (GUI 126개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -71,7 +71,7 @@ exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘�
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -169,6 +169,9 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 절대 좌표 해석을 위해 `StationProjectConfig.to_station(x, y)`(to_world 의 역변환, 수선의 발 탐색)를 둠. 선형 접점은 여전히 config 하나.
   - 첫 꼭짓점 = 그 층 외벽 바깥면 위 접합점(|t| = W/2 + 벽 두께, 1mm 허용), 첫 구간은 본체에 직각(바깥쪽). 첫 높이는 비우면 FL, 주면 FL 과 같아야 함(5mm). **첫 꼭짓점(선형 상대) t 를 비우면(`PathVertex.y = None`) 외벽 바깥면에 자동**(측벽 = 두 번째 꼭짓점 t 부호) — 벽 두께를 바꿔도 따라감. 다른 꼭짓점·절대 좌표는 비울 수 없음.
   - **아래층 외벽이 더 두꺼우면**(`passage_layout.lower_ledge` = 아래층 − 그 층 벽 두께): 아래층 벽 상단(= 그 층 FL)이 바깥으로 나온 턱과 첫 구간 바닥 슬래브(FL − 바닥 두께 ~ FL)가 겹치므로 **첫 구간 바닥 슬래브를 턱 폭 뒤부터** 시작(겹친 부분은 벽 체적, 턱 위는 벽 상단이 바닥). 하부 헌치(FL 위)·벽·천장은 그대로. 첫 구간이 턱보다 짧으면 오류. 직선 근사(곡선 선형에서 벽 바깥면의 휨·벽 상단 종단구배는 무시). 위층 외벽이 더 두꺼워 천장 슬래브와 겹치는 경우는 여전히 오류.
+  - **T자 분기(`PassageSpec.parent` = 부모 통로 이름, 여러 단계 가능)**: 자식 통로의 첫 꼭짓점은 부모 측벽 바깥면에 자동 — 부모 구간 = 첫 꼭짓점(t 를 비우면 두 번째 꼭짓점)에 가장 가까운 구간, 접합점 = 두 번째 꼭짓점에서 그 구간에 내린 수선의 발 + 부모 외곽 반폭(첫 구간이 늘 부모에 직각, side = 부모 진행방향 왼쪽 +1). 층·접합부 바닥 = 부모(입력 층 무시), 높이 기준(선형 상대 z) = 분기점 부모 바닥. `layout_passages` 가 부모 먼저(`_branch_order`, 순환·자기 자신·없는 부모 오류) 배치하고 `cut_branch_opening` 으로 부모 그 구간의 WALL_L/R 조각을 자식 내공 폭 × 내공 높이만큼 잘라 앞·뒤 조각 + 위 인방(`local['lintel']`)으로 나눔. 결과 순서는 입력 순서. 분기 통로는 `wall_opening = None`(본체 측벽 개구부 없음, `cfg.wall_openings()`·출구 사인 제외), 아래층 벽 턱 처리 없음, 층 내공·외벽 간섭 검사는 부모가. 오류: 분기하는 부모 구간이 경사, 두 번째 꼭짓점이 부모 외곽 안, 개구부가 부모 구간 측벽 범위(연귀 포함) 밖, 자식 내공 높이 > 부모. 출입구는 분기 통로 끝에도 붙음. GUI: 통로마다 '분기' 콤보(본체 | 다른 통로 이름), `PassageDraft.parent`. 분기 위치(두 번째 꼭짓점의 수선의 발)가 부모 구간 밖이면 '수선의 발이 구간 밖' 오류.
+  - **끝 폐합 옵션(`PassageSpec.close_end`, 통로 탭 '끝 폐합' 체크, 기본 끔)**: 켜면 경로 끝 [L − 벽 두께, L] 에 끝 벽 `S{run}_END`(좌우 벽 사이 × 바닥 상면 ~ 내공 높이, 마지막 구간 구배, IfcWall), 헌치 삼각 조각은 끝 벽 앞까지. 자동 판단 없음(사용자 요청 — 처음 만든 '분기 근처면 자동으로 자르고 늘여 폐합'은 되돌림). 오류: 출입구가 붙은 통로, 마지막 구간이 끝 벽보다 짧음, 분기 개구부가 끝 벽과 겹침(늘여야 할 길이를 알려 줌 — 분기 바깥 벽 면까지 늘리면 맞음).
+  - GUI: 콤보박스 위 휠이 값을 바꾸고 `<<ComboboxSelected>>` 를 보내던 ttk 기본 동작을 앱 시작 때 지움(`unbind_class('TCombobox', '<MouseWheel>')`) — 스크롤하다 분기·층 선택이 몰래 바뀌던 문제.
   - 높이는 꼭짓점 사이 직선 보간: 같으면 수평, 다르면 경사. 평면 일직선 꼭짓점 = 경사 변화점(직각 끝으로 조각 분할).
   - 꺾이는 꼭짓점: **임의 각도(≤135°), 이등분선 연귀 접합**. 단면 v 위치에서 앞 구간 끝 = L − v·tan(δ/2), 뒤 구간 시작 = v·tan(δ/2) (δ = 왼쪽 + 회전각). **꺾임 앞뒤 구간은 수평이어야 함**(아니면 오류). 연귀는 재료를 더하거나 빼지 않아 벽 체적 = 2·벽두께·H·중심선 길이.
   - 부재는 평면 직선 구간(run, 꺾임마다 증가)별: `S{run}_FLOOR/ROOF/WALL_L/WALL_R` (L = 진행방향 왼쪽). 헌치는 천장/바닥 슬래브에 포함. 끝단 개방.
@@ -256,7 +259,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 출입구 2단계 후보: 천장을 도면처럼 계단참마다 꺾기, 깊이별 벽 두께(700/800/900), 상부 캐노피(지상 구조물), E-E 단면처럼 계단식 파라펫, 지형 자료 불러오기(지표 EL 자동), 종단면도·층별 평면도 표시, 계단연석 분리.
 - 지표 다음 후보: 본체 천장·통로·덕트 토피 검사(지표 위로 나오면 경고), 지형 자료(측점별 지표 EL)·지형 불러오기, IFC IfcSite 표고.
 - 환기구 2단계 후보: 아래로 내려가는 수직구, 위 덕트가 다른 방향(직각)으로 나가는 수직구, 본체 천장에서 바로 올라가는 수직구, 지상 환기탑·루버, 수직구 깊이 방향 회전, 종단면도 표시.
-- 출구통로 다음 후보: 끝단 폐합, 통로 경로와 본체(다른 층·곡선 안쪽)의 간섭 검사, 종단면도 표시, 경로 그래픽 편집 UI(Revit 식).
+- 출구통로 다음 후보: Y자(끝에서 갈라짐)·비스듬한 분기, 분기부 바닥·천장 접합 상세, 통로 경로와 본체(다른 층·곡선 안쪽)의 간섭 검사, 종단면도 표시, 경로 그래픽 편집 UI(Revit 식).
 - 에스컬레이터 2단계 후보: 바닥을 내린 피트 구조(슬래브보다 깊은 피트), 상·하부 곡선 전이부, 핸드레일 끝 곡선(뉴얼), 실무 도면 제원 반영.
 
 **알려진 정리 항목**

@@ -1,3 +1,4 @@
+from config.widening import clear_contains_rect, has_pockets
 from openings.decompose import overlap_area
 from rooms.room_layout import layout_floor_rooms, resolve_room_names
 from rooms.room_spec import BOUNDARIES, DOOR_KINDS, DOOR_SIDES, SEPARATION, DoorSpec, RoomSettings, RoomSpec
@@ -41,7 +42,11 @@ def check_room_specs(cfg, specs: list, names: list):
         if not (sp.s1 - sp.s0 > rs.partition_t + _EPS and sp.t1 - sp.t0 > rs.partition_t + _EPS):
             raise ValueError(f"실 {name}: 크기({sp.s1 - sp.s0:g} x {sp.t1 - sp.t0:g}m)가 칸막이벽 두께보다 커야 합니다 "
                              "(시작 < 끝 인지 확인)")
-        if sp.s0 < -_EPS or sp.s1 > L + _EPS or sp.t0 < -hw - _EPS or sp.t1 > hw + _EPS:
+        if has_pockets(cfg, sp.floor):                       # 구조물 내공 확폭: 넓어진 내공 안이면 됨
+            if not clear_contains_rect(cfg, sp.floor, sp.rect, _EPS):
+                raise ValueError(f"실 {name}: 범위 s {sp.s0:g} ~ {sp.s1:g}, t {sp.t0:g} ~ {sp.t1:g} 이(가) "
+                                 f"{st.level_name(sp.floor)} 내공(확폭 포함)을 벗어납니다")
+        elif sp.s0 < -_EPS or sp.s1 > L + _EPS or sp.t0 < -hw - _EPS or sp.t1 > hw + _EPS:
             raise ValueError(f"실 {name}: 범위 s {sp.s0:g} ~ {sp.s1:g}, t {sp.t0:g} ~ {sp.t1:g} 이(가) "
                              f"{st.level_name(sp.floor)} 내공(s 0 ~ {L:g}, t ±{hw:g})을 벗어납니다")
     for i, a in enumerate(specs):

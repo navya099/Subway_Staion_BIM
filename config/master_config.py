@@ -77,11 +77,11 @@ class StationProjectConfig:
         # 실 경계가 내공면에서 경계 벽 두께 이내면 내공면에 붙임 (입력 정규화: 이후 엔진·도면·마감은 붙인 값을 씀).
         # 계단·에스컬레이터 자동 오프닝이 아래층 천장 높이를 실 배치에서 찾으므로 그 전에
         check_widenings(self)
-        self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings)
+        self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings, self)
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
         stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)
         all_ops = self.openings + self._auto_openings(stairs, escs, evs)
-        check_openings(self.station, all_ops)
+        check_openings(self.station, all_ops, self)
         check_stair_layouts(self, stairs)
         check_escalator_layouts(self, escs, stairs)
         check_elevator_layouts(self, evs, stairs, escs)

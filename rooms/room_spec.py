@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Optional
 
 # 실 용도 기본 목록 (직접 입력도 가능). 나중에 용도별 기본 마감을 연결한다
 ROOM_USES = ["대합실", "승강장층", "복도", "역무실", "기계실", "전기실", "통신실", "공조실", "화장실", "창고", "통로", "기타"]
@@ -91,21 +92,32 @@ def snap_tolerance(spec: RoomSpec, settings: RoomSettings) -> float:
     return max(own, settings.partition_t)
 
 
-def snap_to_clear(spec: RoomSpec, length: float, half_w: float, settings: RoomSettings) -> RoomSpec:
+def snap_to_clear(spec: RoomSpec, length: float, half_w: float, settings: RoomSettings,
+                  half_w_neg: Optional[float] = None) -> RoomSpec:
     """실 경계가 내공면(s = 0 / L, t = ±W/2)에서 경계 벽 두께 이내면 내공면에 붙인 사본 (안쪽·바깥쪽 모두).
     예) 내공 폭 20.2 (±10.1) 인데 t = ±10 으로 입력 → ±10.1: 본체 벽에 붙은 얇은 벽과 0.1m 자투리 실이 생기지 않음.
-    문 중심(±t 변 = s, ±s 변 = t)은 그대로 둔다"""
+    문 중심(±t 변 = s, ±s 변 = t)은 그대로 둔다. half_w_neg: −t 쪽 내공면 |t| (구조물 확폭, 비우면 half_w)"""
     tol = snap_tolerance(spec, settings) + 1e-9
 
     def snap(v, face):                          # 변마다 자기 쪽 내공면만 (s0 → 시점, s1 → 종점, t0 → 오른쪽, t1 → 왼쪽)
         return face if 1e-12 < abs(v - face) <= tol else v
     s0, s1 = snap(spec.s0, 0.0), snap(spec.s1, length)
-    t0, t1 = snap(spec.t0, -half_w), snap(spec.t1, half_w)
+    t0, t1 = snap(spec.t0, -(half_w if half_w_neg is None else half_w_neg)), snap(spec.t1, half_w)
     if (s0, s1, t0, t1) == spec.rect or not (s0 < s1 and t0 < t1):
         return spec
     return dataclasses.replace(spec, s0=s0, s1=s1, t0=t0, t1=t1)
 
 
-def snap_rooms_to_clear(specs: list, station, settings: RoomSettings) -> list:
-    """snap_to_clear 를 모든 실에 (StationProjectConfig.validate 가 검사 전에 입력을 정규화)"""
-    return [snap_to_clear(sp, station.length, station.width / 2.0, settings) for sp in specs]
+def snap_rooms_to_clear(specs: list, station, settings: RoomSettings, cfg=None) -> list:
+    """snap_to_clear 를 모든 실에 (StationProjectConfig.validate 가 검사 전에 입력을 정규화).
+    cfg 를 주면 내공 확폭이 있는 층은 그 실 s 구간의 넓어진 내공면(구간 어디서나 닿는 |t|)에 붙임"""
+    out = []
+    for sp in specs:
+        if cfg is not None and isinstance(sp, RoomSpec) and isinstance(sp.floor, int) and 1 <= sp.floor <= station.floors:
+            from config.widening import has_pockets, inner_min
+            if has_pockets(cfg, sp.floor) and sp.s0 < sp.s1:
+                out.append(snap_to_clear(sp, station.length, inner_min(cfg, sp.floor, 1, sp.s0, sp.s1), settings,
+                                         inner_min(cfg, sp.floor, -1, sp.s0, sp.s1)))
+                continue
+        out.append(snap_to_clear(sp, station.length, station.width / 2.0, settings))
+    return out

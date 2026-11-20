@@ -247,7 +247,11 @@ class StationCADEngine:
                                     pts=[cfg.to_world(u, v) for u, v in it.pts], label=label))
                 continue
             ss = cfg.sample_s(it.u0, it.u1)
-            pts = [cfg.to_world(s, it.vb0) for s in ss] + [cfg.to_world(s, it.vt0) for s in reversed(ss)]
+            du = it.u1 - it.u0
+            k = (lambda s: 0.0) if abs(du) < 1e-12 else (lambda s: (s - it.u0) / du)
+            # 아래·위 변이 기운 사각형(구조물 확폭 사다리꼴 조각)은 측점마다 보간
+            pts = [cfg.to_world(s, it.vb0 + (it.vb1 - it.vb0) * k(s)) for s in ss] + \
+                  [cfg.to_world(s, it.vt0 + (it.vt1 - it.vt0) * k(s)) for s in reversed(ss)]
             out.append(ViewItem(it.name, it.layer, u0=it.u0, u1=it.u1, pts=pts, label=label))
         return out
 

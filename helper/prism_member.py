@@ -164,3 +164,12 @@ def mesh_volume(quads) -> float:
             c = _cross(tri[1], tri[2])
             total += sum(tri[0][i] * c[i] for i in range(3))
     return total / 6.0
+
+
+def plan_item(name, layer, m):
+    """평면도 윤곽 ViewItem (s, t 평면): 직사각형 조각은 사각형, 사다리꼴 조각(확폭 전이부)은 아래·위 변이 기운 사각형"""
+    s0, s1 = s_range(m)
+    trap = getattr(m, "trap", None)
+    if not trap:
+        return ViewItem.rect(name, layer, s0, s1, *t_range(m))
+    return ViewItem(name, layer, s0, s1, trap[0], trap[2], trap[1], trap[3])

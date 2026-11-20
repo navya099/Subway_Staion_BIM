@@ -56,7 +56,7 @@ def platform_base(cfg, s: float, t: float) -> float:
         if fl.floor != 1:
             continue
         for room in fl.rooms:
-            if any(a - _EPS <= s <= b + _EPS and c - _EPS <= t <= d + _EPS for a, b, c, d in room.rects):
+            if room.contains(s, t, _EPS):
                 sp = specs.get(room.name)
                 ft = fs.for_room(room.use, getattr(sp, "finish", "") if sp else "")
                 return top + ft.ffl

@@ -9,6 +9,7 @@
 - 부재는 '평면 직선 구간(run)' 단위로 묶는다: 꺾이는 꼭짓점마다 run 번호가 바뀐다
 """
 import math
+from config.widening import outer_at, widened
 from dataclasses import dataclass
 
 from helper.box_piece import BoxPiece
@@ -74,12 +75,23 @@ def _haunch_bottom(v_face, into, hw, hh):
     return [(v_face, 0.0), (v_face + into * hw, 0.0), (v_face, hh)]
 
 
-def lower_ledge(station, floor_n: int) -> float:
+def lower_ledge(station, floor_n: int, cfg=None, side: int = 1, s: float = 0.0) -> float:
     """아래층 외벽이 그 층보다 두꺼워 바깥으로 나온 턱의 폭 (m, 없으면 0).
-    아래층 벽 상단 = 그 층 FL 이라, 접합부에서 나가는 통로·덕트의 바닥 슬래브(FL − 바닥 두께 ~ FL)와 이 폭만큼 겹친다"""
+    아래층 벽 상단 = 그 층 FL 이라, 접합부에서 나가는 통로·덕트의 바닥 슬래브(FL − 바닥 두께 ~ FL)와 이 폭만큼 겹친다.
+    cfg 를 주고 구조물 확폭이 있으면 접합부(side, s)의 두 층 벽 바깥면 차이"""
     if floor_n <= 1:
         return 0.0
+    if cfg is not None and widened(cfg):
+        return max(0.0, outer_at(cfg, floor_n - 1, side, s) - outer_at(cfg, floor_n, side, s))
     return max(0.0, station.wall_t_at(floor_n - 1) - station.wall_t_at(floor_n))
+
+
+def upper_wider(cfg, floor_n: int, side: int, s: float) -> bool:
+    """접합부(side, s)에서 위층 벽 바깥면이 그 층보다 바깥인가 (구조물 확폭 — 통로·덕트 천장 슬래브와 겹침 검사)"""
+    st = cfg.station
+    if floor_n >= st.floors or not widened(cfg):
+        return False
+    return outer_at(cfg, floor_n + 1, side, s) > outer_at(cfg, floor_n, side, s) + 1e-6
 
 
 def _auto_side(cfg, spec, name: str, what: str) -> int:
@@ -101,6 +113,10 @@ def resolve_vertices(cfg, spec, name: str, what: str = "출구통로", last_z=No
     st = cfg.station
     k = spec.floor
     t_face = st.width / 2.0 + st.wall_t_at(k)
+    wide = widened(cfg)
+
+    def face_at(side, s):                                       # 외벽 바깥면 |t| (구조물 확폭이면 그 자리 값)
+        return outer_at(cfg, k, side, s) if wide else t_face
     raw = []
     for i, v in enumerate(spec.path, start=1):
         if v.mode == STATION:
@@ -108,7 +124,8 @@ def resolve_vertices(cfg, spec, name: str, what: str = "출구통로", last_z=No
             if t is None:
                 if i > 1:
                     raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 t 를 입력하세요 (비울 수 있는 것은 첫 꼭짓점뿐)")
-                t = _auto_side(cfg, spec, name, what) * t_face
+                side = _auto_side(cfg, spec, name, what)
+                t = side * face_at(side, s)
             x, y = cfg.to_world(s, t)
         elif v.mode == WORLD:
             x, y = v.x, v.y
@@ -117,8 +134,9 @@ def resolve_vertices(cfg, spec, name: str, what: str = "출구통로", last_z=No
             raise ValueError(f"{what} {name}: 꼭짓점 {i} 의 좌표 방식이 올바르지 않습니다 ({v.mode!r})")
         raw.append((x, y, s, t))
     x0, y0, s0, t0 = raw[0]
-    if abs(abs(t0) - t_face) > 1e-3:
-        raise ValueError(f"{what} {name}: 첫 꼭짓점(t = {t0:.3f})이 {st.level_name(k)} 외벽 바깥면(t = ±{t_face:g})에 있지 않습니다")
+    face0 = face_at(1 if t0 > 0 else -1, s0)
+    if abs(abs(t0) - face0) > 1e-3:
+        raise ValueError(f"{what} {name}: 첫 꼭짓점(t = {t0:.3f})이 {st.level_name(k)} 외벽 바깥면(t = ±{face0:g})에 있지 않습니다")
     side = 1 if t0 > 0 else -1
     e0 = cfg.lv(s0) - st.offset + st.floor_level(k)
     out = []
@@ -258,7 +276,10 @@ def layout_passage(cfg, spec, name: str, parent=None) -> PassageLayout:
         sections += [(PassagePartKind.FLOOR, "FLOOR", _haunch_bottom(-a, 1, bh_w, bh_h)),
                      (PassagePartKind.FLOOR, "FLOOR", _haunch_bottom(a, -1, bh_w, bh_h))]
 
-    ledge = lower_ledge(st, k) if parent is None else 0.0     # 아래층 벽 턱 위는 바닥 슬래브를 빼고 벽 상단이 바닥
+    ledge = lower_ledge(st, k, cfg, side, vs[0].s) if parent is None else 0.0     # 아래층 벽 턱 위는 바닥 슬래브를 빼고 벽 상단이 바닥
+    if parent is None and upper_wider(cfg, k, side, vs[0].s) and \
+            st.floor_level(k) + spec.inner_height + spec.roof_t > st.floor_level(k + 1) + 1e-6:
+        raise ValueError(f"출구통로 {name}: 위층({st.level_name(k + 1)}) 외벽(구조물 확폭)이 더 바깥이라 통로 천장 슬래브와 겹칩니다")
     if ledge > 0 and segs[0][2] <= ledge + b * abs(math.tan(turns[1] / 2.0)) + 1e-6:
         raise ValueError(f"출구통로 {name}: 첫 구간({segs[0][2]:.3f}m)이 아래층 외벽 턱({ledge:g}m)에 비해 너무 짧습니다")
     elements: dict = {}

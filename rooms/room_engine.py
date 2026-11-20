@@ -4,7 +4,7 @@ from config.master_config import StationProjectConfig
 from helper import prism_member as PM
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
-from rooms.room_data import DoorData, PartitionData, RoomBox, RoomData, RoomPiece, SeparationLineData
+from rooms.room_data import DoorData, PartitionData, RoomData, RoomPiece, SeparationLineData
 from rooms.room_layout import ceiling_rel
 from rooms.room_spec import DOOR_KINDS, PARTITION
 
@@ -26,19 +26,21 @@ class RoomEngine:
         self.doors: list[DoorData] = []
         self._build()
 
-    def _piece(self, name, s0, s1, t0, t1, z0, z1) -> RoomPiece:
-        cfg, off = self.cfg, self.sp.offset
-        mid = (s0 + s1) / 2.0
-        return RoomPiece(name=name, pos_x=mid, pos_y=(t0 + t1) / 2.0, pos_z=cfg.lv(mid) - off + z0,
-                         shape=RoomBox(length=s1 - s0, width=t1 - t0, height=z1 - z0, rise=cfg.lv(s1) - cfg.lv(s0),
-                                       curve_factor=PM.curve_factor(cfg, s0, s1, (t0 + t1) / 2.0)))
+    def _piece(self, name, s0, s1, t0, t1, z0, z1, trap=None) -> RoomPiece:
+        from finishes.finish_engine import room_piece
+        return room_piece(self.cfg, name, s0, s1, t0, t1, z0, z1, trap)
 
     def _build(self):
         for fl in self.cfg.room_layouts():
             level = self.sp.level_name(fl.floor)
             z0, z1 = self.sp.floor_level(fl.floor), ceiling_rel(self.sp, fl.floor)
             for r in fl.rooms:
-                pieces = [self._piece(f"{r.name}_P{k}", *rect, z0, z1) for k, rect in enumerate(r.rects, start=1)]
+                if r.traps is not None:                       # 구조물 확폭 층: 사다리꼴 조각
+                    from helper import trap_region as T
+                    pieces = [self._piece(f"{r.name}_P{k}", *T.bbox(p), z0, z1, T.trap_of(p))
+                              for k, p in enumerate(r.traps, start=1)]
+                else:
+                    pieces = [self._piece(f"{r.name}_P{k}", *rect, z0, z1) for k, rect in enumerate(r.rects, start=1)]
                 self.rooms.append(RoomData(name=r.name, family_name="실", type_name=r.use, level=level,
                                            pos_x=pieces[0].pos_x, pos_y=pieces[0].pos_y, pos_z=pieces[0].pos_z,
                                            use=r.use, floor=fl.floor, is_default=r.is_default, pieces=pieces))
@@ -149,8 +151,7 @@ class RoomEngine:
                     z0 = PM.z_off(self.cfg, p)                     # 절단 높이를 지나는 조각만 (문 위 인방은 안 보임)
                     if not z0 - 1e-9 <= cut_h < z0 + p.shape.height - 1e-9:
                         continue
-                    s0, s1 = PM.s_range(p)
-                    items.append(ViewItem.rect(pw.name, layer, s0, s1, *PM.t_range(p)))
+                    items.append(PM.plan_item(pw.name, layer, p))
         for d in self.doors:
             if d.floor == floor:
                 items += self._door_symbol(d)

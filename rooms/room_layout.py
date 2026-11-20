@@ -22,10 +22,23 @@ class RoomLayout:
     floor: int
     rects: list                  # [(s0, s1, t0, t1)] 실 영역 조각 (입력 실은 1개, 기본 실은 여러 개일 수 있음)
     is_default: bool = False
+    traps: list = None           # 구조물 내공 확폭 층: 실 영역 사다리꼴 조각 (helper.trap_region, rects 는 조각의 외접 사각형)
 
     @property
     def area(self) -> float:
+        if self.traps is not None:
+            from helper import trap_region as T
+            return T.area(self.traps)
         return sum((b - a) * (d - c) for a, b, c, d in self.rects)
+
+    def region(self) -> list:
+        """실 영역 사다리꼴 조각 (직사각형 실은 사각형 조각)"""
+        from helper import trap_region as T
+        return list(self.traps) if self.traps is not None else T.from_rects(self.rects)
+
+    def contains(self, s: float, t: float, tol: float = 1e-6) -> bool:
+        from helper import trap_region as T
+        return T.contains(self.region(), s, t, tol)
 
 
 @dataclass
@@ -117,6 +130,9 @@ def ceiling_rel(st, floor: int) -> float:
 
 
 def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsLayout:
+    from config.widening import has_pockets
+    if has_pockets(cfg, floor):
+        return _layout_pocket_floor(cfg, floor, specs, names)
     st, pl = cfg.station, cfg.platform
     L, hw = st.length, st.width / 2.0
     clear = (0.0, L, -hw, hw)
@@ -203,7 +219,116 @@ def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsL
     return FloorRoomsLayout(floor, rooms, partitions, seps, doors)
 
 
-def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list) -> list:
+def _layout_pocket_floor(cfg, floor: int, specs: list, names: list) -> FloorRoomsLayout:
+    """구조물 내공 확폭이 있는 층: 내공 = 넓어진 내공(사다리꼴 조각). 실의 ±t 변이 그 s 구간 어디서나 닿는 내공면
+    (inner_min) 위면 그 쪽은 본체 벽 — 실이 확폭 공간(포켓)까지 넓어짐 ('맞닿은 실에 합침'). 다른 입력 실 자리는 뺌.
+    나머지 = 기본 실(덩어리마다). 칸막이벽은 같은 규칙, 포켓까지 넓어진 실의 ±s 변 벽은 넓어진 내공면까지"""
+    from config.widening import clear_traps, inner_at, inner_min, platform_ranges
+    from helper import trap_region as T
+    st, pl = cfg.station, cfg.platform
+    L = st.length
+    clear = clear_traps(cfg, floor)
+    ext = [(sp.t0 <= -inner_min(cfg, floor, -1, sp.s0, sp.s1) + _EPS, sp.t1 >= inner_min(cfg, floor, 1, sp.s0, sp.s1) - _EPS)
+           for sp in specs]
+    rect_traps = [T.rect(*sp.rect) for sp in specs]
+    rooms = []
+    regions = []
+    for i, (name, sp) in enumerate(zip(names, specs)):
+        lo, hi = ext[i]
+        reg = T.intersect(clear, [T.rect(sp.s0, sp.s1, -T.BIG if lo else sp.t0, T.BIG if hi else sp.t1)])
+        others = [r for j, r in enumerate(rect_traps) if j != i]
+        reg = T.subtract(reg, others) if others else reg
+        regions += reg
+        rooms.append(RoomLayout(name, sp.use.strip(), floor, [T.bbox(p) for p in reg], traps=reg))
+    rest = T.subtract(clear, regions) if regions else clear
+    groups = T.groups(rest)
+    use = cfg.room_settings.default_use(floor)
+    for k, g in enumerate(groups, start=1):
+        suffix = "" if len(groups) == 1 else str(k)
+        rooms.append(RoomLayout(f"{st.level_name(floor)}_{use}{suffix}", use, floor, [T.bbox(p) for p in g],
+                                is_default=True, traps=g))
+
+    rs = cfg.room_settings
+    lines = {}
+    for sp, (lo_x, hi_x) in zip(specs, ext):
+        kind = PARTITION if sp.boundary == PARTITION else SEPARATION
+        thick = rs.partition_t if kind == PARTITION else sp.sep_t
+        for t, station in ((sp.t0, lo_x), (sp.t1, hi_x)):
+            if not station:
+                lines.setdefault(("s", round(t, 6)), []).append((sp.s0, sp.s1, kind, thick))
+        for s in (sp.s0, sp.s1):
+            if _EPS < s < L - _EPS:
+                lines.setdefault(("t", round(s, 6)), []).append((-T.BIG if lo_x else sp.t0, T.BIG if hi_x else sp.t1,
+                                                                 kind, thick))
+    segments = {"s": [], "t": []}
+    for (axis, c), ivs in sorted(lines.items()):
+        cuts = sorted({v for a, b, *_ in ivs for v in (a, b)})
+        cur = None
+        for a, b in zip(cuts, cuts[1:]):
+            cover = [(k, th) for lo, hi, k, th in ivs if lo - _EPS <= a and b <= hi + _EPS]
+            if not cover:
+                cur = None
+                continue
+            part = [th for k, th in cover if k == PARTITION]
+            key = (PARTITION, part[0]) if part else (SEPARATION, max(th for _, th in cover))
+            if cur is not None and cur[2] == key and abs(cur[1] - a) < _EPS:
+                cur[1] = b
+            else:
+                cur = [a, b, key]
+                segments[axis].append((c, cur))
+    s_walls, t_walls, vlines = [], [], []          # 벽: (조각 목록, 종류, 두께)
+    for t, (a, b, (kind, th)) in segments["s"]:
+        if th <= _EPS:
+            vlines.append((max(a, 0.0), min(b, L), t, t))
+            continue
+        h = th / 2.0
+        s_walls.append((T.intersect(clear, [T.rect(max(a - h, 0.0), min(b + h, L), t - h, t + h)]), kind, th))
+    s_regs = [p for ps, _, _ in s_walls for p in ps]
+    for s, (a, b, (kind, th)) in segments["t"]:
+        lo_f, hi_f = -inner_at(cfg, floor, -1, s), inner_at(cfg, floor, 1, s)
+        if th <= _EPS:
+            vlines.append((s, s, max(a, lo_f), min(b, hi_f)))
+            continue
+        h = th / 2.0
+        reg = T.intersect(clear, [T.rect(max(s - h, 0.0), min(s + h, L), a, b)])
+        t_walls.append((T.subtract(reg, s_regs) if s_regs else reg, kind, th))
+
+    z0, z1 = st.floor_level(floor), ceiling_rel(st, floor)
+    plat = [T.rect(0.0, L, a, b) for a, b in (platform_ranges(cfg) if (floor == 1 and pl.exists) else [])]
+
+    def piece(p, za, zb):
+        s0, s1, ta, tb = T.bbox(p)
+        tr = T.trap_of(p)
+        return (s0, s1, ta, tb, za, zb) if tr is None else (s0, s1, ta, tb, za, zb, tr)
+
+    def with_heights(ps):
+        out = []
+        for p in ps:
+            if plat:
+                out += [piece(q, pl.top_level, z1) for q in T.intersect([p], plat)]
+                out += [piece(q, z0, z1) for q in T.subtract([p], plat)]
+            else:
+                out.append(piece(p, z0, z1))
+        return sorted(out, key=lambda x: x[:6])
+
+    level = st.level_name(floor)
+    partitions, counters = [], {}
+    for axis, walls in (("s", s_walls), ("t", t_walls)):
+        for ps, kind, th in walls:
+            if not ps:
+                continue
+            pre = "PW" if kind == PARTITION else "SW"
+            counters[(pre, axis)] = counters.get((pre, axis), 0) + 1
+            partitions.append(PartitionLayout(f"{pre}_{level}_{axis.upper()}{counters[(pre, axis)]}", floor, axis,
+                                              with_heights(ps), kind, th))
+    seps = [SeparationLineLayout(f"SL_{level}_{k}", floor, "s" if abs(r[2] - r[3]) < _EPS else "t", r, z0)
+            for k, r in enumerate(vlines, start=1) if (r[1] - r[0]) + (r[3] - r[2]) > _EPS]
+    station_sides = {n: {side for side, x in (("-t", lo_x), ("+t", hi_x)) if x} for n, (lo_x, hi_x) in zip(names, ext)}
+    doors = _cut_doors(cfg, specs, names, partitions, seps, station_sides)
+    return FloorRoomsLayout(floor, rooms, partitions, seps, doors)
+
+
+def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list, station_sides: dict = None) -> list:
     """실마다 문: 그 변의 벽 조각에서 개구부를 빼고(벽 평면 (접선, z) 에서 decompose), 문짝을 만든다.
     문은 벽 조각 하나의 접선 범위 안에 있어야 하고(승강장 끝 등에서 바닥 높이가 바뀌는 곳에 걸치면 오류),
     문 위로 벽이 남아야 한다 (문 높이 < 벽 높이)"""
@@ -220,7 +345,7 @@ def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list) -> l
                 on_station = line < _EPS or line > L - _EPS
             else:
                 line, wall_axis, lo, hi = (sp.t1 if d.side == "+t" else sp.t0), "s", sp.s0, sp.s1
-                on_station = abs(abs(line) - hw) < _EPS
+                on_station = abs(abs(line) - hw) < _EPS if station_sides is None else d.side in station_sides.get(rname, ())
             a, b = d.center - d.width / 2.0, d.center + d.width / 2.0
             if on_station:
                 raise ValueError(f"{where}: 실 {rname} 의 {d.side} 변은 본체 벽입니다 (본체 벽 출입은 출구통로·환기구로)")
@@ -235,6 +360,8 @@ def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list) -> l
                 if pw.axis != wall_axis:
                     continue
                 for i, pc in enumerate(pw.pieces):
+                    if len(pc) > 6:
+                        continue                                  # 사선(확폭 전이부) 조각에는 문을 두지 않음
                     s0, s1, t0, t1, z0, z1 = pc
                     across, tan = ((s0, s1), (t0, t1)) if wall_axis == "t" else ((t0, t1), (s0, s1))
                     if on_line(*across) and tan[0] - _EPS <= a and b <= tan[1] + _EPS and z0 < z1:

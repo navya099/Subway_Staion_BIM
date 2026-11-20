@@ -8,6 +8,7 @@
 종단구배까지 반영해 모든 단이 같다. 계단은 마지막 챌판 위 위층 바닥 높이 디딤판 1개까지 포함한다 (길이 = run + 단너비).
 """
 import math
+from config.widening import platform_ranges
 from dataclasses import dataclass, field
 
 from helper import prism_member as PM
@@ -104,7 +105,7 @@ def base_level(cfg, spec, name: str, what: str = "계단") -> tuple[float, bool]
     최하층에서 평면 폭이 승강장 슬래브 안에 완전히 들어가면 승강장 상면에서 시작, 걸치면 오류"""
     st, pl = cfg.station, cfg.platform
     if spec.lower_floor == 1 and pl.exists:
-        for t0, t1 in pl.slab_t_ranges(st.width):
+        for t0, t1 in platform_ranges(cfg):
             inside = t0 - 1e-6 <= spec.t_lo and spec.t_hi <= t1 + 1e-6
             overlap = min(t1, spec.t_hi) - max(t0, spec.t_lo) > 1e-6
             if inside:

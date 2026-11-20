@@ -9,6 +9,7 @@
 높이(z)는 여기서 정하지 않는다: 바닥 마감이 있으면 그 마감재를 대체(finish_layout), 없으면 기준 바닥 위 block_t (엔진).
 """
 import math
+from config.widening import clear_contains_rect, has_pockets
 from dataclasses import dataclass
 
 from openings import decompose
@@ -50,9 +51,13 @@ def zones(cfg, n: int) -> list:
     """층 n 의 기준 바닥 [(t0, t1, 바닥 높이)] (최하층 승강장이 있으면 승강장 슬래브 위만)"""
     st, pl = cfg.station, cfg.platform
     hw = st.width / 2.0
+    ext = 0.0
+    if has_pockets(cfg, n):                          # 구조물 내공 확폭: 내공면 쪽 끝은 가장 넓은 곳까지 (정확한 범위는 경로 검사)
+        ext = max(w.amount for w in cfg.widenings if w.kind == "clear" and w.applies(n))
+    grow = lambda a, b: (a - ext if abs(a + hw) < _EPS else a, b + ext if abs(b - hw) < _EPS else b)
     if n == 1 and pl.exists:
-        return [(p0, p1, pl.top_level) for p0, p1 in pl.slab_t_ranges(st.width)]
-    return [(-hw, hw, st.floor_level(n))]
+        return [(*grow(p0, p1), pl.top_level) for p0, p1 in pl.slab_t_ranges(st.width)]
+    return [(*grow(-hw, hw), st.floor_level(n))]
 
 
 def path_name(k: int, spec) -> str:
@@ -227,5 +232,8 @@ def check_tactile(cfg):
         for j, (s, t) in enumerate(sp.points, start=1):
             if not (-1e-3 <= s - h and s + h <= L + 1e-3):
                 raise ValueError(f"{where} 꼭짓점 {j}: 내공 길이(0 ~ {L:g})를 벗어납니다 (s = {s:g})")
-            if not -hw - 1e-3 <= t - h <= t + h <= hw + 1e-3:
+            if has_pockets(cfg, sp.floor):
+                if not clear_contains_rect(cfg, sp.floor, (s - h, s + h, t - h, t + h), 1e-3):
+                    raise ValueError(f"{where} 꼭짓점 {j}: 내공(구조물 확폭 포함)을 벗어납니다 (s = {s:g}, t = {t:g})")
+            elif not -hw - 1e-3 <= t - h <= t + h <= hw + 1e-3:
                 raise ValueError(f"{where} 꼭짓점 {j}: 내공 폭을 벗어납니다 (t = {t:g})")

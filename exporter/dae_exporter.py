@@ -86,6 +86,15 @@ def frame_uv(frame, rel: np.ndarray, origin) -> np.ndarray:
 
 def texture_uv(cfg, tris: np.ndarray, rel: np.ndarray, size_u: float, size_v: float) -> np.ndarray:
     """삼각형 (N, 3, 3) 세계 좌표 + 원점 기준 상대 좌표 rel → 꼭짓점 텍스처 좌표 (N, 3, 2)"""
+    hu, hv = texture_axes(cfg, tris)
+    u = np.einsum("nkj,nj->nk", rel, hu) / size_u
+    v = np.einsum("nkj,nj->nk", rel, hv) / size_v
+    return np.stack([u, v], axis=2)
+
+
+def texture_axes(cfg, tris: np.ndarray) -> tuple:
+    """삼각형 (N, 3, 3) 세계 좌표 → 면마다 텍스처 u·v 방향 단위 벡터 (hu, hv) — (N, 3) 둘.
+    수평에 가까운 면: u = 선형 진행방향, v = 왼쪽. 그 밖: u = 면 안 수평, v = 면 안 위쪽"""
     n = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
     n /= np.maximum(np.linalg.norm(n, axis=1), 1e-12)[:, None]
     flat = np.abs(n[:, 2]) >= HORIZONTAL_NZ
@@ -101,9 +110,7 @@ def texture_uv(cfg, tris: np.ndarray, rel: np.ndarray, size_u: float, size_v: fl
         h /= np.maximum(np.linalg.norm(h, axis=1), 1e-12)[:, None]
         hu[st] = h
         hv[st] = np.cross(n[st], h)                                           # 면 안의 위쪽
-    u = np.einsum("nkj,nj->nk", rel, hu) / size_u
-    v = np.einsum("nkj,nj->nk", rel, hv) / size_v
-    return np.stack([u, v], axis=2)
+    return hu, hv
 
 
 def _floats(a) -> str:

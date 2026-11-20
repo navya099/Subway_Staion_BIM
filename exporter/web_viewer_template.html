@@ -37,6 +37,7 @@
   <h1 id="title">정거장 3D 뷰어</h1>
   <div class="help" id="stats">불러오는 중…</div>
   <h2>표시</h2>
+  <label><input type="checkbox" id="tex" checked> 텍스처</label>
   <div id="groups"></div>
   <h2>보이는 층 (위를 잘라냄)</h2>
   <select id="floor"></select>
@@ -95,6 +96,32 @@ const LIVE = /*__LIVE__*/false;
 
   // 잘라 보기: 모든 재질이 같은 uniform 을 씀 (s 범위, FL 기준 높이 상한)
   const clip = { uSMin: { value: -1e9 }, uSMax: { value: 1e9 }, uHMax: { value: 1e9 } };
+  // 텍스처: 자료의 data URL → THREE.Texture (같은 이미지는 다시 만들지 않음 — 실시간 갱신에서도 재사용)
+  const texCache = new Map();               // data URL → Texture
+  function textureOf(key) {
+    const url = DATA.images && DATA.images[key];
+    if (!url) return null;
+    let t = texCache.get(url);
+    if (!t) {
+      t = new THREE.TextureLoader().load(url);
+      t.wrapS = t.wrapT = key.startsWith("사인 ") ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      texCache.set(url, t);
+    }
+    return t;
+  }
+  let texOn = true;
+  function applyTexture(mesh) {             // 텍스처를 켜면 이미지(재질 색 = 흰색), 끄면 재질 색만
+    const c = mesh.userData.chunk, m = mesh.material, t = mesh.userData.tex;
+    const use = texOn && t;
+    if ((m.map !== null) === !!use && m.userData.init) return;
+    m.map = use ? t : null;
+    m.color.setRGB(...(use ? [1, 1, 1] : c.color));
+    m.userData.init = true;
+    m.needsUpdate = true;
+  }
+  $("tex").onchange = () => { texOn = $("tex").checked; for (const mm of meshes) applyTexture(mm); };
+
   function makeMaterial(color, alpha) {
     const m = new THREE.MeshPhongMaterial({ color: new THREE.Color(color[0], color[1], color[2]), flatShading: true,
       side: THREE.DoubleSide, shininess: 8, transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1 });
@@ -132,15 +159,20 @@ const LIVE = /*__LIVE__*/false;
       g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf, c.pos, c.nv * 3), 3));
       g.setAttribute("aSH", new THREE.BufferAttribute(new Float32Array(buf, c.sh, c.nv * 2), 2));
       g.setIndex(new THREE.BufferAttribute(new Uint32Array(buf, c.idx, c.nt * 3), 1));
+      if (c.tex) g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(buf, c.uv, c.nv * 2), 2));
       g.computeBoundingBox(); g.computeBoundingSphere();
       const mesh = new THREE.Mesh(g, makeMaterial(c.color, c.alpha));
-      mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt) };
+      mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt), tex: c.tex ? textureOf(c.tex) : null };
+      applyTexture(mesh);
       if (c.alpha < 1) mesh.renderOrder = 1;
       scene.add(mesh); meshes.push(mesh);
       box.union(g.boundingBox);
       tris += c.nt;
     }
-    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개 · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})`;
+    const used = new Set(Object.values(DATA.images || {}));
+    for (const [url, t] of texCache) if (!used.has(url)) { t.dispose(); texCache.delete(url); }   // 안 쓰는 이미지 정리
+    const miss = (DATA.missing_textures || []).length ? ` · 텍스처 이미지 없음: ${DATA.missing_textures.join(", ")}` : "";
+    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개 · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
 
     // 표시 묶음
     $("groups").innerHTML = "";
@@ -433,7 +465,7 @@ ${st.message}`, true);
       fit();
     }
   } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
-  window.__viewer = { scene, camera, meshes, clip, orbit, fit, get DATA() { return DATA; }, get version() { return version; } };
+  window.__viewer = { scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

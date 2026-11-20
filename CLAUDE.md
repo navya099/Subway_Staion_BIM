@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 996개 통과** (GUI 130개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 997개 통과** (GUI 130개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -251,7 +251,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - **3D 웹 뷰어(`exporter/web_viewer.py`, 출력 탭 '3D 웹 뷰어(HTML)', 기본 끔 → `정거장3d뷰어.html`)**: matplotlib 3D 미리보기가 느려서 만든 브라우저 뷰어. three.js(`assets/web/three.min.js` r147, MIT)와 모델 자료를 HTML 한 파일에 넣어 인터넷 없이 열림.
   - 자료 = `build_3d_doc` 의 3DFACE 그대로(단일 원천, 천장틀 FIN_FRAME 은 기본 제외). 묶음(레이어 × 보기 재질 `render_material`)마다 꼭짓점(float32, 정수 원점 기준 상대)·꼭짓점별 (s, FL 기준 h)·삼각형 번호·삼각형 → 부재 번호를 한 바이트 열로 이어 gzip + base64(브라우저 `DecompressionStream`). 부재 표 = 서브 엔진의 BIM 객체 중 `source_element` 를 가진 것(이름·층·재질·종류, `_element_index` 가 훑음). h 의 FL 은 선형 끝 밖을 끝 구배로 연장.
   - 뷰어(템플릿 JS): Z 위 궤도 조작(왼쪽 회전, 오른쪽/Shift 이동, 휠 확대, 더블클릭 = 회전 중심), 표시 묶음(미리보기 `LAYER_GROUPS`), 보이는 층(그 층 천장 하면 위를 버림)·STA 범위 = 셰이더 discard(모든 재질 공통 uniform), 클릭 = 부재 정보 + 강조(잘린 면은 건너뜀), 걷기(포인터 잠금, WASD·Shift·E/Q·PgUp/PgDn 층, 눈높이 = 선형 중심 표본 FL + 층 바닥(최하층은 승강장 상면) + 1.6). `window.__viewer` 로 상태 접근(디버그).
-  - 실무 샘플: 삼각형 8.4만, 2.2MB, 약 9초.
+  - **텍스처**: DAE 와 같은 재질·텍스처 좌표(`dae_exporter.texture_axes`(면마다 u·v 방향, `texture_uv` 가 씀)·`frame_uv`). 텍스처 이미지가 있는 묶음만 꼭짓점 uv(면마다 넓은 쪽 삼각형으로 방향), 이미지는 긴 변 `IMAGE_MAX` 1024px 로 줄인 data URL(`DATA.images`, 투명 PNG 는 PNG·나머지 JPEG), 이미지 없는 텍스처는 `missing_textures`(통계 줄에 표시). 사인은 그린 이미지 한 장(ClampToEdge). 뷰어 '텍스처' 체크(기본 켬, 끄면 재질 색), 같은 data URL 의 THREE.Texture 는 실시간 갱신에서도 재사용.
+  - 실무 샘플: 삼각형 8.4만, 4.7MB(텍스처 포함, 없으면 2.2MB), 약 11초.
   - **실시간 갱신(`exporter/live_viewer.py`)**: 미리보기 창 [브라우저 3D (실시간)] → 앱 안의 로컬 HTTP 서버(`127.0.0.1`, 빈 포트, 앱 전체 하나 `shared()`)로 기본 브라우저를 열고 지금 모델을 올림. 이후 미리보기 갱신(F5)마다 `update(cfg)` = **설정 사본(deepcopy)으로 별도 엔진**을 백그라운드 스레드에서 만들어 올림(미리보기 엔진과 3D 문서를 함께 쓰지 않음, 만드는 중에 들어온 갱신은 끝나고 최신 것 한 번). 경로 `/`(LIVE 뷰어), `/version`(version·status idle|building|ok|error·message), `/data.json`, `/data.bin`(gzip). 뷰어는 1초마다 `/version` 을 물어 새 버전이면 `loadModel` 로 모델만 바꿈 — 카메라·표시 묶음·보이는 층(이름)·STA 범위·고른 부재(이름) 유지, 원점이 바뀌면 카메라를 같은 세계 위치로. 입력 오류면 이전 모델 + 왼쪽 아래에 오류, 서버가 꺼지면 '연결 끊김'(다시 켜지면 이어짐). 미리보기 머리줄 오른쪽 `live_label` 에 상태. 템플릿은 정적(`DATA_EMBED` + `BLOB`)·실시간(`LIVE = true`) 겸용.
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE, 3D 웹 뷰어(HTML).
 

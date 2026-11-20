@@ -12,3 +12,4 @@ class SlabPiece:
     pos_y: float = 0.0
     pos_z: float = 0.0
     shape: Optional[SlabShape] = None
+    trap: Optional[tuple] = None        # 사다리꼴(확폭): (t0, t1 @ s 시작, t0, t1 @ s 끝). None 이면 직사각형

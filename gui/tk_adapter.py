@@ -15,6 +15,7 @@ from gui.tactile_draft import TactileDrafts
 from gui.psd_draft import PsdDraft
 from gui.sign_draft import SignDraft
 from gui.train_draft import TrainDraft
+from gui.widen_draft import WidenDrafts
 from gui.stair_draft import StairDrafts
 from gui.vent_draft import VentDrafts
 from platforms.platform_params import PlatformParameters
@@ -108,7 +109,9 @@ class TkAdapter:
                                    tactile_settings=(entries.get("tactile_drafts") or _NO_TACTILE).to_settings(station_p.start_station),
                                    train_settings=(entries.get("train_draft") or TrainDraft(enabled=False)).to_settings(station_p.start_station),
                                    psd_settings=(entries.get("psd_draft") or PsdDraft(enabled=False)).to_settings(),
-                                   sign_settings=(entries.get("sign_draft") or SignDraft(enabled=False)).to_settings())
+                                   sign_settings=(entries.get("sign_draft") or SignDraft(enabled=False)).to_settings(),
+                                   widenings=(entries.get("widen_drafts") or WidenDrafts()).to_specs(station_p.start_station,
+                                                                                                     station_p.floors))
         cfg.validate()
         return cfg
 

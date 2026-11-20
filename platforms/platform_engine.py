@@ -1,4 +1,5 @@
 from config.master_config import StationProjectConfig
+from config.widening import CLEAR, band, inner_polyline, offset_polyline, specs_for
 from helper import prism_member as PM
 from helper.view_item import ViewItem
 from openings import decompose
@@ -82,7 +83,32 @@ class PlatformEngine:
                 add(f"PLATW_{level}_{code}_OUT", PlatformPart.SUPPORT_WALL, side, "콘크리트-승강장지지벽체",
                     st, *out_leg, 0.0, p.plat_height)
         self.platform_packages.append(package)
+        self._widen(package, edge, st)
         self._cut_holes()
+
+    def _widen(self, package, edge: float, st: float):
+        """최하층 확폭: 그 쪽 승강장 슬래브를 넓어진 내공면까지(사다리꼴 조각), 벽체측 지지벽체는 내공면을 따라감"""
+        L = self.sp.length
+        for side, code in ((1, "R"), (-1, "L")):
+            if not specs_for(self.cfg, 1, side, CLEAR):          # 벽체 두께 증가는 내공 그대로
+                continue
+            pad = self.sp.max_wall_t + 1.0
+            inner = inner_polyline(self.cfg, 1, side, -pad, L + pad)
+            parts = [(f"PLAT_{package.level}_{code}", band([(-pad, edge), (L + pad, edge)], inner, 0.0, L))]
+            if st > 0:
+                parts.append((f"PLATW_{package.level}_{code}_OUT", band(offset_polyline(inner, -st), inner, 0.0, L)))
+            for name, traps in parts:
+                pl = next(x for x in package.platforms if x.name == name)
+                pieces = []
+                for k, (s0, s1, l0, h0, l1, h1) in enumerate(traps, start=1):
+                    t0a, t1a, t0b, t1b = (l0, h0, l1, h1) if side > 0 else (-h0, -l0, -h1, -l1)
+                    dims = self._piece_dims(s0, s1, (t0a + t0b) / 2.0, (t1a + t1b) / 2.0)
+                    if pl.part != PlatformPart.SLAB:                       # 지지벽체: 바닥 ~ 승강장 슬래브 하면
+                        dims["pos_z"] -= self.p.plat_height
+                        dims["shape"].thickness = self.p.plat_height
+                    rect = abs(t0a - t0b) < 1e-9 and abs(t1a - t1b) < 1e-9
+                    pieces.append(SlabPiece(name=f"{name}_P{k}", trap=None if rect else (t0a, t1a, t0b, t1b), **dims))
+                pl.pieces = pieces
 
     def _cut_holes(self):
         """승강장 위 에스컬레이터의 하부 피트: 승강장 슬래브를 구멍만큼 조각으로 나누고 구멍 객체를 만든다.
@@ -93,12 +119,12 @@ class PlatformEngine:
         plats = [pl for pk in self.platform_packages for pl in pk.platforms]
         for name, s0, s1, t0, t1 in holes:
             slab = next((pl for pl in plats if pl.part == PlatformPart.SLAB and
-                         PM.t_range(pl)[0] - 1e-6 <= t0 and t1 <= PM.t_range(pl)[1] + 1e-6), None)
+                         any(PM.t_range(m)[0] - 1e-6 <= t0 and t1 <= PM.t_range(m)[1] + 1e-6 for m in pl.members)), None)
             if slab is None:
                 raise ValueError(f"승강장 구멍 {name}: 승강장 슬래브 안에 있지 않습니다")
             for leg in plats:
-                if leg.part == PlatformPart.SUPPORT_WALL and decompose.overlap_area(
-                        (s0, s1, t0, t1), (*PM.s_range(leg), *PM.t_range(leg))) > 1e-9:
+                if leg.part == PlatformPart.SUPPORT_WALL and any(decompose.overlap_area(
+                        (s0, s1, t0, t1), (*PM.s_range(m), *PM.t_range(m))) > 1e-9 for m in leg.members):
                     raise ValueError(f"승강장 구멍 {name}: 승강장 지지벽체 {leg.name} 과(와) 겹칩니다 "
                                      "(에스컬레이터·엘리베이터 t 위치나 폭을 확인하세요)")
             ev = name.endswith("_SHAFT")
@@ -108,10 +134,20 @@ class PlatformEngine:
                 s_range=(s0, s1), t_range=(t0, t1), **self._piece_dims(s0, s1, t0, t1)))
         for slab in plats:
             if slab.openings:
-                region = (*PM.s_range(slab), *PM.t_range(slab))
                 holes_of = [(*o.s_range, *o.t_range) for o in slab.openings]
-                slab.pieces = [SlabPiece(name=f"{slab.name}_P{k}", **self._piece_dims(*rect))
-                               for k, rect in enumerate(decompose.subtract_rects(region, holes_of), start=1)]
+                new = []
+                for m in slab.members:                                   # 확폭이면 사다리꼴 조각마다 (구멍은 직사각형 조각에서만)
+                    region = (*PM.s_range(m), *PM.t_range(m))
+                    hit = [h for h in holes_of if decompose.overlap_area(region, h) > 1e-9]
+                    if not hit:
+                        new.append(m)
+                        continue
+                    if getattr(m, "trap", None):
+                        raise ValueError(f"승강장 구멍: {slab.name} 의 확폭 사선 전이부에 걸립니다")
+                    new += [SlabPiece(name="", **self._piece_dims(*rect)) for rect in decompose.subtract_rects(region, hit)]
+                for k, m in enumerate(new, start=1):
+                    m.name = f"{slab.name}_P{k}"
+                slab.pieces = new
 
     def _piece_dims(self, s0, s1, t0, t1) -> dict:
         """승강장 슬래브와 같은 높이·두께의 (s0~s1) x (t0~t1) 부재 위치·형상"""

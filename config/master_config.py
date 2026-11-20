@@ -19,6 +19,7 @@ from stairs.stair_check import check_stair_layouts, layout_stairs
 from ventilations.vent_check import check_vent_layouts, layout_vents
 from tactiles.tactile_layout import check_tactile
 from tactiles.tactile_spec import TactileSettings
+from config.widening import check_widenings
 from psds.psd_layout import check_psd
 from signs.sign_layout import check_signs
 from signs.sign_spec import SignSettings
@@ -47,6 +48,7 @@ class StationProjectConfig:
     psd_settings: PsdSettings = dataclasses.field(default_factory=PsdSettings)              # 스크린도어 (열차 문 위치에 유닛)
     sign_settings: SignSettings = dataclasses.field(default_factory=SignSettings)          # 역명판·안내사인
     tactile_settings: TactileSettings = dataclasses.field(default_factory=TactileSettings)   # 점자블록 (자동 경고 + 유도 경로)
+    widenings: list = dataclasses.field(default_factory=list)     # list[WidenSpec]: 구조물 확폭 (층·쪽별 측벽 내공면 구간 확폭)
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
 
     def __post_init__(self):
@@ -67,13 +69,14 @@ class StationProjectConfig:
                 f"선형 범위 STA {a.start_station:.2f} ~ {a.end_station:.2f} 를 벗어납니다")
         if not a.is_straight:
             # 곡선 안쪽 가장자리가 곡률 중심을 넘지 않도록: |곡률| * 반폭 < 0.5 (곡선반경 > 정거장 폭)
-            half_w = st.width / 2.0 + st.max_wall_t                    # 가장 바깥 외곽 기준
+            half_w = st.width / 2.0 + st.max_wall_t + max((w.amount for w in self.widenings), default=0.0)   # 가장 바깥 외곽 기준
             k_max = max(abs(self.curvature_at(s)) for s in self.sample_s(0.0, st.length, 2.0))
             if k_max * half_w >= 0.5:
                 raise ValueError(f"곡선반경({1.0 / k_max:.1f}m)이 정거장 외곽 폭({2 * half_w:g}m)에 비해 너무 작아 "
                                  "곡선 안쪽 벽체가 겹칩니다 (반경 > 외곽 폭 필요)")
         # 실 경계가 내공면에서 경계 벽 두께 이내면 내공면에 붙임 (입력 정규화: 이후 엔진·도면·마감은 붙인 값을 씀).
         # 계단·에스컬레이터 자동 오프닝이 아래층 천장 높이를 실 배치에서 찾으므로 그 전에
+        check_widenings(self)
         self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings)
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
         stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)

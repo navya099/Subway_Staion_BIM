@@ -1,4 +1,5 @@
 from columns.circle_column import CircleColumn
+from config.widening import mid_slab_traps, outline_traps, widened
 from config.master_config import StationProjectConfig
 from helper import prism_member as PM
 from helper.view_item import ViewItem
@@ -73,7 +74,10 @@ class SlabEngine:
                 name=name, family_name=self._FAMILY[kind], type_name=type_name, level=level,
                 pos_x=pos_x, pos_y=pos_y, pos_z=pos_z, rotation=0.0, material="Concrete_C24",
                 kind=kind, shape_type=SlabShapeType.RECTANGLE, shape=shape, slab_no=slab_no)
-            self._cut_openings(slab, names, (s0, s1, t0, t1), z_lo, thick)
+            if widened(self.cfg):
+                self._widen(slab, kind, floor_n, names, z_lo, thick)
+            else:
+                self._cut_openings(slab, names, (s0, s1, t0, t1), z_lo, thick)
             package.add_slab(slab)
         # 최하층(바닥) → 최상층(천장) 순서 유지
         self.slab_packages = sorted(by_level.values(), key=lambda k: -self._level_no(k.level))
@@ -86,10 +90,30 @@ class SlabEngine:
                                 curve_factor=PM.curve_factor(self.cfg, s0, s1, (t0 + t1) / 2.0))
         return ((s0 + s1) / 2.0, (t0 + t1) / 2.0, self.cfg.lv((s0 + s1) / 2.0) - p.offset + z_lo, shape)
 
-    def _cut_openings(self, slab: SlabData, names: list, region: tuple, z_lo: float, thick: float):
+    def _widen(self, slab: SlabData, kind, floor_n: int, names: list, z_lo: float, thick: float):
+        """확폭이 있으면 슬래브 = 사다리꼴 조각들: 바닥/천장 = 그 층 바깥면 사이(단부 벽 포함), 중간 = mid_slab_traps.
+        오프닝은 직사각형 조각에서만 뺌 (사선 전이부에 걸리면 오류). 슬래브 shape 는 조각을 모두 담는 범위"""
+        p = self.sp
+        if kind == SlabKind.MID:
+            traps = mid_slab_traps(self.cfg, floor_n - 1)
+        else:
+            w = p.wall_t_at(floor_n)
+            traps = outline_traps(self.cfg, floor_n, -w, p.length + w)
+        self._cut_openings(slab, names, (0.0, 0.0, 0.0, 0.0), z_lo, thick, traps=traps)
+        s0, s1 = min(t[0] for t in traps), max(t[1] for t in traps)
+        t0, t1 = min(min(t[2], t[4]) for t in traps), max(max(t[3], t[5]) for t in traps)
+        slab.pos_x, slab.pos_y, slab.pos_z, slab.shape = self._member_dims(s0, s1, t0, t1, z_lo, thick)
+
+    def _trap_piece(self, name, s0, s1, t0a, t1a, t0b, t1b, z_lo, thick) -> SlabPiece:
+        pos_x, pos_y, pos_z, shape = self._member_dims(s0, s1, (t0a + t0b) / 2.0, (t1a + t1b) / 2.0, z_lo, thick)
+        rect = abs(t0a - t0b) < 1e-9 and abs(t1a - t1b) < 1e-9
+        return SlabPiece(name=name, pos_x=pos_x, pos_y=pos_y, pos_z=pos_z, shape=shape,
+                         trap=None if rect else (t0a, t1a, t0b, t1b))
+
+    def _cut_openings(self, slab: SlabData, names: list, region: tuple, z_lo: float, thick: float, traps=None):
         """이 슬래브를 뚫는 오프닝 BIM 객체를 만들고, 남은 부분을 직사각형 조각으로 분해"""
         specs = [(n, sp) for n, sp in zip(names, self.openings) if slab.slab_no in sp.slabs]
-        if not specs:
+        if not specs and traps is None:
             return
         holes = []
         for n, sp in specs:
@@ -100,6 +124,21 @@ class SlabEngine:
                 level=slab.level, pos_x=pos_x, pos_y=pos_y, pos_z=pos_z, kind=sp.kind, slab_name=slab.name,
                 shape=shape, s_range=(s0, s1), t_range=(t0, t1)))
             holes.append((s0, s1, t0, t1))
+        if traps is not None:                                  # 확폭: 사다리꼴 조각 (직사각형 조각에서만 오프닝을 뺌)
+            k = 0
+            for s0, s1, t0a, t1a, t0b, t1b in traps:
+                rect = abs(t0a - t0b) < 1e-9 and abs(t1a - t1b) < 1e-9
+                hit = [h for h in holes if decompose.overlap_area((s0, s1, min(t0a, t0b), max(t1a, t1b)), h) > 1e-9]
+                if hit and not rect:
+                    raise ValueError(f"{slab.name}: 오프닝이 확폭 사선 전이부(s {s0:.2f} ~ {s1:.2f})에 걸립니다")
+                parts = decompose.subtract_rects((s0, s1, t0a, t1a), hit) if hit else [None]
+                for r in parts:
+                    k += 1
+                    if r is None:
+                        slab.pieces.append(self._trap_piece(f"{slab.name}_P{k}", s0, s1, t0a, t1a, t0b, t1b, z_lo, thick))
+                    else:
+                        slab.pieces.append(self._trap_piece(f"{slab.name}_P{k}", r[0], r[1], r[2], r[3], r[2], r[3], z_lo, thick))
+            return
         for k, rect in enumerate(decompose.subtract_rects(region, holes), start=1):
             pos_x, pos_y, pos_z, shape = self._member_dims(*rect, z_lo, thick)
             slab.pieces.append(SlabPiece(name=f"{slab.name}_P{k}", pos_x=pos_x, pos_y=pos_y, pos_z=pos_z, shape=shape))
@@ -151,6 +190,15 @@ class SlabEngine:
         half_w = self.sp.width / 2.0 + self.sp.max_wall_t        # 라벨은 가장 바깥 벽 밖에
         for package in self.slab_packages:
             for sl in package.slabs:
+                if widened(self.cfg):                              # 확폭: 조각마다 (오프닝은 조각에서 이미 빠짐)
+                    for k, m in enumerate(m for m in sl.pieces if PM.section_rect(self.cfg, m, sta)):
+                        t0, t1, zb = PM.section_rect(self.cfg, m, sta)
+                        th = sl.shape.thickness
+                        label = (f"{package.level} SLAB", half_w + 1.0, zb + th / 2.0, 0.4, "SEC_TEXT") \
+                            if sl.kind == SlabKind.MID and k == 0 else None
+                        items.append(ViewItem.rect(sl.name, "SEC_CONCRETE", t0, t1, zb, zb + th, hatch_layer="SEC_HATCH",
+                                                   label=label))
+                    continue
                 cut = PM.section_rect(self.cfg, sl, sta)
                 if not cut:
                     continue
@@ -169,6 +217,10 @@ class SlabEngine:
         items = []
         for package in self.slab_packages:
             for sl in package.slabs:
+                if widened(self.cfg):                              # 확폭: 조각마다
+                    items += [PM.profile_view(self.cfg, m, "PROF_CONCRETE", hatch_layer="PROF_HATCH")
+                              for m in sl.pieces if PM.cut_by_centerline(m, t_cut)]
+                    continue
                 if not PM.cut_by_centerline(sl, t_cut):
                     continue
                 holes = [op.s_range for op in sl.openings if op.t_range[0] - 1e-9 <= t_cut < op.t_range[1] - 1e-9]

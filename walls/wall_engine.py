@@ -1,4 +1,5 @@
 from config.master_config import StationProjectConfig
+from config.widening import outer_at, side_wall_traps, specs_for, widened
 from helper import prism_member as PM
 from walls.rectangular_wall import RectangularWall
 from walls.wall_data import WallData
@@ -43,15 +44,35 @@ class WallEngine:
         return PM.corners(self.cfg, wall)
 
     def _wall_defs(self, floor_n: int):
-        """층 floor_n 의 (코드, 역할, 계열명, s0, s1, t0, t1) — 안쪽 면(내공)은 고정, 외벽 두께는 그 층의 값만큼 바깥쪽으로"""
+        """층 floor_n 의 (코드, 역할, 계열명, s0, s1, t0, t1) — 안쪽 면(내공)은 고정, 외벽 두께는 그 층의 값만큼 바깥쪽으로.
+        확폭(cfg.widenings)이 단부까지 이어지면 마감벽은 그 단부의 넓어진 바깥면까지. 측벽 범위는 확폭이 없을 때의 값
+        (확폭이 있으면 측벽은 사다리꼴 조각으로 나뉨 — _widen_sides)"""
         p = self.sp
         hw, wt, L = p.width / 2.0, p.wall_t_at(floor_n), p.length
+        o_s = (-outer_at(self.cfg, floor_n, -1, 0.0), outer_at(self.cfg, floor_n, 1, 0.0)) if widened(self.cfg) \
+            else (-hw - wt, hw + wt)
+        o_e = (-outer_at(self.cfg, floor_n, -1, L), outer_at(self.cfg, floor_n, 1, L)) if widened(self.cfg) \
+            else (-hw - wt, hw + wt)
         return [
-            ("START", WallRole.START, "콘크리트-마감벽", -wt, 0.0, -hw - wt, hw + wt),
+            ("START", WallRole.START, "콘크리트-마감벽", -wt, 0.0, *o_s),
             ("L", WallRole.LEFT, "콘크리트-외벽", 0.0, L, -hw - wt, -hw),
             ("R", WallRole.RIGHT, "콘크리트-외벽", 0.0, L, hw, hw + wt),
-            ("END", WallRole.END, "콘크리트-마감벽", L, L + wt, -hw - wt, hw + wt),
+            ("END", WallRole.END, "콘크리트-마감벽", L, L + wt, *o_e),
         ]
+
+    def _widen_sides(self, package, floor_n: int, z_lo: float, z_hi: float):
+        """확폭이 있는 쪽 측벽을 사다리꼴 조각(내공면 ~ 바깥면, 내공 확폭의 사선 벽도 같은 두께)으로 바꿈"""
+        for side, role in ((1, WallRole.RIGHT), (-1, WallRole.LEFT)):
+            if not specs_for(self.cfg, floor_n, side):
+                continue
+            wall = next(w for w in package.walls if w.role == role)
+            pieces = []
+            for k, (s0, s1, i0, o0, i1, o1) in enumerate(side_wall_traps(self.cfg, floor_n, side), start=1):
+                t0a, t1a, t0b, t1b = (i0, o0, i1, o1) if side > 0 else (-o0, -i0, -o1, -i1)
+                dims = self._piece_dims(s0, s1, (t0a + t0b) / 2.0, (t1a + t1b) / 2.0, z_lo, z_hi)
+                rect = abs(t0a - t0b) < 1e-9 and abs(t1a - t1b) < 1e-9
+                pieces.append(SlabPiece(name=f"{wall.name}_P{k}", trap=None if rect else (t0a, t1a, t0b, t1b), **dims))
+            wall.pieces = pieces
 
     # ---------- 생성 ----------
     def _build_wall_bim_objects(self):
@@ -86,6 +107,7 @@ class WallEngine:
                     shape_type=WallShapeType.RECTANGLE,
                     shape=shape,
                 ))
+            self._widen_sides(package, floor_n, z_lo, z_hi)
             self.wall_packages.append(package)
         self._cut_openings()
 
@@ -114,11 +136,23 @@ class WallEngine:
                     continue
                 floor_n = next(n for n in range(1, p.floors + 1) if self.level_name(n) == package.level)
                 z_lo, z_hi = self.z_offsets(floor_n)
-                t0, t1 = PM.t_range(wall)
                 holes = [(*o.s_range, *o.t_range) for o in wall.openings]       # 오프닝의 t_range 자리에 (z0, z1) 보관
-                wall.pieces = [SlabPiece(name=f"{wall.name}_P{k}", **self._piece_dims(a, b, t0, t1, zl, zh))
-                               for k, (a, b, zl, zh) in enumerate(
-                                   decompose.subtract_rects((*PM.s_range(wall), z_lo, z_hi), holes), start=1)]
+                bases = wall.pieces or [wall]                                    # 확폭 측벽이면 그 조각들
+                new = []
+                for b in bases:
+                    bs0, bs1 = PM.s_range(b)
+                    hit = [h for h in holes if h[0] < bs1 - 1e-9 and bs0 < h[1] - 1e-9]
+                    if hit and getattr(b, "trap", None):
+                        raise ValueError(f"{wall.name}: 측벽 오프닝(통로·환기구)이 확폭 사선 전이부(s {bs0:.2f} ~ {bs1:.2f})에 걸립니다")
+                    t0, t1 = PM.t_range(b)
+                    if not hit:
+                        new.append(b)
+                        continue
+                    new += [SlabPiece(name="", **self._piece_dims(a, c, t0, t1, zl, zh))
+                            for a, c, zl, zh in decompose.subtract_rects((bs0, bs1, z_lo, z_hi), hit)]
+                for k, m in enumerate(new, start=1):
+                    m.name = f"{wall.name}_P{k}"
+                wall.pieces = new
 
     def _piece_dims(self, s0, s1, t0, t1, z0, z1) -> dict:
         """(s0~s1) x (t0~t1) x (z0~z1, 바닥 슬래브 상면 기준) 벽체 조각의 위치·형상"""
@@ -158,12 +192,29 @@ class WallEngine:
         items = []
         for package in self.wall_packages:
             for w in package.walls:
-                if PM.cut_by_centerline(w, t_cut):
-                    items.append(PM.profile_view(self.cfg, w, "PROF_CONCRETE", hatch_layer="PROF_HATCH", merge=True))
+                parts = w.pieces if (w.pieces and widened(self.cfg)) else [w]           # 확폭 측벽은 조각별
+                for m in parts:
+                    if PM.cut_by_centerline(m, t_cut):
+                        items.append(PM.profile_view(self.cfg, m, "PROF_CONCRETE", hatch_layer="PROF_HATCH", merge=True))
         return items
 
     def plan_items(self, cut_h, floor=1):
-        """평면도: 본체 바닥 슬래브 상면(FL=0) + cut_h 높이에서 절단되는 벽체의 바깥/안쪽 윤곽 (층은 높이로 정해짐)"""
+        """평면도: 본체 바닥 슬래브 상면(FL=0) + cut_h 높이에서 절단되는 벽체의 바깥/안쪽 윤곽 (층은 높이로 정해짐).
+        확폭 사다리꼴 조각이 있으면 조각마다 다각형"""
+        if widened(self.cfg):
+            out = []
+            for pk in self.wall_packages:
+                for w in pk.walls:
+                    for m in w.members:
+                        ms0, ms1 = PM.s_range(m)
+                        zb = PM.z_at(self.cfg, m, (ms0 + ms1) / 2.0)
+                        zc = self.cfg.lv((ms0 + ms1) / 2.0) - self.sp.offset + cut_h
+                        if not (zb - 1e-9 <= zc < zb + m.shape.height - 1e-9):
+                            continue
+                        (a0, a1), (b0, b1) = PM.t_range_at(m, ms0), PM.t_range_at(m, ms1)
+                        out.append(ViewItem(m.name, "PLAN_OUTLINE", u0=ms0, u1=ms1,
+                                            pts=[(ms0, a0), (ms1, b0), (ms1, b1), (ms0, a1)]))
+            return out
         cut = []
         for package in self.wall_packages:
             for w in package.walls:

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 950개 통과** (GUI 126개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 979개 통과** (GUI 129개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -45,6 +45,7 @@ config/                     모델·선형
   station_config.py         StationParameters (층별 높이/벽두께, floor_t/mid_t/roof_t, sta_tick, offset ...)
   output_config.py          OutputOptions (출력 탭: 성과물 선택, 평면 층·절단 높이, 종단 축, 단면 측점·연속 단면 + validate)
   master_config.py          StationProjectConfig (station/platform/column/align/openings + validate + 선형 접점)
+  widening.py               구조물 확폭 WidenSpec + 층·쪽별 내공면/바깥면 폴리선(연귀) + 사다리꼴 분해(band) + 검증
   alignment*.py             Alignment 인터페이스, BP/EP 직선, HeadingAlignment
   curved_alignment.py       평면곡선(직선/원/완화곡선) + 종곡선, CubicSpiral(japaneseCubic)
   sampled_alignment.py      점열(xyz) 선형 (국소 2차 회귀 평활 + Hermite)
@@ -71,7 +72,7 @@ exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘�
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -83,6 +84,16 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 선형: BP/EP 직선, 곡선(원·완화곡선·종곡선), JSON, xyz txt/csv(1m 간격 등), LandXML(축 NE/EN 자동 판정, 단위 변환, 다중 선형 선택). 정거장 구간이 선형 범위 안에 있는지, 곡선 반경이 외곽 폭에 비해 너무 작지 않은지 `validate()` 가 검사.
 - 본체: 층별 층고 합산, 층별 외벽 두께, 3종 슬래브 두께(`floor_t`/`mid_t`/`roof_t`).
 - **지표 EL(정거장 공통)**: `StationParameters.ground_el`(절대 표고, None = 지표 없음 — 평탄 지표 하나). 1.선형 탭 '지표 EL'(비우면 없음). 쓰는 곳: 수직구로 끝나는 환기구 상단(= 지표 + `VentSpec.protrusion`), 출입구(`EntranceSpec.ground_el` 이 None 이면 공통값, 둘 다 없으면 오류). 본체 토피 검사·지형 자료는 아직 없음.
+- **구조물 확폭(1단계: 구조, `config/widening.py`, `cfg.widenings`)**: `WidenSpec`(쪽 +1 = +t / −1 = −t, 적용 층(비면 모든 층), 완전 확폭 구간 `s_start`~`s_end`(None = 시점·종점 끝까지, 단부 벽도 넓어짐), 확폭량, 시작/끝 사선 전이 길이(None = 확폭량 = 45°, 0 = 직각 계단)). 실무 도면 사례: ESC 구간 국부 확폭(사선 전이), 정거장 끝까지 넓어지는 구간. 벽 밖 엘리베이터·특별피난계단 박스는 '본체 밖 구조물' 단계에서.
+  - **종류 `WidenSpec.kind`**: `clear` = 내공 확폭(내공면이 이동, 아래 설명) | `wall` = **벽체 두께 증가**(내공면 고정, 벽 바깥면만 W/2 + 벽 두께 + e(s), 전이부는 바깥면만 사선 — 실무 ESC 구간 사례). 바깥면 = `outer_polyline` = 내공면을 띄운 선과 두께 증가 선의 위 포락선(`_envelope`). `wall` 은 측벽·단부 벽·바닥/천장 슬래브 외곽·위층이 두꺼워질 때의 중간 슬래브 받침만 바뀌고 내공(승강장·실·마감·검사)은 그대로 — 승강장은 `clear` 만(`specs_for(..., kind)`). 같은 층·쪽은 종류가 달라도 겹치면 오류. GUI 확폭 표 '종류' 칸(내공 확폭 | 벽체 두께).
+  - 내공면 |t| = W/2 + e(s) 폴리선(`inner_polyline`), 벽 바깥면 = 그 폴리선을 벽 두께만큼 **수직 간격**으로 띄운 폴리선(`offset_polyline`, 꺾임점 연귀 — 사선 벽도 같은 두께, 직각 계단은 계단 벽), 두 폴리선 사이를 s 구간마다 아래·위가 직선인 **사다리꼴**로 분해(`band`). 부재 조각 `SlabPiece.trap = (t0, t1 @ s 시작, t0, t1 @ s 끝)`(None = 직사각형) — `prism_member` 가 `t_range_at`(보간)·`rings`·`mesh_faces`(사다리꼴은 스윕)·`section_rect` 에서 처리, `t_range` 는 양 끝을 모두 담는 범위, 체적은 평균 폭(정확).
+  - 측벽: 확폭이 있는 층·쪽은 `WallData.pieces` = 사다리꼴 조각(`_widen_sides`), 단부 벽은 그 단부의 넓어진 바깥면까지(`outer_at`). 측벽 오프닝(통로·환기구)은 직사각형 조각에서만 — 사선 전이부에 걸리면 오류.
+  - 슬래브(확폭이 하나라도 있으면 모든 슬래브를 조각으로): 바닥 = 최하층 바깥면 사이, 천장 = 최상층 바깥면 사이(단부 벽 포함 s −w ~ L + w), **중간 = 아래층 내공(아래층 확폭 포켓의 천장 포함) + 위층이 더 넓은 확폭 구간에서 아래층 바깥면 ~ 위층 바깥면**(`mid_slab_traps`, '넓은 층을 덮고 받침' — 위층 확폭 벽을 받침, 아래층 벽은 슬래브를 지나 올라가 그 자리는 뺌). 오프닝은 직사각형 조각에서만(사선 전이부 = 오류). 단면·종단은 조각별.
+  - 승강장(최하층 확폭): 그 쪽 승강장 슬래브를 넓어진 내공면까지, 벽체측 지지벽체는 내공면을 따라 안쪽으로 지지벽 두께(사다리꼴 조각). IFC 승강장 지지벽도 조각이면 조각 형상.
+  - 3D·IFC: 사다리꼴 조각은 면 집합(직선 선형도). 스윕 면 방향은 Newell 법선으로 판정(`_outward` — 한쪽 끝 폭 0 인 삼각 조각에서 첫 두 변 외적이 0 이 되어 면이 안쪽을 향하던 문제). 평면도는 확폭이 있으면 벽 조각마다 다각형. 곡선 선형 반경 검사에 최대 확폭량 포함.
+  - 검증 `check_widenings`: 쪽·층·확폭량 > 0·전이 ≥ 0, 끝 > 시작, 전이부가 내공 시점·종점 밖이면 오류(끝까지 넓히려면 비움), 같은 층·쪽 확폭 구간(전이 포함) 겹침 오류.
+  - GUI: 1.선형 탭 '구조물 확폭' 표(쪽·종류·층(B2F 또는 1 = 최하층, 쉼표)·시작/끝 STA·확폭량·전이(시작/끝)), `WidenDraft`, 프로젝트 파일 `widen_drafts`. 줄마다 [선택] = 미리보기 평면에서 **지금 보는 층**의 시작·끝 두 점(새 선택 종류 `LINE`: 두 점, s 가 달라야, 직교 모드 적용) → 층(그 평면 층 이름)·시작/끝 STA(작은 쪽이 시작)·쪽(두 점 t 평균 부호). `PickRequest.floor = 0` 이면 평면 층을 바꾸지 않고, 선택이 끝나면 미리보기가 `request.floor` 에 그때 보던 층을 넣음.
+  - **2단계(미구현)**: 확폭 공간 안의 실·마감(사선 벽 마감)·점자블록·사인·통로 접합(넓어진 외벽 바깥면), 계단·오프닝 등의 내공 범위 검사를 확폭 공간까지. 지금은 확폭 공간에 실·마감이 없고, 그 공간에 계단 등을 두면 '내공 범위' 오류.
 - 벽체(층별), 슬래브, 상대식 승강장(ㅠ형 슬래브 + 지지벽체), 중앙 기둥(층별·열별, 원/사각 혼합 패턴, 원은 지름 입력).
 - **실(구획) 1단계**: 마감을 실별로 다르게 적용하기 위한 선행 단계. `RoomSpec`(층, 용도, s 범위 × t 범위 = **칸막이벽 중심선**, 이름) + `RoomSettings`(층별 기본 실 용도 — 없으면 최하층 승강장층·그 위 대합실, 칸막이벽 두께 0.2, 재질 Masonry_Block). 용도는 `ROOM_USES` 목록 또는 직접 입력.
   - 층마다 내공 영역에서 입력 실을 뺀 나머지 = 기본 실(직사각형 조각들, `decompose.subtract_rects`). **나머지가 입력 실로 끊겨 여러 덩어리면 덩어리마다 기본 실**(`connected_groups`: 변을 길이 > 0 공유하면 연결, 꼭짓점만 닿으면 따로, 이름 `{층}_{용도}{k}` — 하나면 번호 없음, s 순). 실끼리 겹치면 오류, 내공 밖이면 오류.
@@ -217,7 +228,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 갱신 실패(입력 오류·검증 오류) = 상태줄 빨간 글자 + 메시지, 이전 모델·그림 유지. 3D 자료는 3D 탭을 처음 그릴 때 만듦(마감 켠 큰 모델 약 2초).
   - ezdxf `finalize` 가 그림(Figure) 크기를 도면 비율로 바꿔 버리므로 `draw_doc_2d` 가 원래 크기로 되돌림 (안 하면 다시 그릴 때 확대 상태가 깨짐).
 - **미리보기에서 위치 선택(CAD 명령 방식)**: 입력 탭의 [선택] 버튼(주황) → `entries['pick']`(= `StationBIMApp.request_pick`) → 미리보기 창 `start_pick(PickRequest)`: 평면 탭·그 층으로 바꾸고(입력으로 갱신, 지금 입력이 오류면 직전 모델로 선택 + 경고) 점을 받음. 끝나면 `on_done(점 목록)` 이 탭 입력칸 변수에 값을 넣고 미리보기를 다시 갱신(확대 유지).
-  - 종류(`preview/pick.py`): POINT(1점) / RECT(대각 2점, s·t 모두 달라야) / PATH(여러 점, Enter·오른쪽 클릭·빈 명령 = 끝). 점은 정거장 로컬 (s, t). 왼쪽 클릭 = 점(이동·확대 도구 사용 중엔 무시), Esc = 취소, 명령줄 `U` = 한 점 취소.
+  - 종류(`preview/pick.py`): POINT(1점) / RECT(대각 2점, s·t 모두 달라야) / PATH(여러 점, Enter·오른쪽 클릭·빈 명령 = 끝) / LINE(시작·끝 2점, STA 가 달라야 — 확폭 구간). 점은 정거장 로컬 (s, t). 왼쪽 클릭 = 점(이동·확대 도구 사용 중엔 무시), Esc = 취소, 명령줄 `U` = 한 점 취소.
   - 명령줄: `STA, offset`(절대, `0+134.5, 3.2`) / `@ds, dt`(직전 점 기준). 커서 줄에 STA·offset·직전 점 기준 상대값·스냅 종류 표시, 평면에 고른 점·고무줄·커서·스냅 이름.
   - 스냅(`Snapper`): 부재 점(내공 모서리·그 층 기둥 중심·실 모서리·오프닝 모서리) → 부재 선(축별: 내공 시점/종점 s, 내공면·외벽 바깥면(통로 접합점)·선형 중심 t) → 격자(절대 STA 기준, 기본 0.1m). 허용 거리 = 화면 10px(`ax.bbox.width` 기준). 평면 조작 줄에서 켜고 끔.
   - **직교 모드(F8, 기본 켬, 경로 선택만)**: 직전 점에서 커서가 더 많이 움직인 축(s 또는 t) 방향으로만 — 고정 축은 직전 값, 움직이는 축만 스냅(`ortho_snap`). 출구통로·환기구 첫 구간(본체에 직각) 을 클릭으로 만들 수 있게 함 (사용자 작동 테스트에서 없으면 불가능했음).

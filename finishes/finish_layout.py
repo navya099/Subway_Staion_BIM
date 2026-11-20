@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from helper.box_piece import BoxPiece
 from openings import decompose
 from rooms.room_layout import ceiling_rel
+from finishes.finish_gaps import contact_rects, opening_linings
 from finishes.finish_spec import FILL_MORTAR
 
 _EPS = 1e-6
@@ -195,7 +196,8 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         col_rects = [(s - hs, s + hs, t - ht, t + ht) for fn, s, t, hs, ht, r in columns if fn == n and r is None]
         evs = [ev for ev in elevators if ev.lower_floor <= n <= ev.upper_floor]
         ev_rects = [ev.outer_rect() for ev in evs]
-        stair_fp = [(*x.s_range, *x.t_range) for x in list(stairs) + list(escalators) if x.lower_floor == n]
+        risers = [x for x in list(stairs) + list(escalators) if x.lower_floor == n]      # 이 층에서 오르는 계단·ESC
+        skip_ops = pit_names | {o.name for o in openings if o.name.endswith("_SHAFT")}      # 둘레 마감 없는 오프닝
         below = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
         # 위 슬래브 오프닝만큼 천장을 뺌. 단 위층 에스컬레이터 하부 피트(슬래브 두께 안에서 트러스가 막음)는 아래층 천장을 뚫지 않음
         above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs and o.name not in pit_names]
@@ -223,6 +225,11 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 rf.ceiling_rel = c
                 wall_top = c
             obstacles = walls_fp + col_rects + ev_rects
+            # 계단·ESC 는 바닥 마감면 아래로 내려오는 곳(접지 구간)만 바닥 마감에서 뺌 — 경사부·트러스 아래 바닥은 마감
+            stair_fp = contact_rects(cfg, risers, n, ft.ffl) if ft.ffl > _EPS else []
+            # 위 슬래브 오프닝 둘레 마감 (천장 속 막이 + 슬래브 옆면): 벽 마감과 같은 재질, 막이 자리는 천장판에서 뺌
+            linings, lining_fp = opening_linings(cfg, n, room, ft, rf.ceiling_rel, openings, stairs, escalators,
+                                                 skip_ops, obstacles) if ft.ceiling else ([], [])
             if room.traps is not None:                       # 구조물 내공 확폭 층: 사다리꼴 영역 마감
                 from config.widening import clear_traps
                 from finishes.finish_pocket import finish_trap_room, piece_region
@@ -230,8 +237,10 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 walls_t = [piece_region(p) for pw in fl.partitions for p in pw.pieces]
                 ctx = dict(clear=clear_traps(cfg, n), zones=zones, obstacles_t=walls_t + T.from_rects(col_rects + ev_rects),
                            walls_t=walls_t, stair_fp=stair_fp, below=below, above=above, tactile=tactile, lines=lines,
-                           wall_ops=wall_ops, doors=fl.doors, columns=columns, evs=evs, col_rects=col_rects, top_slab=top_slab)
+                           wall_ops=wall_ops, doors=fl.doors, columns=columns, evs=evs, col_rects=col_rects, top_slab=top_slab,
+                           lining_fp=lining_fp)
                 finish_trap_room(cfg, room, rf, ft, ctx)
+                rf.walls += linings
                 out.append(rf)
                 continue
 
@@ -348,7 +357,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 c = rf.ceiling_rel
                 # 최하층은 승강장 위(t 범위)만 — 선로 구간에는 천장 마감 없음 (바닥·벽과 같은 기준 영역)
                 area = [r for rr in room.rects for p0, p1, _ in zones for r in [_inter(tuple(rr), (0.0, L, p0, p1))] if r]
-                area = _minus(area, obstacles + above + face_rects)     # 천장판은 벽 마감 표면에서 끝남
+                area = _minus(area, obstacles + above + face_rects + lining_fp)     # 천장판은 벽 마감 표면에서 끝남
                 rf.ceiling = _with_z(area, c, c + ft.board_t)
                 zb0, zb1 = c + ft.board_t, c + ft.board_t + ft.bar_h
                 zc1 = zb1 + ft.carrier_h
@@ -361,6 +370,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                         r = _inter((s0, s1, t - ft.carrier_w / 2.0, t + ft.carrier_w / 2.0), (s0, s1, t0, t1))
                         if r:
                             rf.carriers.append((*r, zb1, zc1))
+            rf.walls += linings
             out.append(rf)
     return out
 

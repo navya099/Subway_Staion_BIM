@@ -458,3 +458,70 @@ def test_upper_escalator_pit_does_not_cut_lower_ceiling():
     assert hits(low.element("CEILING").pieces)                      # B3F 천장은 피트 아래에도 있음
     hall = fin(eng, "B2F_대합실")
     assert not hits(hall.element("FLOOR").pieces)                   # B2F 바닥 마감은 피트 자리 비움
+
+
+# ===================================================== 마감 미적용 처리: 계단·ESC 아래 바닥, 오프닝 둘레
+def _gap_cfg():
+    from escalators.escalator_spec import EscalatorSpec
+    return cfg_with(no_cols=True, stairs=[StairSpec(lower_floor=2, s_start=60.0, direction=1, t_center=-6.0, width=2.0, name="ST")],
+                    escalators=[EscalatorSpec(lower_floor=2, s_wp=100.0, direction=1, t_center=-6.0, truss_depth=0.35, name="ES")])
+
+
+def test_floor_finish_under_stair_and_escalator():
+    """바닥 마감은 계단·ESC 가 바닥 마감면 아래로 내려오는 곳만 뺌 (경사부·트러스 아래는 마감)"""
+    from finishes.finish_gaps import contact_rects
+    from openings import decompose
+    eng = StationCADEngine(_gap_cfg())
+    st, es = eng.cfg.stair_layouts()[0], eng.cfg.escalator_layouts()[0]
+    room = next(r for r in eng.finishes.rooms if r.floor == 2)
+    ffl = room.finish.ffl
+    c_st = contact_rects(eng.cfg, [st], 2, ffl)
+    assert len(c_st) == 1 and c_st[0][0] == pytest.approx(60.0) and 60.0 < c_st[0][1] < 62.0      # 첫 챌판 근처만
+    # 접지 끝: 그 s 에서 계단 하면 = 바닥 마감면
+    s_end = c_st[0][1]
+    zb = min(stp.zb_at(s_end) for p in st.parts for stp in p.strips if stp.s0 - 1e-9 <= s_end <= stp.s1 + 1e-9)
+    assert zb == pytest.approx(eng.cfg.lv(s_end) - eng.cfg.station.offset + st.base_level + ffl, abs=1e-6)
+    clear = (0.0, 198.0, -9.0, 9.0)
+    holes = contact_rects(eng.cfg, [st, es], 2, ffl) + [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in eng.cfg.all_openings() if 1 in o.slabs]
+    want = sum((b - a) * (d - c) for a, b, c, d in decompose.subtract_rects(clear, holes))
+    assert rect_area(room.element("FLOOR").pieces) == pytest.approx(want, rel=1e-9)
+    assert want > 198 * 18 - (st.s_range[1] - st.s_range[0]) * 2.0 - (es.s_range[1] - es.s_range[0]) * 1.6   # 예전보다 넓음
+
+
+def test_opening_linings_close_ceiling_plenum():
+    """천장 속 막이(천장판 하면 ~ 위 슬래브 하면) + 오프닝 옆면(슬래브 두께), 도착 쪽 없음, 계단·ESC 와 겹치지 않음, 천장판과 안 겹침"""
+    eng = StationCADEngine(_gap_cfg())
+    cfg, st = eng.cfg, eng.cfg.station
+    room = next(r for r in eng.finishes.rooms if r.floor == 2)
+    f = room.finish.wall_t
+    slab_bot, slab_top = st.floor_level(3) - st.mid_t, st.floor_level(3)
+    walls = room.element("WALL").pieces
+    lin = [p for p in walls if PM.z_off(cfg, p) > room.ceiling_rel - 1e-6]
+    bulk = [p for p in lin if abs(PM.z_off(cfg, p) - room.ceiling_rel) < 1e-6]
+    side = [p for p in lin if abs(PM.z_off(cfg, p) - slab_bot) < 1e-6]
+    assert len(bulk) == 6 and len(side) == 6                                   # 오프닝 2개 × (긴 변 2 + 시작 쪽 1)
+    assert all(p.shape.height == pytest.approx(slab_bot - room.ceiling_rel) for p in bulk)
+    assert all(p.shape.height == pytest.approx(slab_top - slab_bot) for p in side)
+    for lay in cfg.stair_layouts() + cfg.escalator_layouts():
+        o = lay.opening
+        arrive = lay.s_at(lay.length) if hasattr(lay, "length") else lay.s_at(lay.u_range[1])
+        mine = [p for p in lin if o.s_start - f - 1e-6 <= PM.s_range(p)[0] and PM.s_range(p)[1] <= o.s_end + f + 1e-6
+                and o.t_lo - f - 1e-6 <= PM.t_range(p)[0] and PM.t_range(p)[1] <= o.t_hi + f + 1e-6]
+        assert mine and all(PM.s_range(p)[1] <= arrive + 1e-6 for p in mine)              # 도착 쪽 가장자리 너머 없음
+        for p in side:                                                                     # 옆면 마감 자리에서 부재 상면 ≤ 슬래브 하면
+            s0, s1 = PM.s_range(p)
+            t0, t1 = PM.t_range(p)
+            for part in lay.parts:
+                pt0, pt1 = getattr(part, "t_range", None) or lay.t_range
+                if min(pt1, t1) - max(pt0, t0) <= 1e-9:
+                    continue
+                for stp in part.strips:
+                    a, b = max(s0, stp.s0), min(s1, stp.s1)
+                    if b - a > 1e-6:
+                        for s in (a, b):
+                            assert stp.zt_at(s) <= cfg.lv(s) - st.offset + slab_bot + 1e-6
+    ceil = room.element("CEILING").pieces
+    for p in bulk:                                                                         # 막이 자리에는 천장판 없음
+        r = (*PM.s_range(p), *PM.t_range(p))
+        assert all(min(r[1], PM.s_range(c)[1]) - max(r[0], PM.s_range(c)[0]) <= 1e-9 or
+                   min(r[3], PM.t_range(c)[1]) - max(r[2], PM.t_range(c)[0]) <= 1e-9 for c in ceil)

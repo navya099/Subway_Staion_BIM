@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 997개 통과** (GUI 130개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 999개 통과** (GUI 130개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -52,7 +52,7 @@ config/                     모델·선형
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
-finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), check(마감표 검증), engine
+finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 psds/                       스크린도어: spec(PsdSettings), layout(열차 문마다 유닛·POST·구동부·채움 패널 조각 + 검증), engine
 trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
@@ -118,7 +118,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - `decompose.subtract_rects` 는 구멍을 영역 안으로 잘라 쓴다(영역 밖 구멍이 엉뚱한 조각을 만들던 문제 수정).
 - **건축 마감(1단계)**: `FinishSettings(enabled, table)` = 용도별 마감표(`FinishType`: 바닥 `ffl`(구조 바닥 → 마감면)·`floor_t`(마감재)·`floor_fill`(mortar 채움 | void 빈 공간=액세스 플로어)·재질, 벽 `wall_t`(마감재 두께, 0 = 면처리, 형상 없음)·`wall_face`(구조체 면 → 마감 표면 거리, None/빈칸 = wall_t 즉 이격 없음, 이격 = face − wall_t 빈 공간·하지재 미모델링)·재질, 천장 `ceiling`·`ceiling_h`(마감면 → 천장판 하면)·`board_t`·재질·`frame`(M/T)·`bar_spacing`·`carrier_spacing`·바/캐링 단면). 실은 용도 이름의 종류를 쓰고(없으면 '기본') `RoomSpec.finish` 로 덮어씀. 기본 마감표(`default_finishes`)는 예시값 — 기계·전기·공조실 콘크리트 면처리 + 천장 없음, 통신실 액세스 플로어 FL+0.45, 대합실·승강장층·복도·역무실·통로·기타·기본은 **금속패널 T1.6 + 구조면→표면 0.15**(실무 상세 WB-14), 화장실 타일은 이격 없음. **모델 기본은 끔(`enabled=False`, 기존 출력·golden 유지), GUI 는 켬.**
   - 배치(`layout_room_finishes`, 정거장 로컬 사각 조각 → 선형 각기둥 `RoomPiece`): 기준 바닥 = 층 FL, 최하층은 승강장 슬래브 위(t 범위)만 + 기준 = 승강장 상면(선로부 바닥·벽 마감 없음, 천장 높이 기준도 승강장 상면).
-    - 바닥: 실 영역 ∩ 기준 바닥 − (칸막이벽·사각 기둥·승강로·그 층 계단/에스컬레이터 평면·아래 슬래브 오프닝). 마감재 + (mortar 면) 채움.
+    - 바닥: 실 영역 ∩ 기준 바닥 − (칸막이벽·사각 기둥·승강로·그 층 계단/에스컬레이터 **접지 구간**·아래 슬래브 오프닝). 마감재 + (mortar 면) 채움. 접지 구간(`finish_gaps.contact_rects`) = 부재 띠의 하면이 그 자리 바닥 마감면(선형 표고 + 시작면 + ffl)보다 낮은 s 구간 × 부재 t 범위 — 계단 경사부·ESC 트러스가 떠 있는 곳 아래 바닥은 마감(예전엔 평면 전체를 빼서 콘크리트가 보였음, 사용자 지적).
+    - **오프닝 둘레(`finish_gaps.opening_linings`, 천장 있는 실, 위 슬래브 오프닝)**: 천장판이 오프닝 가장자리에서 끝나 천장 속이 보이던 문제 → 가장자리 바깥에 벽 마감 두께의 막이(천장판 하면 ~ 위 슬래브 하면, 그 자리는 천장판에서 뺌) + 오프닝 안쪽 슬래브 옆면 마감(슬래브 하면 ~ 상면). 계단·ESC 가 도착하는 쪽 가장자리는 없음, 옆면 마감은 부재 상면이 슬래브 하면보다 높은 s 구간에서 뺌(겹침 없음). 승강로(`_SHAFT`)·피트 오프닝 제외. 조각은 그 실의 WALL 마감(재질·레이어 FIN_WALL)에 더함. 계단 자체 마감(디딤판·챌판·옆면·하부)은 아직 없음.
     - 벽: 실 경계(같은 실 조각 사이 제외) 중 본체 벽 내공면·칸막이벽/구획분리 벽 면에만 (가상선 없음), 마감재는 구조체 면에서 [face − wall_t, face] (직각 벽 마감은 서로의 이격 공간(`gap_rects`)에 들어가지 않아 모서리에서 마감 표면끼리 만남), 높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리 비움. 모서리는 t 방향 조각에서 s 방향 조각을 뺌, 벽·기둥·승강로 평면과 겹침 제거.
     - 기둥 둘레(실 안, 사각 = 4조각, 원 = 외접 16각형 BoxPiece 연귀 고리), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움). 같은 이격(사각은 키운 사각형, 원은 반지름 + 이격).
     - 천장: 실 영역 ∩ 기준 바닥(**최하층은 승강장 위만 — 선로 구간 천장 마감 없음**, 사용자 확인) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝 — **위층 에스컬레이터 하부 피트는 제외**, 트러스가 슬래브 두께 안에서 막으므로 아래층 천장은 그대로) − 벽·사각 기둥·승강로 **마감 표면까지**(`face_rects`; 바닥은 구조체 면까지 — 실무 상세). 천장판 + 천장틀(t 방향 바를 s 의 bar_spacing 원점 격자에, s 방향 캐링 채널을 t 의 carrier_spacing 격자에, 판 위로 바 → 캐링). 천장판 + 틀이 위 슬래브 하면을 넘으면 오류.

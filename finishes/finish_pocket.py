@@ -224,7 +224,7 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
     if ft.ceiling:
         c = rf.ceiling_rel
         area = [p for zt, _ in zones for p in T.intersect(region, [zt])]
-        holes = obstacles + T.from_rects(ctx["above"]) + face_regs
+        holes = obstacles + T.from_rects(ctx["above"] + ctx.get("lining_fp", [])) + face_regs
         area = T.subtract(area, holes) if holes else T.merge(area)
         rf.ceiling = [_out(p, c, c + ft.board_t) for p in area]
         zb0, zb1 = c + ft.board_t, c + ft.board_t + ft.bar_h

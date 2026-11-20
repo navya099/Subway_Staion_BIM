@@ -9,10 +9,10 @@
   어떤 슬래브 두께 안에 걸리면 그 슬래브 면까지 늘려 채움 (빈 틈이 생기지 않게)
 - 카: 내공 중심, car_floor 층 정지 바닥에 카 바닥 상면. 바닥판·천장 = 카 외곽, 벽 4면, 문 쪽 벽은 문 자리를 비우고 닫힌 문 패널
 """
-from config.widening import platform_ranges
 from dataclasses import dataclass
 from typing import Optional
 
+from config.widening import platform_ranges
 from elevators.elevator_spec import ElevatorSpec
 from elevators.elevator_type import ElevatorPartKind as K
 from helper import prism_member as PM

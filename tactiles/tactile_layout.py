@@ -9,9 +9,9 @@
 높이(z)는 여기서 정하지 않는다: 바닥 마감이 있으면 그 마감재를 대체(finish_layout), 없으면 기준 바닥 위 block_t (엔진).
 """
 import math
-from config.widening import clear_contains_rect, has_pockets
 from dataclasses import dataclass
 
+from config.widening import clear_contains_rect, has_pockets
 from openings import decompose
 from tactiles.tactile_spec import BOARD, GUIDE, WARNING
 from trains.train_layout import layout_trains

@@ -8,9 +8,9 @@
 종단구배까지 반영해 모든 단이 같다. 계단은 마지막 챌판 위 위층 바닥 높이 디딤판 1개까지 포함한다 (길이 = run + 단너비).
 """
 import math
-from config.widening import platform_ranges
 from dataclasses import dataclass, field
 
+from config.widening import platform_ranges
 from helper import prism_member as PM
 from finishes.finish_layout import ceiling_bottom_under
 from openings.opening_kind import OpeningKind

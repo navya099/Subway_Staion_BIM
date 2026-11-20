@@ -11,7 +11,7 @@ import pytest
 from config.widening import WidenSpec, side_wall_traps
 from engine.cad_engine import StationCADEngine
 from gui.project_file import ProjectState
-from gui.widen_draft import SIDES, WidenDraft, WidenDrafts
+from gui.widen_draft import KINDS, SIDES, WidenDraft, WidenDrafts
 from helper import prism_member as PM
 from test_curved import NO_COLS, curved_cfg
 from test_finishes import ifc_world_volume
@@ -51,6 +51,36 @@ def test_side_wall_traps_constant_thickness(taper, expect):
     assert all(i0 <= o0 and i1 <= o1 for _, _, i0, o0, i1, o1 in tr)
     mid = next(t for t in tr if t[0] <= 65 <= t[1])
     assert mid[2:] == pytest.approx((11.0, 12.0, 11.0, 12.0))
+
+
+@pytest.mark.parametrize("taper, extra", [(None, 2 * 30 + 2 * 2), (0.0, 2 * 30), (3.0, 2 * 30 + 2 * 3)])
+def test_wall_thickening_keeps_inner_face(taper, extra):
+    """벽체 두께 증가: 내공면 |t| = 9 그대로, 바깥면만 10 → 12 (전이부는 바깥면만 사선)"""
+    cfg = cfg_w(WidenSpec(side=1, kind="wall", s_start=50, s_end=80, amount=2.0, taper_in=taper, taper_out=taper))
+    tr = side_wall_traps(cfg, 1, 1)
+    assert area(tr) == pytest.approx(198 + extra, rel=1e-9)
+    assert all(i0 == pytest.approx(9.0) and i1 == pytest.approx(9.0) for _, _, i0, _, i1, _ in tr)
+    assert next(t for t in tr if t[0] <= 65 <= t[1])[2:] == pytest.approx((9.0, 12.0, 9.0, 12.0))
+
+
+def test_wall_thickening_only_changes_outline():
+    """벽체 두께 증가(최하층 −t, 종점까지): 바닥 슬래브·단부 벽만 넓어지고 중간 슬래브·승강장은 그대로.
+    위층(B2F) +t 두께 증가는 사이 슬래브가 받침"""
+    cfg = cfg_w(WidenSpec(side=-1, kind="wall", floors=[1], s_start=150, s_end=None, amount=1.5, taper_in=0.0),
+                WidenSpec(side=1, kind="wall", floors=[2], s_start=50, s_end=80, amount=2.0, taper_in=0.0, taper_out=0.0))
+    base = StationCADEngine(make_cfg(NO_COLS()))
+    eng = StationCADEngine(cfg)
+    slabs = {sl.name: sl for pk in eng.slabs.slab_packages for sl in pk.slabs}
+    bslabs = {sl.name: sl for pk in base.slabs.slab_packages for sl in pk.slabs}
+    assert slabs["SLAB_B3F_FLOOR"].net_volume == pytest.approx(bslabs["SLAB_B3F_FLOOR"].net_volume + 1.5 * (48 + 1.0) * 1.2)
+    assert slabs["SLAB_B2F_MID"].net_volume == pytest.approx(bslabs["SLAB_B2F_MID"].net_volume + 2.0 * 30 * 0.4)
+    assert slabs["SLAB_B1F_MID"].net_volume == pytest.approx(bslabs["SLAB_B1F_MID"].net_volume)
+    plats = {p.name: p.net_volume for pk in eng.platform.platform_packages for p in pk.platforms}
+    assert plats == pytest.approx({p.name: p.net_volume for pk in base.platform.platform_packages for p in pk.platforms})
+    w, b = walls(eng, "B3F"), walls(base, "B3F")
+    assert w["WALL_B3F_L"].net_volume == pytest.approx((198 + 1.5 * 48) * 6.0)
+    assert w["WALL_B3F_END"].net_volume == pytest.approx(b["WALL_B3F_END"].net_volume * (20 + 1.5) / 20, rel=1e-6)
+    assert walls(eng, "B2F")["WALL_B2F_R"].net_volume == pytest.approx((198 + 60) * 6.0)
 
 
 def test_walls_floor_selection_and_end_walls():
@@ -93,11 +123,12 @@ def test_upper_floor_widening_supported_by_mid_slab():
     assert extra and sum(m.shape.length * m.shape.width for m in extra) == pytest.approx(2.0 * 32.0)   # [10, 12] × (49 ~ 81)
 
 
-@pytest.mark.parametrize("curved", [False, True])
-def test_volumes_mesh_and_ifc_agree(tmp_path, curved):
-    a = 60.0 if not curved else 60.0
-    cfg = cfg_w(WidenSpec(side=1, floors=[1, 2], s_start=a, s_end=a + 30, amount=2.0),
-                WidenSpec(side=-1, s_start=150, s_end=None, amount=1.5, taper_in=3.0), curved=curved)
+@pytest.mark.parametrize("curved, kind", [(False, "clear"), (True, "clear"), (False, "wall"), (True, "wall")])
+def test_volumes_mesh_and_ifc_agree(tmp_path, curved, kind):
+    a = 60.0
+    cfg = cfg_w(WidenSpec(side=1, floors=[1, 2], s_start=a, s_end=a + 30, amount=2.0, kind=kind),
+                WidenSpec(side=-1, s_start=150, s_end=None, amount=1.5, taper_in=3.0),
+                WidenSpec(side=-1, kind="wall", floors=[2, 3], s_start=20, s_end=40, amount=1.0), curved=curved)
     eng = StationCADEngine(cfg)
     eng.build_3d_doc()
     f = ifcopenshell.open(eng.generate_ifc(tmp_path / "w.ifc"))
@@ -136,6 +167,7 @@ def test_drawings_follow_widening():
     (WidenSpec(side=1, s_start=150, s_end=197, amount=2.0), "종점"),
     (WidenSpec(side=1, floors=[4], s_start=50, s_end=80), "층 번호"),
     (WidenSpec(side=1, s_start=50, s_end=80, taper_in=-1.0), "전이 길이"),
+    (WidenSpec(side=1, s_start=50, s_end=80, kind="x"), "종류"),
 ])
 def test_invalid(w, msg):
     with pytest.raises(ValueError, match=msg):
@@ -145,6 +177,8 @@ def test_invalid(w, msg):
 def test_overlap_and_opening_on_taper_rejected():
     with pytest.raises(ValueError, match="겹칩니다"):
         cfg_w(WidenSpec(side=1, s_start=50, s_end=80), WidenSpec(side=1, s_start=81, s_end=100)).validate()
+    with pytest.raises(ValueError, match="겹칩니다"):                    # 종류가 달라도 같은 층·쪽은 겹치면 안 됨
+        cfg_w(WidenSpec(side=1, s_start=50, s_end=80), WidenSpec(side=1, kind="wall", s_start=70, s_end=100)).validate()
     from openings.opening_kind import OpeningKind
     from openings.opening_spec import OpeningSpec
     cfg = cfg_w(WidenSpec(side=1, floors=[1], s_start=50, s_end=80, amount=2.0))
@@ -163,6 +197,9 @@ def test_draft_and_project():
     d = WidenDraft(side=SIDES[1], floors="B2F, 1", s_start="150", s_end="", amount="1.5", taper_in="3")
     sp = d.to_spec("확폭 1", 100.0, 3)
     assert (sp.side, sp.floors, sp.s_start, sp.s_end, sp.amount, sp.taper_in, sp.taper_out) == (-1, [1, 2], 50.0, None, 1.5, 3.0, None)
+    assert sp.kind == "clear" and WidenDraft(kind=KINDS[1]).to_spec("확폭 1", 0.0, 3).kind == "wall"
+    with pytest.raises(ValueError, match="종류"):
+        WidenDraft(kind="?").to_spec("확폭 1", 0.0, 3)
     with pytest.raises(ValueError, match="B9F"):
         WidenDraft(floors="B9F").to_spec("확폭 1", 0.0, 3)
     ds = WidenDrafts()

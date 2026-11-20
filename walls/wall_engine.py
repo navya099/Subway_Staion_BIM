@@ -61,7 +61,7 @@ class WallEngine:
         ]
 
     def _widen_sides(self, package, floor_n: int, z_lo: float, z_hi: float):
-        """확폭이 있는 쪽 측벽을 사다리꼴 조각(내공면 ~ 바깥면, 사선 벽도 같은 두께)으로 바꿈"""
+        """확폭이 있는 쪽 측벽을 사다리꼴 조각(내공면 ~ 바깥면, 내공 확폭의 사선 벽도 같은 두께)으로 바꿈"""
         for side, role in ((1, WallRole.RIGHT), (-1, WallRole.LEFT)):
             if not specs_for(self.cfg, floor_n, side):
                 continue

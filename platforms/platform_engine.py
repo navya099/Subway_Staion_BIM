@@ -1,5 +1,5 @@
 from config.master_config import StationProjectConfig
-from config.widening import band, inner_polyline, offset_polyline, specs_for
+from config.widening import CLEAR, band, inner_polyline, offset_polyline, specs_for
 from helper import prism_member as PM
 from helper.view_item import ViewItem
 from openings import decompose
@@ -90,7 +90,7 @@ class PlatformEngine:
         """최하층 확폭: 그 쪽 승강장 슬래브를 넓어진 내공면까지(사다리꼴 조각), 벽체측 지지벽체는 내공면을 따라감"""
         L = self.sp.length
         for side, code in ((1, "R"), (-1, "L")):
-            if not specs_for(self.cfg, 1, side):
+            if not specs_for(self.cfg, 1, side, CLEAR):          # 벽체 두께 증가는 내공 그대로
                 continue
             pad = self.sp.max_wall_t + 1.0
             inner = inner_polyline(self.cfg, 1, side, -pad, L + pad)

@@ -4,6 +4,9 @@
   내공면 |t| = W/2 + e(s):  e = 0 (s ≤ s_start − taper_in), 직선 증가, d ([s_start, s_end]), 직선 감소, 0 (s ≥ s_end + taper_out)
   s_start 가 None 이면 정거장 시점(단부 벽 포함)부터, s_end 가 None 이면 종점까지 넓음 (그쪽 전이 없음). 전이 길이 0 = 직각 계단.
 벽 바깥면 = 내공면 폴리선을 벽 두께만큼 바깥으로 수직 간격으로 띄운 폴리선 (꺾임점은 연귀) — 사선 벽도 같은 두께.
+종류(kind): CLEAR = 내공 확폭(위 설명, 내공면이 이동) | WALL = 벽체 두께 증가 (내공면 그대로, 벽 바깥면만 확폭량만큼
+  바깥으로 — 바깥면 |t| = W/2 + 벽 두께 + e(s), 전이부는 바깥면만 사선). WALL 은 측벽·단부 벽·바닥/천장 슬래브 외곽·
+  위층이 두꺼워질 때의 중간 슬래브 받침만 바뀌고 내공(승강장·실·마감 등)은 그대로.
 부재는 s 방향 구간마다 아래·위 경계가 직선인 사다리꼴 (trap = (s0, s1, t0(s0), t1(s0), t0(s1), t1(s1))) 로 나눈다.
 """
 import dataclasses
@@ -11,13 +14,16 @@ import math
 from typing import Optional
 
 _EPS = 1e-9
+CLEAR, WALL = "clear", "wall"
+KINDS = (CLEAR, WALL)
 
 
 @dataclasses.dataclass
 class WidenSpec:
     """side: +1 = +t 쪽(진행방향 왼쪽) 측벽, −1 = −t 쪽. floors: 적용 층 번호 목록 (비면 모든 층)
     s_start / s_end: 완전 확폭 구간 (정거장 로컬 s, None = 시점·종점 끝까지), amount: 확폭량 (내공면이 바깥으로 이동, m)
-    taper_in / taper_out: 시작·끝 사선 전이 길이 (s 방향, None = 확폭량과 같음 = 45°, 0 = 직각 계단)"""
+    taper_in / taper_out: 시작·끝 사선 전이 길이 (s 방향, None = 확폭량과 같음 = 45°, 0 = 직각 계단)
+    kind: CLEAR(내공 확폭) | WALL(벽체 두께 증가 — 내공면 고정, 바깥면만)"""
     side: int = 1
     floors: list = dataclasses.field(default_factory=list)
     s_start: Optional[float] = None
@@ -26,6 +32,7 @@ class WidenSpec:
     taper_in: Optional[float] = None
     taper_out: Optional[float] = None
     name: str = ""
+    kind: str = CLEAR
 
     def tapers(self) -> tuple:
         ti = self.amount if self.taper_in is None else self.taper_in
@@ -36,8 +43,10 @@ class WidenSpec:
         return not self.floors or floor_n in self.floors
 
 
-def specs_for(cfg, floor_n: int, side: int) -> list:
-    return [w for w in getattr(cfg, "widenings", []) if w.side == side and w.applies(floor_n)]
+def specs_for(cfg, floor_n: int, side: int, kind: Optional[str] = None) -> list:
+    """그 층·쪽에 적용되는 확폭 (kind 를 주면 그 종류만)"""
+    return [w for w in getattr(cfg, "widenings", []) if w.side == side and w.applies(floor_n)
+            and (kind is None or w.kind == kind)]
 
 
 def widened(cfg) -> bool:
@@ -45,10 +54,14 @@ def widened(cfg) -> bool:
 
 
 def inner_polyline(cfg, floor_n: int, side: int, s_lo: float, s_hi: float) -> list:
-    """내공면 |t| 폴리선 [(s, |t|)] (s_lo ~ s_hi). 직각 계단은 같은 s 에 두 점"""
-    hw = cfg.station.width / 2.0
+    """내공면 |t| 폴리선 [(s, |t|)] (s_lo ~ s_hi, 내공 확폭만). 직각 계단은 같은 s 에 두 점"""
+    return _profile(specs_for(cfg, floor_n, side, CLEAR), cfg.station.width / 2.0, s_lo, s_hi)
+
+
+def _profile(specs: list, hw: float, s_lo: float, s_hi: float) -> list:
+    """기준 |t| = hw 에 확폭 specs 의 e(s) 를 더한 폴리선 (구간은 서로 겹치지 않음 — check_widenings)"""
     pts = [(s_lo, hw)]
-    for w in sorted(specs_for(cfg, floor_n, side), key=lambda w: (-math.inf if w.s_start is None else w.s_start)):
+    for w in sorted(specs, key=lambda w: (-math.inf if w.s_start is None else w.s_start)):
         ti, to = w.tapers()
         a = s_lo if w.s_start is None else w.s_start
         b = s_hi if w.s_end is None else w.s_end
@@ -121,21 +134,52 @@ def band(lower: list, upper: list, s_lo: float, s_hi: float) -> list:
     return out
 
 
+def _envelope(p: list, q: list, s_lo: float, s_hi: float) -> list:
+    """두 폴리선 중 큰 쪽(위 포락선) 폴리선 — 교차점에서 꺾고, 직각 계단(같은 s 두 점)은 그대로"""
+    cuts = sorted({s for s, _ in p + q if s_lo - _EPS <= s <= s_hi + _EPS} | {s_lo, s_hi})
+    out = []
+    for sa, sb in zip(cuts, cuts[1:]):
+        if sb - sa < 1e-7:
+            continue
+        pa, pb = _value(p, sa, sb)
+        qa, qb = _value(q, sa, sb)
+        da, db = pa - qa, pb - qb
+        seg = [(sa, max(pa, qa))]
+        if da < -1e-9 and db > 1e-9 or da > 1e-9 and db < -1e-9:
+            sx = sa + (sb - sa) * da / (da - db)
+            seg.append((sx, pa + (pb - pa) * (sx - sa) / (sb - sa)))
+        seg.append((sb, max(pb, qb)))
+        for pt in seg:
+            if not out or abs(out[-1][0] - pt[0]) > 1e-9 or abs(out[-1][1] - pt[1]) > 1e-9:
+                out.append(pt)
+    return out
+
+
+def outer_polyline(cfg, floor_n: int, side: int, s_lo: float, s_hi: float) -> list:
+    """벽 바깥면 |t| 폴리선: 내공면을 벽 두께만큼 띄운 선 + 벽체 두께 증가(WALL) 확폭 (둘 중 바깥)"""
+    st = cfg.station
+    wt = st.wall_t_at(floor_n)
+    outer = offset_polyline(inner_polyline(cfg, floor_n, side, s_lo, s_hi), wt)
+    thick = specs_for(cfg, floor_n, side, WALL)
+    if not thick:
+        return outer
+    return _envelope(outer, _profile(thick, st.width / 2.0 + wt, s_lo, s_hi), s_lo, s_hi)
+
+
 def side_wall_traps(cfg, floor_n: int, side: int) -> list:
     """측벽(s 0 ~ L) 사다리꼴 [(s0, s1, |t|내0, |t|외0, |t|내1, |t|외1)] — 내공면 ~ 바깥면 (|t| 기준)"""
     st = cfg.station
-    L, wt = st.length, st.wall_t_at(floor_n)
+    L = st.length
     pad = st.max_wall_t + 1.0
     inner = inner_polyline(cfg, floor_n, side, -pad, L + pad)
-    outer = offset_polyline(inner, wt)
-    return band(inner, outer, 0.0, L)
+    return band(inner, outer_polyline(cfg, floor_n, side, -pad, L + pad), 0.0, L)
 
 
 def outer_at(cfg, floor_n: int, side: int, s: float) -> float:
     """바깥면 |t| (s 에서, 직각 계단이면 큰 쪽)"""
     st = cfg.station
     pad = st.max_wall_t + 1.0
-    outer = offset_polyline(inner_polyline(cfg, floor_n, side, -pad, st.length + pad), st.wall_t_at(floor_n))
+    outer = outer_polyline(cfg, floor_n, side, -pad, st.length + pad)
     vals = [t for (s0, t0), (s1, t1) in zip(outer, outer[1:])
             for t in ([t0 + (t1 - t0) * (s - s0) / (s1 - s0)] if s1 - s0 > _EPS and s0 - 1e-7 <= s <= s1 + 1e-7 else [])]
     return max(vals)
@@ -157,6 +201,8 @@ def check_widenings(cfg):
     L = st.length
     for k, w in enumerate(getattr(cfg, "widenings", []), start=1):
         where = f"확폭 {k}" + (f"({w.name})" if w.name else "")
+        if w.kind not in KINDS:
+            raise ValueError(f"{where}: 종류는 {CLEAR}(내공 확폭) 또는 {WALL}(벽체 두께 증가) 이어야 합니다 ({w.kind!r})")
         if w.side not in (1, -1):
             raise ValueError(f"{where}: 쪽은 +1(+t) 또는 −1(−t) 이어야 합니다 ({w.side!r})")
         bad = [n for n in w.floors if not (isinstance(n, int) and 1 <= n <= st.floors)]
@@ -197,8 +243,9 @@ def _mirror(poly: list) -> list:
 def _poly(cfg, floor_n: int, side: int, outer: bool) -> list:
     st = cfg.station
     pad = st.max_wall_t + 1.0
-    inner = inner_polyline(cfg, floor_n, side, -pad, st.length + pad)
-    return offset_polyline(inner, st.wall_t_at(floor_n)) if outer else inner
+    if outer:
+        return outer_polyline(cfg, floor_n, side, -pad, st.length + pad)
+    return inner_polyline(cfg, floor_n, side, -pad, st.length + pad)
 
 
 def outline_traps(cfg, floor_n: int, s_lo: float, s_hi: float, outer: bool = True) -> list:

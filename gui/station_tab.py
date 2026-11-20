@@ -27,6 +27,7 @@ class AlignmentSource:
     embedded: object = None            # 프로젝트 저장용으로 포함한 원본 (gui.project_file.EmbeddedAlignment)
 
 
+from gui.widen_draft import KINDS as WIDEN_KINDS
 from gui.widen_draft import SIDES as WIDEN_SIDES
 from gui.widen_draft import WidenDraft, WidenDrafts
 from gui.pick_fill import num
@@ -130,7 +131,7 @@ class StationTab:
         self.widen_drafts = WidenDrafts()
         self.entries['widen_drafts'] = self.widen_drafts
         self._widen_vars = {}
-        box = tk.LabelFrame(self.parent, text=" 구조물 확폭 (측벽 내공면을 구간만 바깥으로) ", font=("Malgun Gothic", 9, "bold"),
+        box = tk.LabelFrame(self.parent, text=" 구조물 확폭 (구간만 측벽 내공면 이동 또는 벽 두께 증가) ", font=("Malgun Gothic", 9, "bold"),
                             padx=6, pady=3)
         box.pack(fill="x", padx=15, pady=(2, 6))
         bar = tk.Frame(box)
@@ -158,7 +159,7 @@ class StationTab:
         if not self.widen_drafts.items:
             tk.Label(self.widen_frame, text="확폭 없음", font=font, fg="#888888").grid(row=0, column=0, sticky="w")
             return
-        heads = ("쪽", "층", "시작 STA", "끝 STA", "확폭량", "전이(시작)", "전이(끝)", "")
+        heads = ("쪽", "종류", "층", "시작 STA", "끝 STA", "확폭량", "전이(시작)", "전이(끝)", "")
         for c, h in enumerate(heads):
             tk.Label(self.widen_frame, text=h, font=("Malgun Gothic", 8), fg="#555555").grid(row=0, column=c, sticky="w")
         for r, it in enumerate(self.widen_drafts.items, start=1):
@@ -167,16 +168,21 @@ class StationTab:
             combo.bind("<<ComboboxSelected>>", lambda e, o=it, cb=combo: setattr(o, "side", cb.get()))
             combo.grid(row=r, column=0, padx=1, pady=1)
             self._widen_vars[(r - 1, "side")] = combo
+            kc = ttk.Combobox(self.widen_frame, values=WIDEN_KINDS, state="readonly", width=8, font=font)
+            kc.set(it.kind)
+            kc.bind("<<ComboboxSelected>>", lambda e, o=it, cb=kc: setattr(o, "kind", cb.get()))
+            kc.grid(row=r, column=1, padx=1, pady=1)
+            self._widen_vars[(r - 1, "kind")] = kc
             for c, (attr, w) in enumerate((("floors", 7), ("s_start", 9), ("s_end", 9), ("amount", 5),
-                                           ("taper_in", 6), ("taper_out", 6)), start=1):
+                                           ("taper_in", 6), ("taper_out", 6)), start=2):
                 var = tk.StringVar(value=getattr(it, attr))
                 self._widen_vars[(r - 1, attr)] = var
                 var.trace_add("write", lambda *_, o=it, a=attr, v=var: setattr(o, a, v.get()))
                 tk.Entry(self.widen_frame, textvariable=var, width=w, font=font).grid(row=r, column=c, padx=1, pady=1)
             tk.Button(self.widen_frame, text="−", font=font, width=2,
-                      command=lambda k=r - 1: self.remove_widening(k)).grid(row=r, column=7)
+                      command=lambda k=r - 1: self.remove_widening(k)).grid(row=r, column=8)
             tk.Button(self.widen_frame, text="선택", font=font, bg="#FFF3E0",
-                      command=lambda k=r - 1: self.pick_widening(k)).grid(row=r, column=8, padx=(2, 0))
+                      command=lambda k=r - 1: self.pick_widening(k)).grid(row=r, column=9, padx=(2, 0))
 
     def pick_widening(self, i) -> bool:
         """미리보기 평면에서 확폭 구간 선택: 보고 있는 층에서 시작·끝 두 점 → 층·시작/끝 STA·쪽(두 점 t 평균의 부호)"""

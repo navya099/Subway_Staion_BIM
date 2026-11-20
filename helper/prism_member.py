@@ -121,7 +121,12 @@ def _mean(pts):
 
 def _outward(quad, ref):
     """quad 의 법선이 ref(부재 안쪽 기준점)에서 멀어지는 방향이 되도록 꼭짓점 순서를 맞춤"""
-    n = _cross(_sub(quad[1], quad[0]), _sub(quad[3], quad[0]))
+    # Newell 법선: 한 변이 0 인 면(삼각 조각의 한쪽 끝 폭 0)에서도 방향이 정해짐
+    n = [0.0, 0.0, 0.0]
+    for p, q in zip(quad, quad[1:] + quad[:1]):
+        n[0] += (p[1] - q[1]) * (p[2] + q[2])
+        n[1] += (p[2] - q[2]) * (p[0] + q[0])
+        n[2] += (p[0] - q[0]) * (p[1] + q[1])
     d = _sub(_mean(quad), ref)
     return quad if sum(n[i] * d[i] for i in range(3)) >= 0 else tuple(reversed(quad))
 

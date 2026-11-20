@@ -1995,16 +1995,21 @@ def test_station_tab_widenings(app):
     combo = st._widen_vars[(0, "side")]
     combo.set("−t (오른쪽)")
     combo.event_generate("<<ComboboxSelected>>")
+    kc = st._widen_vars[(0, "kind")]
+    kc.set("벽체 두께")
+    kc.event_generate("<<ComboboxSelected>>")
     app.root.update()
     cfg = TkAdapter.collect_entries(app.entries)
     (w,) = cfg.widenings
     assert (w.side, w.floors, w.s_start, w.s_end, w.amount) == (-1, [2], pytest.approx(50.0), pytest.approx(80.0), 2.0)
+    assert w.kind == "wall"
     from gui.project_file import ProjectState
     state = app.collect_state()
     app.apply_state(ProjectState())
     assert st.widen_drafts.items == []
     app.apply_state(state)
     assert st._widen_vars[(0, "floors")].get() == "B1F" and st._widen_vars[(0, "side")].get() == "−t (오른쪽)"
+    assert st._widen_vars[(0, "kind")].get() == "벽체 두께"
 
 
 def test_widening_pick_floor_and_sta_from_preview(app, monkeypatch):

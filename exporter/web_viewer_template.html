@@ -57,28 +57,26 @@
 <div id="info" class="panel"><table id="infotab"></table></div>
 <div id="hud" class="panel"></div>
 <div id="status" class="panel"></div>
+<div id="live" class="panel" style="display:none; left:12px; bottom:12px; white-space:pre-line; color:var(--muted); font-size:12px; max-width:420px"></div>
 <div id="cross"></div>
 <script>/*__THREE__*/</script>
 <script>
-const DATA = /*__DATA__*/;
+const DATA_EMBED = /*__DATA__*/;
 const BLOB = "/*__BLOB__*/";
+const LIVE = /*__LIVE__*/false;
 </script>
 <script>
 (async function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
+  let DATA = DATA_EMBED;                     // 실시간 모드(LIVE)면 앱의 로컬 서버에서 받아 바꿈
   const fmtSta = (s) => { const v = DATA.start_station + s; const km = Math.floor(v / 1000); return km + "+" + (v - km * 1000).toFixed(2).padStart(6, "0"); };
-  $("title").textContent = DATA.title;
 
   // ---------------------------------------------------------------- 자료 풀기
-  async function unpack() {
-    const bin = Uint8Array.from(atob(BLOB), (c) => c.charCodeAt(0));
+  async function gunzip(bytes) {
     const ds = new DecompressionStream("gzip");
-    const buf = await new Response(new Blob([bin]).stream().pipeThrough(ds)).arrayBuffer();
-    return buf;
+    return await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
   }
-  let buf;
-  try { buf = await unpack(); } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; return; }
 
   // ---------------------------------------------------------------- 장면
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -111,42 +109,72 @@ const BLOB = "/*__BLOB__*/";
 
   const meshes = [];
   const box = new THREE.Box3();
-  let tris = 0;
-  for (const c of DATA.chunks) {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf, c.pos, c.nv * 3), 3));
-    g.setAttribute("aSH", new THREE.BufferAttribute(new Float32Array(buf, c.sh, c.nv * 2), 2));
-    g.setIndex(new THREE.BufferAttribute(new Uint32Array(buf, c.idx, c.nt * 3), 1));
-    g.computeBoundingBox(); g.computeBoundingSphere();
-    const mesh = new THREE.Mesh(g, makeMaterial(c.color, c.alpha));
-    mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt) };
-    if (c.alpha < 1) mesh.renderOrder = 1;
-    scene.add(mesh); meshes.push(mesh);
-    box.union(g.boundingBox);
-    tris += c.nt;
-  }
-  $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개 · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})`;
+  const groupOn = {};                       // 표시 묶음 켬/끔 (모델을 바꿔도 유지)
+  const fsel = $("floor");
+  let L = 1, sMinAll = -5, sMaxAll = 6;
+  let highlight = null, selectedName = null;
 
-  // ---------------------------------------------------------------- 표시 묶음
-  const groupOn = {};
-  for (const gr of DATA.groups) {
-    if (!DATA.chunks.some((c) => c.group === gr.name)) continue;
-    groupOn[gr.name] = gr.on;
-    const lab = document.createElement("label");
-    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = gr.on;
-    cb.onchange = () => { groupOn[gr.name] = cb.checked; applyVisibility(); };
-    lab.append(cb, document.createTextNode(gr.name));
-    $("groups").appendChild(lab);
+  // 모델 자료(DATA + 풀린 바이트 열)로 장면을 (다시) 만든다. 카메라·잘라 보기·표시 묶음·고른 부재는 그대로 둠
+  function loadModel(data, buf) {
+    const old = DATA && DATA.origin ? DATA.origin : null;
+    if (highlight) { scene.remove(highlight); highlight.geometry.dispose(); highlight = null; }
+    for (const m of meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    meshes.length = 0; box.makeEmpty();
+    DATA = data;
+    if (old) {                              // 원점이 바뀌면 카메라를 같은 세계 위치로
+      const d = new THREE.Vector3(data.origin[0] - old[0], data.origin[1] - old[1], data.origin[2] - old[2]);
+      if (d.lengthSq() > 0) { camera.position.sub(d); orbit.target.sub(d); }
+    }
+    $("title").textContent = DATA.title;
+    let tris = 0;
+    for (const c of DATA.chunks) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf, c.pos, c.nv * 3), 3));
+      g.setAttribute("aSH", new THREE.BufferAttribute(new Float32Array(buf, c.sh, c.nv * 2), 2));
+      g.setIndex(new THREE.BufferAttribute(new Uint32Array(buf, c.idx, c.nt * 3), 1));
+      g.computeBoundingBox(); g.computeBoundingSphere();
+      const mesh = new THREE.Mesh(g, makeMaterial(c.color, c.alpha));
+      mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt) };
+      if (c.alpha < 1) mesh.renderOrder = 1;
+      scene.add(mesh); meshes.push(mesh);
+      box.union(g.boundingBox);
+      tris += c.nt;
+    }
+    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개 · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})`;
+
+    // 표시 묶음
+    $("groups").innerHTML = "";
+    for (const gr of DATA.groups) {
+      if (!DATA.chunks.some((c) => c.group === gr.name)) continue;
+      if (!(gr.name in groupOn)) groupOn[gr.name] = gr.on;
+      const lab = document.createElement("label");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = groupOn[gr.name];
+      cb.onchange = () => { groupOn[gr.name] = cb.checked; applyVisibility(); };
+      lab.append(cb, document.createTextNode(gr.name));
+      $("groups").appendChild(lab);
+    }
+    applyVisibility();
+
+    // 층 목록 (같은 이름의 층을 계속 고름)
+    const keep = fsel.selectedIndex > 0 ? fsel.options[fsel.selectedIndex].text : null;
+    fsel.innerHTML = "";
+    fsel.add(new Option("전체", "-1"));
+    DATA.floors.forEach((f, i) => fsel.add(new Option(f.name, String(i))));
+    const k = keep ? DATA.floors.findIndex((f) => f.name === keep) : -1;
+    fsel.value = String(k);
+    onFloor();
+    L = DATA.length; sMinAll = -5; sMaxAll = L + 5;
+    onRange();
+    if (selectedName) {                     // 고른 부재가 새 모델에도 있으면 다시 강조
+      const id = DATA.elements.findIndex((e) => e.name === selectedName);
+      if (id >= 0) { highlight = buildHighlight(id); scene.add(highlight); } else { $("info").style.display = "none"; selectedName = null; }
+    }
   }
   function applyVisibility() { for (const m of meshes) m.visible = groupOn[m.userData.chunk.group] !== false; }
-  applyVisibility();
 
   // ---------------------------------------------------------------- 층 · STA 잘라 보기
-  const fsel = $("floor");
-  fsel.add(new Option("전체", "-1"));
-  DATA.floors.forEach((f, i) => fsel.add(new Option(f.name, String(i))));
-  fsel.onchange = () => { const i = +fsel.value; clip.uHMax.value = i < 0 ? 1e9 : DATA.floors[i].top - 0.005; };
-  const L = DATA.length, sMinAll = -5, sMaxAll = L + 5;
+  function onFloor() { const i = +fsel.value; clip.uHMax.value = i < 0 ? 1e9 : DATA.floors[i].top - 0.005; }
+  fsel.onchange = onFloor;
   const sOf = (v) => sMinAll + (sMaxAll - sMinAll) * v / 1000;
   function onRange() {
     let a = +$("s0").value, b = +$("s1").value;
@@ -156,7 +184,7 @@ const BLOB = "/*__BLOB__*/";
     $("s0lab").textContent = a <= 0 ? "처음" : "STA " + fmtSta(sOf(a));
     $("s1lab").textContent = b >= 1000 ? "끝" : "STA " + fmtSta(sOf(b));
   }
-  $("s0").oninput = onRange; $("s1").oninput = onRange; onRange();
+  $("s0").oninput = onRange; $("s1").oninput = onRange;
 
   // ---------------------------------------------------------------- 궤도 조작 (Z 위)
   const orbit = { target: new THREE.Vector3(), dist: 100, az: -Math.PI / 3, el: 0.6 };
@@ -176,7 +204,6 @@ const BLOB = "/*__BLOB__*/";
     updateOrbitCamera();
   }
   $("fit").onclick = fit;
-  fit();
 
   const el = renderer.domElement;
   let drag = null, moved = false;
@@ -246,13 +273,13 @@ const BLOB = "/*__BLOB__*/";
     for (const h of hits) { const sh = clippedAt(h); if (sh) return Object.assign(h, sh); }
     return null;
   }
-  let highlight = null;
   function pick(e, center) {
     const hit = firstHit(e);
     if (center) { if (hit) { orbit.target.copy(hit.point); orbit.dist = camera.position.distanceTo(hit.point); updateOrbitCamera(); } return; }
     if (highlight) { scene.remove(highlight); highlight.geometry.dispose(); highlight = null; }
-    if (!hit) { $("info").style.display = "none"; return; }
+    if (!hit) { $("info").style.display = "none"; selectedName = null; return; }
     const id = hit.object.userData.elem[hit.faceIndex];
+    selectedName = DATA.elements[id].name;
     const info = DATA.elements[id];
     showInfo(info, hit);
     highlight = buildHighlight(id);
@@ -289,8 +316,8 @@ const BLOB = "/*__BLOB__*/";
   }
 
   // ---------------------------------------------------------------- 걷기
-  const cl = DATA.centerline;            // [s, x, y, FL 표고]
-  function nearestCl(x, y) {
+  function nearestCl(x, y) {               // 선형 중심 표본 [s, x, y, FL 표고] 중 가장 가까운 것
+    const cl = DATA.centerline;
     let best = 0, bd = Infinity;
     for (let i = 0; i < cl.length; i++) { const d = (cl[i][1] - x) ** 2 + (cl[i][2] - y) ** 2; if (d < bd) { bd = d; best = i; } }
     return cl[best];
@@ -339,6 +366,7 @@ const BLOB = "/*__BLOB__*/";
 
   let last = performance.now();
   function stepWalk(dt) {
+    walkFloor = Math.min(walkFloor, DATA.floors.length - 1);
     const v = (keys.ShiftLeft || keys.ShiftRight ? 9 : 3) * dt;
     const fx = Math.cos(yaw), fy = Math.sin(yaw);
     let mx = 0, my = 0;
@@ -368,7 +396,44 @@ const BLOB = "/*__BLOB__*/";
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  window.__viewer = { scene, camera, meshes, clip, orbit, fit, DATA };
+
+  // ---------------------------------------------------------------- 첫 모델 · 실시간 갱신
+  function setLive(text, bad) { const s = $("live"); s.style.display = "block"; s.textContent = text; s.style.color = bad ? "#ff8a80" : ""; }
+  let version = -1, loading = false;
+  async function fetchModel() {
+    const meta = await (await fetch("data.json", { cache: "no-store" })).json();
+    const bin = await (await fetch("data.bin?v=" + meta.version, { cache: "no-store" })).arrayBuffer();
+    const first = meshes.length === 0;
+    loadModel(meta.data, await gunzip(bin));
+    version = meta.version;
+    if (first) fit();
+  }
+  async function poll() {
+    try {
+      const st = await (await fetch("version", { cache: "no-store" })).json();
+      if (st.version !== version && st.version >= 0 && !loading) {
+        loading = true; setLive("실시간: 새 모델 받는 중…");
+        try { await fetchModel(); } finally { loading = false; }
+      }
+      const when = new Date().toLocaleTimeString();
+      if (st.status === "building") setLive(`실시간: 앱에서 모델 만드는 중… (v${version})`);
+      else if (st.status === "error") setLive(`실시간: 앱 갱신 실패 — 이전 모델 표시 (v${version})
+${st.message}`, true);
+      else setLive(`실시간: v${version} · ${when} 확인`);
+    } catch (e) {
+      setLive("실시간: 앱과 연결이 끊겼습니다 (앱·미리보기를 닫았나요?)", true);
+    }
+    setTimeout(poll, 1000);
+  }
+  try {
+    if (LIVE) { setLive("실시간: 연결 중…"); poll(); }
+    else {
+      const bin = Uint8Array.from(atob(BLOB), (c) => c.charCodeAt(0));
+      loadModel(DATA_EMBED, await gunzip(bin));
+      fit();
+    }
+  } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
+  window.__viewer = { scene, camera, meshes, clip, orbit, fit, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

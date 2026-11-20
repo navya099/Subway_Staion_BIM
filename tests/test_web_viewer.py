@@ -54,7 +54,7 @@ def test_html_is_self_contained(tmp_path):
     html = open(path, encoding="utf-8").read()
     assert "/*__THREE__*/" not in html and "/*__DATA__*/" not in html and "/*__BLOB__*/" not in html
     assert "Three.js Authors" in html and "http://" not in html.split("<script>", 1)[0]
-    data = json.loads(re.search(r"const DATA = (\{.*?\});\nconst BLOB", html, re.S).group(1))
+    data = json.loads(re.search(r"const DATA_EMBED = (\{.*?\});\nconst BLOB", html, re.S).group(1))
     blob = re.search(r'const BLOB = "([A-Za-z0-9+/=]+)";', html).group(1)
     assert len(gzip.decompress(base64.b64decode(blob))) > 0
     assert data["triangles"] == eng.web_result.triangles
@@ -70,3 +70,45 @@ def test_output_option(tmp_path):
     from gui.print_draft import PrintDraft, preview
     d = PrintDraft(dxf3d=False, ifc=False, plan=False, profile=False, section=False, web=True)
     assert d.to_options(5.0).web and "3D 웹 뷰어" in preview(d, None, None, None)
+
+
+# ===================================================== 실시간 갱신 (로컬 서버)
+def _get(url):
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=10) as r:
+        return r.read()
+
+
+def test_live_server_updates_and_keeps_old_model_on_error():
+    from exporter.live_viewer import LiveViewer
+    from config.widening import WidenSpec
+    lv = LiveViewer()
+    url = lv.start()
+    try:
+        assert url.startswith("http://127.0.0.1:")
+        html = _get(url).decode("utf-8")
+        assert "const LIVE = true" in html and "Three.js Authors" in html
+        assert json.loads(_get(url + "version"))["version"] == -1
+        cfg = _cfg()
+        lv.update(cfg)
+        assert lv.wait(60) and lv.version == 0 and lv.status == "ok"
+        meta = json.loads(_get(url + "data.json"))
+        buf = gzip.decompress(_get(url + "data.bin"))
+        assert meta["version"] == 0 and len(buf) == max(c["elem"] + 4 * c["nt"] for c in meta["data"]["chunks"])
+        bad = _cfg()
+        bad.widenings = [WidenSpec(side=0, s_start=50, s_end=80)]
+        lv.update(bad)
+        assert lv.wait(60) and lv.version == 0 and lv.status == "error" and "쪽" in lv.message
+        st = json.loads(_get(url + "version"))
+        assert st["status"] == "error" and json.loads(_get(url + "data.json"))["version"] == 0   # 이전 모델 유지
+        lv.update(cfg)
+        lv.update(cfg)                                                   # 만드는 중에 들어온 갱신은 끝나고 한 번 더
+        assert lv.wait(60)
+        import time
+        for _ in range(100):
+            if not lv._busy:
+                break
+            time.sleep(0.1)
+        assert lv.version == 2 and lv.status == "ok"
+    finally:
+        lv.stop()

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 994개 통과** (GUI 129개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 996개 통과** (GUI 130개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -69,7 +69,7 @@ engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, buil
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
-exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT)
+exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
@@ -252,6 +252,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 자료 = `build_3d_doc` 의 3DFACE 그대로(단일 원천, 천장틀 FIN_FRAME 은 기본 제외). 묶음(레이어 × 보기 재질 `render_material`)마다 꼭짓점(float32, 정수 원점 기준 상대)·꼭짓점별 (s, FL 기준 h)·삼각형 번호·삼각형 → 부재 번호를 한 바이트 열로 이어 gzip + base64(브라우저 `DecompressionStream`). 부재 표 = 서브 엔진의 BIM 객체 중 `source_element` 를 가진 것(이름·층·재질·종류, `_element_index` 가 훑음). h 의 FL 은 선형 끝 밖을 끝 구배로 연장.
   - 뷰어(템플릿 JS): Z 위 궤도 조작(왼쪽 회전, 오른쪽/Shift 이동, 휠 확대, 더블클릭 = 회전 중심), 표시 묶음(미리보기 `LAYER_GROUPS`), 보이는 층(그 층 천장 하면 위를 버림)·STA 범위 = 셰이더 discard(모든 재질 공통 uniform), 클릭 = 부재 정보 + 강조(잘린 면은 건너뜀), 걷기(포인터 잠금, WASD·Shift·E/Q·PgUp/PgDn 층, 눈높이 = 선형 중심 표본 FL + 층 바닥(최하층은 승강장 상면) + 1.6). `window.__viewer` 로 상태 접근(디버그).
   - 실무 샘플: 삼각형 8.4만, 2.2MB, 약 9초.
+  - **실시간 갱신(`exporter/live_viewer.py`)**: 미리보기 창 [브라우저 3D (실시간)] → 앱 안의 로컬 HTTP 서버(`127.0.0.1`, 빈 포트, 앱 전체 하나 `shared()`)로 기본 브라우저를 열고 지금 모델을 올림. 이후 미리보기 갱신(F5)마다 `update(cfg)` = **설정 사본(deepcopy)으로 별도 엔진**을 백그라운드 스레드에서 만들어 올림(미리보기 엔진과 3D 문서를 함께 쓰지 않음, 만드는 중에 들어온 갱신은 끝나고 최신 것 한 번). 경로 `/`(LIVE 뷰어), `/version`(version·status idle|building|ok|error·message), `/data.json`, `/data.bin`(gzip). 뷰어는 1초마다 `/version` 을 물어 새 버전이면 `loadModel` 로 모델만 바꿈 — 카메라·표시 묶음·보이는 층(이름)·STA 범위·고른 부재(이름) 유지, 원점이 바뀌면 카메라를 같은 세계 위치로. 입력 오류면 이전 모델 + 왼쪽 아래에 오류, 서버가 꺼지면 '연결 끊김'(다시 켜지면 이어짐). 미리보기 머리줄 오른쪽 `live_label` 에 상태. 템플릿은 정적(`DATA_EMBED` + `BLOB`)·실시간(`LIVE = true`) 겸용.
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE, 3D 웹 뷰어(HTML).
 
 ## 5. 테스트 작성 규약

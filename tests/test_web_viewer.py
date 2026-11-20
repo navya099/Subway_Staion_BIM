@@ -94,7 +94,7 @@ def test_live_server_updates_and_keeps_old_model_on_error():
         assert lv.wait(60) and lv.version == 0 and lv.status == "ok"
         meta = json.loads(_get(url + "data.json"))
         buf = gzip.decompress(_get(url + "data.bin"))
-        assert meta["version"] == 0 and len(buf) == max(c["elem"] + 4 * c["nt"] for c in meta["data"]["chunks"])
+        assert meta["version"] == 0 and len(buf) == max(max(c["elem"] + 4 * c["nt"], c.get("uv", 0) + 8 * c["nv"]) for c in meta["data"]["chunks"])
         bad = _cfg()
         bad.widenings = [WidenSpec(side=0, s_start=50, s_end=80)]
         lv.update(bad)
@@ -112,3 +112,39 @@ def test_live_server_updates_and_keeps_old_model_on_error():
         assert lv.version == 2 and lv.status == "ok"
     finally:
         lv.stop()
+
+
+# ===================================================== 텍스처
+def test_textures_uv_and_images(tmp_path):
+    from PIL import Image
+    from exporter.dae_exporter import texture_uv
+    Image.new("RGB", (2000, 1000), (200, 200, 200)).save(tmp_path / "metal_panel.jpg")        # 큰 이미지 → 긴 변 1024
+    Image.new("RGBA", (64, 64), (250, 200, 0, 128)).save(tmp_path / "granite.png")            # 투명 → PNG 유지
+    cfg = _cfg()
+    cfg.sign_settings.enabled = True
+    eng = StationCADEngine(cfg)
+    data, packed = build_web_data(eng, texture_dir=tmp_path)
+    buf = gzip.decompress(packed)
+    imgs = data["images"]
+    assert imgs["metal_panel"].startswith("data:image/jpeg;base64,") and imgs["granite"].startswith("data:image/png;base64,")
+    import io
+    from PIL import Image as I
+    assert I.open(io.BytesIO(base64.b64decode(imgs["metal_panel"].split(",", 1)[1]))).size == (1024, 512)
+    assert "ceiling_panel" in data["missing_textures"] or "Polished Concrete New" in data["missing_textures"]
+    assert any(k.startswith("사인 ") for k in imgs)                                            # 사인 이미지
+    panel = [c for c in data["chunks"] if c["tex"] == "metal_panel"]
+    assert panel and all(c["material"] == "금속패널" for c in panel)
+    # uv = DAE 와 같은 평면 투영 (첫 삼각형들로 확인)
+    c = panel[0]
+    pos = np.frombuffer(buf, np.float32, c["nv"] * 3, c["pos"]).reshape(-1, 3).astype(float)
+    uv = np.frombuffer(buf, np.float32, c["nv"] * 2, c["uv"]).reshape(-1, 2)
+    idx = np.frombuffer(buf, np.uint32, c["nt"] * 3, c["idx"]).reshape(-1, 3)
+    o = np.array(data["origin"])
+    t = pos[idx]
+    big = np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 0.02     # 얇은 마감 옆면은 float32 로 방향이 불안정
+    sel = idx[big][:40]
+    want = texture_uv(eng.cfg, pos[sel] + o, pos[sel], 1.2, 0.6)
+    assert len(sel) and uv[sel] == pytest.approx(want, abs=2e-3)
+    for c in data["chunks"]:
+        if c["tex"] is None:
+            assert "uv" not in c

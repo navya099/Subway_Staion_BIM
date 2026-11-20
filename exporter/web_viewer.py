@@ -8,23 +8,47 @@ three.js(assets/web/three.min.js, MIT)와 모델 자료를 HTML 한 파일에 �
   삼각형 꼭짓점 번호(uint32 ×3), 삼각형 → 부재 번호(uint32) — 한 바이트 열로 이어 gzip + base64
   (브라우저 DecompressionStream 으로 풂)
 - 부재 표: 이름·레이어·층·재질·종류 (클릭 정보)
+- 텍스처: DAE 와 같은 재질·텍스처 좌표(dae_exporter.texture_axes / frame_uv) — 텍스처 이미지(assets/image/tile)가 있는 재질은
+  꼭짓점 uv(float32 ×2), 이미지는 긴 변 IMAGE_MAX px 로 줄여 data URL(JPEG, 투명 PNG 는 PNG). 사인은 그린 이미지를 면에 한 장
 - 표시 묶음(미리보기와 같은 LAYER_GROUPS), 층(이름, 천장 하면 h, FL h), 선형 중심 표본(1m: s, x, y, FL 표고 — 걷기 높이)
 """
 import base64
 import dataclasses
 import gzip
+import io
 import json
 from pathlib import Path
 
 import numpy as np
 
-from exporter.render_material import finish_material, layer_material
+from exporter.dae_exporter import frame_uv, texture_axes
+from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material
 from preview.preview_render import LAYER_GROUPS, station_of
 from rooms.room_layout import ceiling_rel
 
 THREE_JS = Path(__file__).resolve().parent.parent / "assets" / "web" / "three.min.js"
 TEMPLATE = Path(__file__).resolve().parent / "web_viewer_template.html"
-SKIP_LAYERS = {"FIN_FRAME"}          # 천장틀: 면이 매우 많고 천장판에 가림 (frames=True 로 포함)
+SKIP_LAYERS = {"FIN_FRAME"}
+IMAGE_MAX = 1024                     # 텍스처 이미지 긴 변 (px) — HTML 크기를 줄임
+
+
+def image_data_url(img, max_px: int = IMAGE_MAX) -> str:
+    """이미지 (경로 또는 PIL Image) → data URL. 긴 변 max_px 로 줄이고, 투명도가 있으면 PNG, 아니면 JPEG"""
+    from PIL import Image
+    im = Image.open(img) if not hasattr(img, "save") else img
+    im.load()
+    alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+    im = im.convert("RGBA" if alpha else "RGB")
+    if max(im.size) > max_px:
+        im.thumbnail((max_px, max_px), Image.LANCZOS)
+    bio = io.BytesIO()
+    if alpha:
+        im.save(bio, "PNG", optimize=True)
+        mime = "image/png"
+    else:
+        im.save(bio, "JPEG", quality=85)
+        mime = "image/jpeg"
+    return f"data:{mime};base64," + base64.b64encode(bio.getvalue()).decode("ascii")          # 천장틀: 면이 매우 많고 천장판에 가림 (frames=True 로 포함)
 
 
 @dataclasses.dataclass
@@ -74,7 +98,7 @@ def _group_of(layer: str) -> str:
     return "기타"
 
 
-def build_web_data(engine, frames: bool = False) -> tuple:
+def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tuple:
     """(자료 dict, 압축 바이트) — HTML 에 넣을 모델 자료"""
     cfg = engine.cfg
     st = cfg.station
@@ -84,6 +108,13 @@ def build_web_data(engine, frames: bool = False) -> tuple:
     for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []):
         m = finish_material(e.material)
         for ent in e.source_element or []:
+            mat_of[ent.dxf.handle] = m
+    sign_img = {}                                        # 사인 재질 이름 → PIL 이미지 (면에 한 장)
+    signs = getattr(engine, "signs", None)
+    for e in (signs.elements if signs is not None else []):
+        m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), frame=signs.uv_frame(e))
+        sign_img[m.name] = signs.image(e)
+        for ent in e.face_entities:
             mat_of[ent.dxf.handle] = m
     elem_of = _element_index(engine)
     skip = set() if frames else SKIP_LAYERS
@@ -123,6 +154,24 @@ def build_web_data(engine, frames: bool = False) -> tuple:
         flq = np.concatenate([[flq[0] - 100.0 * g0], flq, [flq[-1] + 100.0 * g1]])
 
     blob, meta, tri_total = bytearray(), [], 0
+    images, missing = {}, set()                          # 텍스처 키 → data URL
+
+    def tex_key(m):
+        """재질의 텍스처 이미지 키 (없으면 None) — 처음 볼 때 이미지를 줄여 넣음"""
+        if m.name in sign_img:
+            key = m.name
+            if key not in images:
+                images[key] = image_data_url(sign_img[m.name])
+            return key
+        if not m.texture:
+            return None
+        if m.texture not in images:
+            path = find_image(m.texture, texture_dir)
+            if path is None:
+                missing.add(m.texture)
+                return None
+            images[m.texture] = image_data_url(path)
+        return m.texture
 
     def put(arr):
         off = len(blob)
@@ -141,14 +190,37 @@ def build_web_data(engine, frames: bool = False) -> tuple:
                 idx += [k, k + 2, k + 3]
                 tri_e.append(eid)
             k += len(f)
-        rel = (pts - origin).astype(np.float32)
+        rel64 = pts - origin
+        rel = rel64.astype(np.float32)
         sh = np.stack([s, h], axis=1).astype(np.float32)
         m = mats[mname]
-        meta.append({"layer": layer, "group": _group_of(layer), "material": mname,
-                     "color": [round(c, 4) for c in m.color], "alpha": m.alpha,
-                     "nv": len(pts), "nt": len(tri_e),
-                     "pos": put(rel), "sh": put(sh), "idx": put(np.array(idx, dtype=np.uint32)),
-                     "elem": put(np.array(tri_e, dtype=np.uint32))})
+        item = {"layer": layer, "group": _group_of(layer), "material": mname,
+                "color": [round(c, 4) for c in m.color], "alpha": m.alpha,
+                "nv": len(pts), "nt": len(tri_e),
+                "pos": put(rel), "sh": put(sh), "idx": put(np.array(idx, dtype=np.uint32)),
+                "elem": put(np.array(tri_e, dtype=np.uint32)), "tex": None}
+        key = tex_key(m)
+        if key is not None:
+            if m.frame:                                  # 사인: 이미지 한 장을 면에 맞춤
+                uv = frame_uv(m.frame, rel64[None, :, :], origin)[0]
+            else:                                        # 타일: 면마다 평면 투영 (DAE 와 같은 방향·크기)
+                starts = np.cumsum([0] + [len(f) for f, _ in faces[:-1]])
+                tris = []                                # 면마다 넓은 쪽 삼각형으로 방향을 정함 (한쪽이 넓이 0 인 사다리꼴 끝 등)
+                for a, (f, _) in zip(starts, faces):
+                    t1 = (pts[a], pts[a + 1], pts[a + 2])
+                    if len(f) == 4:
+                        t2 = (pts[a], pts[a + 2], pts[a + 3])
+                        ar = lambda t: np.linalg.norm(np.cross(t[1] - t[0], t[2] - t[0]))
+                        t1 = t2 if ar(t2) > ar(t1) else t1
+                    tris.append(t1)
+                tris = np.array(tris)
+                hu, hv = texture_axes(cfg, tris)
+                per = np.repeat(np.arange(len(faces)), [len(f) for f, _ in faces])
+                uv = np.stack([np.einsum("nj,nj->n", rel64, hu[per]) / m.size_u,
+                               np.einsum("nj,nj->n", rel64, hv[per]) / m.size_v], axis=1)
+            item["tex"] = key
+            item["uv"] = put(uv.astype(np.float32))
+        meta.append(item)
         tri_total += len(tri_e)
 
     # 선형 중심 표본 (걷기·STA 표시): s, 상대 x, y, FL 표고(상대)
@@ -160,7 +232,7 @@ def build_web_data(engine, frames: bool = False) -> tuple:
             "groups": [{"name": n, "on": on} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
             "floors": floors, "length": st.length,
             "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
-            "title": "정거장 3D 뷰어", "triangles": tri_total}
+            "title": "정거장 3D 뷰어", "triangles": tri_total, "images": images, "missing_textures": sorted(missing)}
     return data, gzip.compress(bytes(blob), compresslevel=6)
 
 

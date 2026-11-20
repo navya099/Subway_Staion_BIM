@@ -4,6 +4,7 @@
 - 그림은 도면 출력과 같은 DXF 문서(StationCADEngine.build_*_doc)를 그대로 그림 (preview.preview_render).
 - 같은 보기(같은 층·축·측점)를 다시 그리면 확대/이동 상태를 유지 → 입력을 고치고 F5 로 같은 자리를 계속 확인.
 """
+import webbrowser
 import tkinter as tk
 import traceback
 from tkinter import messagebox, ttk
@@ -13,6 +14,7 @@ from matplotlib.figure import Figure
 
 from config.output_config import PLAN_CUT_H
 from engine.cad_engine import StationCADEngine
+from exporter import live_viewer
 from preview import pick as P
 from preview import preview_render as R
 
@@ -88,6 +90,10 @@ class PreviewWindow:
         head.pack(fill="x")
         tk.Button(head, text="갱신 (F5)", font=("Malgun Gothic", 9, "bold"), bg="#3F51B5", fg="white", width=14,
                   command=self.refresh).pack(side="left", padx=6, pady=4)
+        tk.Button(head, text="브라우저 3D (실시간)", font=("Malgun Gothic", 9), bg="#E8F5E9",
+                  command=self.open_browser_3d).pack(side="left", padx=(0, 6), pady=4)
+        self.live_label = tk.Label(head, text="", font=FONT, bg="#ECEFF1", fg="#2E7D32", anchor="e")   # 브라우저 3D 상태
+        self.live_label.pack(side="right", padx=6)
         self.status = tk.Label(head, text="", font=FONT, bg="#ECEFF1", anchor="w")
         self.status.pack(side="left", fill="x", expand=True, padx=6)
 
@@ -260,7 +266,40 @@ class PreviewWindow:
         self.top.config(cursor="")
         self._say("모델 생성 완료")
         self.draw_current()
+        if live_viewer.shared().running:                    # 브라우저 3D 를 열어 두었으면 백그라운드로 갱신
+            self._live_update()
         return True
+
+    # ------------------------------------------------------------ 브라우저 3D (실시간)
+    def open_browser_3d(self, open_browser=True) -> str:
+        """앱 안의 로컬 서버(127.0.0.1)로 3D 웹 뷰어를 열고 지금 모델을 올림. 이후 갱신(F5)마다 자동으로 바뀜"""
+        if self.engine is None and not self.refresh():
+            return ""
+        lv = live_viewer.shared()
+        url = lv.start()
+        self._live_update()
+        if open_browser:
+            webbrowser.open(url)
+        return url
+
+    def _live_update(self):
+        lv = live_viewer.shared()
+        lv.update(self.cfg)
+        self._watch_live()
+
+    def _watch_live(self):
+        """작업 스레드가 끝날 때까지 상태줄에 표시 (tk 는 이 스레드에서만 만짐)"""
+        if not self.alive:
+            return
+        lv = live_viewer.shared()
+        if lv._busy:
+            self.live_label.config(text="브라우저 3D: 모델 만드는 중…", fg="#455A64")
+            self.top.after(400, self._watch_live)
+            return
+        if lv.status == "error":
+            self.live_label.config(text=f"브라우저 3D 갱신 실패 (이전 모델 표시): {lv.message}"[:120], fg="#C62828")
+        else:
+            self.live_label.config(text=f"브라우저 3D v{lv.version} · {lv.url}", fg="#2E7D32")
 
     def _update_choices(self):
         """층·축·측점 선택지를 새 모델에 맞춤 (고른 값은 가능하면 유지)"""

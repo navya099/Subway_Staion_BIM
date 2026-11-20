@@ -288,6 +288,12 @@ class StationCADEngine:
         self.dae_result = export_dae(self, filename, **kw)
         return self.dae_result.path
 
+    def generate_web(self, filename="output/정거장3d뷰어.html", frames: bool = False) -> str:
+        """3D 웹 뷰어 (three.js HTML 한 파일, 인터넷 없이 열림). 결과 요약은 self.web_result"""
+        from exporter.web_viewer import export_web_viewer
+        self.web_result = export_web_viewer(self, filename, frames)
+        return self.web_result.path
+
     def generate_ifc(self, output_path: str = "output/station_model.ifc") -> str:
         exporter = IFCExporter(self.cfg)
         exporter.export_platforms(self.platform)

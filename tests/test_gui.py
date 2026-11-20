@@ -2044,3 +2044,31 @@ def test_line_pick_needs_different_sta():
     assert sess.add(20.0, 1.0) is True
     sess.finish()
     assert got == [[(10.0, 1.0), (20.0, 1.0)]]
+
+
+def test_preview_browser_3d_live(app, monkeypatch):
+    """미리보기 '브라우저 3D (실시간)': 로컬 서버를 열고 지금 모델을 올림, 이후 갱신(F5)마다 새 버전"""
+    from exporter import live_viewer
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    monkeypatch.setattr(live_viewer, "_SHARED", None)
+    app.on_preview()
+    pv = app.preview
+    url = pv.open_browser_3d(open_browser=False)
+    lv = live_viewer.shared()
+    try:
+        assert url == lv.url and lv.running
+        assert lv.wait(60) and lv.version == 0
+        app.on_preview()
+        assert lv.wait(60)
+        import time
+        for _ in range(100):
+            if not lv._busy:
+                break
+            time.sleep(0.1)
+        assert lv.version == 1
+        for _ in range(20):
+            app.root.update()
+            time.sleep(0.05)
+        assert pv.live_label.cget("text") == f"브라우저 3D v1 · {lv.url}"
+    finally:
+        lv.stop()

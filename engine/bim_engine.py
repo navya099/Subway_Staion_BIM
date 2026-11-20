@@ -32,4 +32,9 @@ class BIMEngine:
             paths.append(engine.generate_dae(out / "정거장3d모델.dae"))
             if notes is not None:
                 notes.extend(dae_notes(engine.dae_result))
+        if opt.web:
+            paths.append(engine.generate_web(out / "정거장3d뷰어.html"))
+            if notes is not None:
+                r = engine.web_result
+                notes.append(f"3D 웹 뷰어: 삼각형 {r.triangles:,}개, {r.size / 1e6:.1f}MB — 브라우저(크롬·엣지 등)로 여세요")
         return paths

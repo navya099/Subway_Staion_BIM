@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>정거장 3D 뷰어</title>
+<style>
+  :root { --bg: #1e2228; --panel: rgba(32, 36, 43, 0.92); --fg: #e6e8eb; --muted: #9aa3ad; --accent: #f0a030; --line: #3a414b; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.45 "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  #side { top: 12px; left: 12px; width: 250px; max-height: calc(100% - 24px); overflow: auto; }
+  #side h1 { font-size: 14px; margin: 0 0 6px; }
+  #side h2 { font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: normal; }
+  #side label { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 1px 0; }
+  #side select, #side button { font: inherit; background: #2a3038; color: var(--fg); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
+  #side button { cursor: pointer; margin: 2px 4px 2px 0; }
+  #side button:hover { border-color: var(--accent); }
+  #side input[type=range] { width: 100%; }
+  .row { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+  #info { right: 12px; bottom: 12px; width: 280px; display: none; }
+  #info table { border-collapse: collapse; width: 100%; }
+  #info td { padding: 1px 4px; vertical-align: top; }
+  #info td:first-child { color: var(--muted); white-space: nowrap; }
+  #hud { left: 50%; top: 12px; transform: translateX(-50%); display: none; text-align: center; }
+  #status { right: 12px; top: 12px; color: var(--muted); font-size: 12px; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; display: none; pointer-events: none; }
+  #cross::before, #cross::after { content: ""; position: absolute; background: #fff; }
+  #cross::before { left: 4px; top: 0; width: 2px; height: 10px; } #cross::after { top: 4px; left: 0; height: 2px; width: 10px; }
+  .help { color: var(--muted); font-size: 11.5px; }
+  kbd { background: #2a3038; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="side" class="panel">
+  <h1 id="title">정거장 3D 뷰어</h1>
+  <div class="help" id="stats">불러오는 중…</div>
+  <h2>표시</h2>
+  <div id="groups"></div>
+  <h2>보이는 층 (위를 잘라냄)</h2>
+  <select id="floor"></select>
+  <h2>STA 범위</h2>
+  <div class="row"><span id="s0lab"></span><span id="s1lab"></span></div>
+  <input type="range" id="s0" min="0" max="1000" value="0">
+  <input type="range" id="s1" min="0" max="1000" value="1000">
+  <h2>보기</h2>
+  <button id="fit">전체 보기</button><button id="walk">걷기 (W)</button>
+  <h2>조작</h2>
+  <div class="help">
+    왼쪽 끌기 = 회전, 오른쪽(또는 Shift) 끌기 = 이동, 휠 = 확대<br>
+    클릭 = 부재 정보, 더블클릭 = 그 점을 회전 중심으로<br>
+    걷기: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동, 마우스 = 시선, <kbd>Shift</kbd> 달리기,
+    <kbd>E</kbd>/<kbd>Q</kbd> 위·아래, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> 층 이동, <kbd>Esc</kbd> 끝
+  </div>
+</div>
+<div id="info" class="panel"><table id="infotab"></table></div>
+<div id="hud" class="panel"></div>
+<div id="status" class="panel"></div>
+<div id="live" class="panel" style="display:none; left:12px; bottom:12px; white-space:pre-line; color:var(--muted); font-size:12px; max-width:420px"></div>
+<div id="cross"></div>
+<script>/*__THREE__*/</script>
+<script>
+const DATA_EMBED = /*__DATA__*/;
+const BLOB = "/*__BLOB__*/";
+const LIVE = /*__LIVE__*/false;
+</script>
+<script>
+(async function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  let DATA = DATA_EMBED;                     // 실시간 모드(LIVE)면 앱의 로컬 서버에서 받아 바꿈
+  const fmtSta = (s) => { const v = DATA.start_station + s; const km = Math.floor(v / 1000); return km + "+" + (v - km * 1000).toFixed(2).padStart(6, "0"); };
+
+  // ---------------------------------------------------------------- 자료 풀기
+  async function gunzip(bytes) {
+    const ds = new DecompressionStream("gzip");
+    return await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+  }
+
+  // ---------------------------------------------------------------- 장면
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x1e2228);
+  $("view").appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  THREE.Object3D.DefaultUp.set(0, 0, 1);
+  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 20000);
+  camera.up.set(0, 0, 1);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x50555c, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+  sun.position.set(0.35, -0.5, 0.8);
+  scene.add(sun);
+
+  // 잘라 보기: 모든 재질이 같은 uniform 을 씀 (s 범위, FL 기준 높이 상한)
+  const clip = { uSMin: { value: -1e9 }, uSMax: { value: 1e9 }, uHMax: { value: 1e9 } };
+  function makeMaterial(color, alpha) {
+    const m = new THREE.MeshPhongMaterial({ color: new THREE.Color(color[0], color[1], color[2]), flatShading: true,
+      side: THREE.DoubleSide, shininess: 8, transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1 });
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, clip);
+      sh.vertexShader = "attribute vec2 aSH;\nvarying vec2 vSH;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvSH = aSH;");
+      sh.fragmentShader = "uniform float uSMin; uniform float uSMax; uniform float uHMax;\nvarying vec2 vSH;\n" +
+        sh.fragmentShader.replace("void main() {", "void main() {\nif (vSH.x < uSMin || vSH.x > uSMax || vSH.y > uHMax) discard;");
+    };
+    return m;
+  }
+
+  const meshes = [];
+  const box = new THREE.Box3();
+  const groupOn = {};                       // 표시 묶음 켬/끔 (모델을 바꿔도 유지)
+  const fsel = $("floor");
+  let L = 1, sMinAll = -5, sMaxAll = 6;
+  let highlight = null, selectedName = null;
+
+  // 모델 자료(DATA + 풀린 바이트 열)로 장면을 (다시) 만든다. 카메라·잘라 보기·표시 묶음·고른 부재는 그대로 둠
+  function loadModel(data, buf) {
+    const old = DATA && DATA.origin ? DATA.origin : null;
+    if (highlight) { scene.remove(highlight); highlight.geometry.dispose(); highlight = null; }
+    for (const m of meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    meshes.length = 0; box.makeEmpty();
+    DATA = data;
+    if (old) {                              // 원점이 바뀌면 카메라를 같은 세계 위치로
+      const d = new THREE.Vector3(data.origin[0] - old[0], data.origin[1] - old[1], data.origin[2] - old[2]);
+      if (d.lengthSq() > 0) { camera.position.sub(d); orbit.target.sub(d); }
+    }
+    $("title").textContent = DATA.title;
+    let tris = 0;
+    for (const c of DATA.chunks) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf, c.pos, c.nv * 3), 3));
+      g.setAttribute("aSH", new THREE.BufferAttribute(new Float32Array(buf, c.sh, c.nv * 2), 2));
+      g.setIndex(new THREE.BufferAttribute(new Uint32Array(buf, c.idx, c.nt * 3), 1));
+      g.computeBoundingBox(); g.computeBoundingSphere();
+      const mesh = new THREE.Mesh(g, makeMaterial(c.color, c.alpha));
+      mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt) };
+      if (c.alpha < 1) mesh.renderOrder = 1;
+      scene.add(mesh); meshes.push(mesh);
+      box.union(g.boundingBox);
+      tris += c.nt;
+    }
+    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개 · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})`;
+
+    // 표시 묶음
+    $("groups").innerHTML = "";
+    for (const gr of DATA.groups) {
+      if (!DATA.chunks.some((c) => c.group === gr.name)) continue;
+      if (!(gr.name in groupOn)) groupOn[gr.name] = gr.on;
+      const lab = document.createElement("label");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = groupOn[gr.name];
+      cb.onchange = () => { groupOn[gr.name] = cb.checked; applyVisibility(); };
+      lab.append(cb, document.createTextNode(gr.name));
+      $("groups").appendChild(lab);
+    }
+    applyVisibility();
+
+    // 층 목록 (같은 이름의 층을 계속 고름)
+    const keep = fsel.selectedIndex > 0 ? fsel.options[fsel.selectedIndex].text : null;
+    fsel.innerHTML = "";
+    fsel.add(new Option("전체", "-1"));
+    DATA.floors.forEach((f, i) => fsel.add(new Option(f.name, String(i))));
+    const k = keep ? DATA.floors.findIndex((f) => f.name === keep) : -1;
+    fsel.value = String(k);
+    onFloor();
+    L = DATA.length; sMinAll = -5; sMaxAll = L + 5;
+    onRange();
+    if (selectedName) {                     // 고른 부재가 새 모델에도 있으면 다시 강조
+      const id = DATA.elements.findIndex((e) => e.name === selectedName);
+      if (id >= 0) { highlight = buildHighlight(id); scene.add(highlight); } else { $("info").style.display = "none"; selectedName = null; }
+    }
+  }
+  function applyVisibility() { for (const m of meshes) m.visible = groupOn[m.userData.chunk.group] !== false; }
+
+  // ---------------------------------------------------------------- 층 · STA 잘라 보기
+  function onFloor() { const i = +fsel.value; clip.uHMax.value = i < 0 ? 1e9 : DATA.floors[i].top - 0.005; }
+  fsel.onchange = onFloor;
+  const sOf = (v) => sMinAll + (sMaxAll - sMinAll) * v / 1000;
+  function onRange() {
+    let a = +$("s0").value, b = +$("s1").value;
+    if (a > b) [a, b] = [b, a];
+    clip.uSMin.value = a <= 0 ? -1e9 : sOf(a);
+    clip.uSMax.value = b >= 1000 ? 1e9 : sOf(b);
+    $("s0lab").textContent = a <= 0 ? "처음" : "STA " + fmtSta(sOf(a));
+    $("s1lab").textContent = b >= 1000 ? "끝" : "STA " + fmtSta(sOf(b));
+  }
+  $("s0").oninput = onRange; $("s1").oninput = onRange;
+
+  // ---------------------------------------------------------------- 궤도 조작 (Z 위)
+  const orbit = { target: new THREE.Vector3(), dist: 100, az: -Math.PI / 3, el: 0.6 };
+  function updateOrbitCamera() {
+    const ce = Math.cos(orbit.el);
+    camera.position.set(orbit.target.x + orbit.dist * ce * Math.cos(orbit.az), orbit.target.y + orbit.dist * ce * Math.sin(orbit.az),
+                        orbit.target.z + orbit.dist * Math.sin(orbit.el));
+    camera.lookAt(orbit.target);
+  }
+  function fit() {
+    const b = new THREE.Box3();
+    for (const m of meshes) if (m.visible) b.union(m.geometry.boundingBox);
+    if (b.isEmpty()) b.copy(box);
+    b.getCenter(orbit.target);
+    const size = b.getSize(new THREE.Vector3()).length();
+    orbit.dist = size * 0.75 + 1;
+    updateOrbitCamera();
+  }
+  $("fit").onclick = fit;
+
+  const el = renderer.domElement;
+  let drag = null, moved = false;
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("pointerdown", (e) => {
+    if (walking) return;
+    drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey };
+    moved = false; el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag || walking) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (drag.pan) {
+      const k = orbit.dist * 2 * Math.tan(camera.fov * Math.PI / 360) / el.clientHeight;
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      orbit.target.addScaledVector(right, -dx * k).addScaledVector(up, dy * k);
+    } else {
+      orbit.az -= dx * 0.005;
+      orbit.el = Math.max(-1.55, Math.min(1.55, orbit.el + dy * 0.005));
+    }
+    updateOrbitCamera();
+  });
+  el.addEventListener("pointerup", (e) => {
+    if (!drag || walking) return;
+    el.releasePointerCapture(e.pointerId);
+    if (!moved) pick(e, false);
+    drag = null;
+  });
+  el.addEventListener("dblclick", (e) => { if (!walking) pick(e, true); });
+  el.addEventListener("wheel", (e) => {
+    if (walking) return;
+    e.preventDefault();
+    const f = Math.exp(e.deltaY * 0.0012);
+    // 커서 쪽으로 다가가며 확대: 회전 중심을 커서 방향으로 조금 옮김
+    const ray = rayAt(e);
+    const toward = ray.direction.clone().multiplyScalar(orbit.dist * (1 - f) * 0.6);
+    orbit.target.add(toward);
+    orbit.dist = Math.max(0.5, orbit.dist * f);
+    updateOrbitCamera();
+  }, { passive: false });
+
+  // ---------------------------------------------------------------- 고르기
+  const raycaster = new THREE.Raycaster();
+  function rayAt(e) {
+    const r = el.getBoundingClientRect();
+    const p = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    raycaster.setFromCamera(p, camera);
+    return raycaster.ray;
+  }
+  function clippedAt(hit) {
+    const a = hit.object.geometry.getAttribute("aSH");
+    const f = hit.face, bc = new THREE.Vector3();
+    THREE.Triangle.getBarycoord(hit.object.worldToLocal(hit.point.clone()),
+      new THREE.Vector3().fromBufferAttribute(hit.object.geometry.attributes.position, f.a),
+      new THREE.Vector3().fromBufferAttribute(hit.object.geometry.attributes.position, f.b),
+      new THREE.Vector3().fromBufferAttribute(hit.object.geometry.attributes.position, f.c), bc);
+    const s = a.getX(f.a) * bc.x + a.getX(f.b) * bc.y + a.getX(f.c) * bc.z;
+    const h = a.getY(f.a) * bc.x + a.getY(f.b) * bc.y + a.getY(f.c) * bc.z;
+    return s < clip.uSMin.value || s > clip.uSMax.value || h > clip.uHMax.value ? null : { s, h };
+  }
+  function firstHit(e) {
+    rayAt(e);
+    const hits = raycaster.intersectObjects(meshes.filter((m) => m.visible), false);
+    for (const h of hits) { const sh = clippedAt(h); if (sh) return Object.assign(h, sh); }
+    return null;
+  }
+  function pick(e, center) {
+    const hit = firstHit(e);
+    if (center) { if (hit) { orbit.target.copy(hit.point); orbit.dist = camera.position.distanceTo(hit.point); updateOrbitCamera(); } return; }
+    if (highlight) { scene.remove(highlight); highlight.geometry.dispose(); highlight = null; }
+    if (!hit) { $("info").style.display = "none"; selectedName = null; return; }
+    const id = hit.object.userData.elem[hit.faceIndex];
+    selectedName = DATA.elements[id].name;
+    const info = DATA.elements[id];
+    showInfo(info, hit);
+    highlight = buildHighlight(id);
+    scene.add(highlight);
+  }
+  function showInfo(info, hit) {
+    const rows = [["부재", info.name], ["종류", info.type], ["층", info.level], ["재질", info.material],
+                  ["레이어", info.layer], ["묶음", info.group], ["위치", `STA ${fmtSta(hit.s)}, FL+${hit.h.toFixed(2)} m`]];
+    const tab = $("infotab"); tab.innerHTML = "";
+    for (const [k, v] of rows) {
+      if (!v) continue;
+      const tr = tab.insertRow(); tr.insertCell().textContent = k; tr.insertCell().textContent = v;
+    }
+    $("info").style.display = "block";
+  }
+  function buildHighlight(id) {
+    const pos = [];
+    for (const m of meshes) {
+      const el_ = m.userData.elem; let any = false;
+      for (let i = 0; i < el_.length; i++) if (el_[i] === id) { any = true; break; }
+      if (!any) continue;
+      const p = m.geometry.attributes.position, idx = m.geometry.index;
+      for (let i = 0; i < el_.length; i++) {
+        if (el_[i] !== id) continue;
+        for (let k = 0; k < 3; k++) { const v = idx.getX(i * 3 + k); pos.push(p.getX(v), p.getY(v), p.getZ(v)); }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    const mat = new THREE.MeshBasicMaterial({ color: 0xf0a030, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+      depthTest: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const mesh = new THREE.Mesh(g, mat); mesh.renderOrder = 2;
+    return mesh;
+  }
+
+  // ---------------------------------------------------------------- 걷기
+  function nearestCl(x, y) {               // 선형 중심 표본 [s, x, y, FL 표고] 중 가장 가까운 것
+    const cl = DATA.centerline;
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < cl.length; i++) { const d = (cl[i][1] - x) ** 2 + (cl[i][2] - y) ** 2; if (d < bd) { bd = d; best = i; } }
+    return cl[best];
+  }
+  let walking = false, walkFloor = 0, eye = 1.6, yaw = 0, pitch = 0;
+  const keys = {};
+  function floorBase(i) { const f = DATA.floors[i]; return i === 0 && DATA.platform_top != null ? DATA.platform_top : f.fl; }
+  function startWalk() {
+    if (walking) return;
+    const fi = +fsel.value;
+    walkFloor = fi >= 0 ? fi : 0;
+    eye = floorBase(walkFloor) + 1.6;
+    const tgt = orbit.target.clone();
+    const c = nearestCl(tgt.x, tgt.y);
+    camera.position.set(tgt.x, tgt.y, c[3] + eye);
+    const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+    yaw = Math.atan2(dir.y, dir.x); pitch = 0;
+    el.requestPointerLock();
+  }
+  $("walk").onclick = startWalk;
+  document.addEventListener("pointerlockchange", () => {
+    walking = document.pointerLockElement === el;
+    $("cross").style.display = walking ? "block" : "none";
+    $("hud").style.display = walking ? "block" : "none";
+    if (!walking) {                       // 걷기를 끝내면 지금 보는 앞쪽을 회전 중심으로
+      const dir = new THREE.Vector3(Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch));
+      orbit.dist = 8; orbit.target.copy(camera.position).addScaledVector(dir, orbit.dist);
+      orbit.az = Math.atan2(-dir.y, -dir.x); orbit.el = Math.asin(-dir.z);
+      updateOrbitCamera();
+    }
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!walking) return;
+    yaw -= e.movementX * 0.0022;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * 0.0022));
+  });
+  window.addEventListener("keydown", (e) => {
+    keys[e.code] = true;
+    if (e.code === "KeyW" && !walking && document.activeElement.tagName !== "SELECT") { startWalk(); }
+    if (walking && (e.code === "PageUp" || e.code === "PageDown")) {
+      walkFloor = Math.max(0, Math.min(DATA.floors.length - 1, walkFloor + (e.code === "PageUp" ? 1 : -1)));
+      eye = floorBase(walkFloor) + 1.6; e.preventDefault();
+    }
+  });
+  window.addEventListener("keyup", (e) => { keys[e.code] = false; });
+
+  let last = performance.now();
+  function stepWalk(dt) {
+    walkFloor = Math.min(walkFloor, DATA.floors.length - 1);
+    const v = (keys.ShiftLeft || keys.ShiftRight ? 9 : 3) * dt;
+    const fx = Math.cos(yaw), fy = Math.sin(yaw);
+    let mx = 0, my = 0;
+    if (keys.KeyW) { mx += fx; my += fy; } if (keys.KeyS) { mx -= fx; my -= fy; }
+    if (keys.KeyA) { mx -= fy; my += fx; } if (keys.KeyD) { mx += fy; my -= fx; }
+    const n = Math.hypot(mx, my) || 1;
+    camera.position.x += mx / n * v * (mx || my ? 1 : 0); camera.position.y += my / n * v * (mx || my ? 1 : 0);
+    if (keys.KeyE) eye += 2 * dt; if (keys.KeyQ) eye -= 2 * dt;
+    const c = nearestCl(camera.position.x, camera.position.y);
+    camera.position.z = c[3] + eye;
+    const dir = new THREE.Vector3(Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch));
+    camera.lookAt(camera.position.clone().add(dir));
+    $("hud").textContent = `${DATA.floors[walkFloor].name} · STA ${fmtSta(c[0])} · 눈높이 FL+${(eye - DATA.floors[walkFloor].fl).toFixed(2)} m  (Esc 끝)`;
+  }
+
+  // ---------------------------------------------------------------- 그리기
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (walking) stepWalk(dt);
+    $("status").textContent = walking ? "걷기" : "";
+    $("status").style.display = walking ? "block" : "none";
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------------------------------------------------------------- 첫 모델 · 실시간 갱신
+  function setLive(text, bad) { const s = $("live"); s.style.display = "block"; s.textContent = text; s.style.color = bad ? "#ff8a80" : ""; }
+  let version = -1, loading = false;
+  async function fetchModel() {
+    const meta = await (await fetch("data.json", { cache: "no-store" })).json();
+    const bin = await (await fetch("data.bin?v=" + meta.version, { cache: "no-store" })).arrayBuffer();
+    const first = meshes.length === 0;
+    loadModel(meta.data, await gunzip(bin));
+    version = meta.version;
+    if (first) fit();
+  }
+  async function poll() {
+    try {
+      const st = await (await fetch("version", { cache: "no-store" })).json();
+      if (st.version !== version && st.version >= 0 && !loading) {
+        loading = true; setLive("실시간: 새 모델 받는 중…");
+        try { await fetchModel(); } finally { loading = false; }
+      }
+      const when = new Date().toLocaleTimeString();
+      if (st.status === "building") setLive(`실시간: 앱에서 모델 만드는 중… (v${version})`);
+      else if (st.status === "error") setLive(`실시간: 앱 갱신 실패 — 이전 모델 표시 (v${version})
+${st.message}`, true);
+      else setLive(`실시간: v${version} · ${when} 확인`);
+    } catch (e) {
+      setLive("실시간: 앱과 연결이 끊겼습니다 (앱·미리보기를 닫았나요?)", true);
+    }
+    setTimeout(poll, 1000);
+  }
+  try {
+    if (LIVE) { setLive("실시간: 연결 중…"); poll(); }
+    else {
+      const bin = Uint8Array.from(atob(BLOB), (c) => c.charCodeAt(0));
+      loadModel(DATA_EMBED, await gunzip(bin));
+      fit();
+    }
+  } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
+  window.__viewer = { scene, camera, meshes, clip, orbit, fit, get DATA() { return DATA; }, get version() { return version; } };
+})();
+</script>
+</body>
+</html>

@@ -54,13 +54,18 @@ class RoomFinishData(CommonBIMData):
         return next((e for e in self.elements if e.code == code), None)
 
 
-def room_piece(cfg, name, s0, s1, t0, t1, z0, z1) -> RoomPiece:
-    """정거장 로컬 사각 조각 (s0..s1 × t0..t1, FL 기준 z0..z1) → 선형 각기둥 (하면이 종단을 따름)"""
+def room_piece(cfg, name, s0, s1, t0, t1, z0, z1, trap=None) -> RoomPiece:
+    """정거장 로컬 사각 조각 (s0..s1 × t0..t1, FL 기준 z0..z1) → 선형 각기둥 (하면이 종단을 따름).
+    trap = (t0, t1 @ s0, t0, t1 @ s1) 이면 사다리꼴 조각 (구조물 확폭 전이부) — 폭·중심은 평균 (체적 정확)"""
     off = cfg.station.offset
     mid = (s0 + s1) / 2.0
-    return RoomPiece(name=name, pos_x=mid, pos_y=(t0 + t1) / 2.0, pos_z=cfg.lv(mid) - off + z0,
-                     shape=RoomBox(length=s1 - s0, width=t1 - t0, height=z1 - z0, rise=cfg.lv(s1) - cfg.lv(s0),
-                                   curve_factor=PM.curve_factor(cfg, s0, s1, (t0 + t1) / 2.0)))
+    if trap is not None:
+        lo, hi = (trap[0] + trap[2]) / 2.0, (trap[1] + trap[3]) / 2.0
+    else:
+        lo, hi = t0, t1
+    return RoomPiece(name=name, pos_x=mid, pos_y=(lo + hi) / 2.0, pos_z=cfg.lv(mid) - off + z0, trap=trap,
+                     shape=RoomBox(length=s1 - s0, width=hi - lo, height=z1 - z0, rise=cfg.lv(s1) - cfg.lv(s0),
+                                   curve_factor=PM.curve_factor(cfg, s0, s1, (lo + hi) / 2.0)))
 
 
 def column_footprints(cfg, column_engine) -> list:
@@ -87,8 +92,8 @@ class FinishEngine:
     def _columns(self, column_engine) -> list:
         return column_footprints(self.cfg, column_engine)
 
-    def _piece(self, name, s0, s1, t0, t1, z0, z1) -> RoomPiece:
-        return room_piece(self.cfg, name, s0, s1, t0, t1, z0, z1)
+    def _piece(self, name, s0, s1, t0, t1, z0, z1, trap=None) -> RoomPiece:
+        return room_piece(self.cfg, name, s0, s1, t0, t1, z0, z1, trap)
 
     def _build(self, column_engine):
         cfg = self.cfg
@@ -172,7 +177,7 @@ class FinishEngine:
                 for p in e.pieces:
                     z0 = PM.z_off(self.cfg, p)
                     if z0 - 1e-9 <= cut_h < z0 + p.shape.height - 1e-9:
-                        items.append(ViewItem.rect(e.name, "PLAN_FINISH", *PM.s_range(p), *PM.t_range(p)))
+                        items.append(PM.plan_item(e.name, "PLAN_FINISH", p))
                 for b in e.boxes:                           # 원기둥 둘레: 기둥 중심 기준으로 회전만 되돌림 (to_station 반복 계산 피함)
                     s, t, cx, cy, th = b.local["center"]
                     c, sn = math.cos(th), math.sin(th)

@@ -1,3 +1,4 @@
+from config.widening import clear_contains_rect, has_pockets
 from openings.decompose import overlap_area
 from openings.opening_check import slab_label
 from openings.opening_spec import resolve_names
@@ -7,7 +8,7 @@ from stairs.stair_spec import StairSpec, resolve_stair_names
 _EPS = 1e-6
 
 
-def check_stair_spec(station, spec, name: str):
+def check_stair_spec(station, spec, name: str, widened: bool = False):
     """입력 제원 자체의 검사 (층 번호, 방향, 치수, 직교방향 범위)"""
     if not isinstance(spec, StairSpec):
         raise ValueError(f"계단 {name}: 제원 형식이 올바르지 않습니다 ({spec!r})")
@@ -32,7 +33,7 @@ def check_stair_spec(station, spec, name: str):
     if spec.landing_len < spec.tread - _EPS:
         raise ValueError(f"계단 {name}: 계단참 길이({spec.landing_len:g}m)는 단너비({spec.tread:g}m) 이상이어야 합니다")
     hw = station.width / 2.0
-    if spec.t_lo < -hw - _EPS or spec.t_hi > hw + _EPS:
+    if not widened and (spec.t_lo < -hw - _EPS or spec.t_hi > hw + _EPS):
         raise ValueError(f"계단 {name}: t 범위 {spec.t_lo:.3f} ~ {spec.t_hi:.3f} 이(가) 내공 폭(±{hw:g}m)을 벗어납니다")
     if not -_EPS <= spec.s_start <= station.length + _EPS:
         raise ValueError(f"계단 {name}: 시작 위치 s={spec.s_start:.3f} 이(가) 내공 길이(0 ~ {station.length:g}m)를 벗어납니다")
@@ -44,12 +45,16 @@ def layout_stairs(cfg) -> list:
     names = resolve_stair_names(cfg.stairs)
     out = []
     for name, spec in zip(names, cfg.stairs):
-        check_stair_spec(st, spec, name)
+        pocket = isinstance(spec.lower_floor, int) and 1 <= spec.lower_floor <= st.floors and has_pockets(cfg, spec.lower_floor)
+        check_stair_spec(st, spec, name, pocket)
         lay = layout_stair(cfg, spec, name)
         s0, s1 = lay.s_range
         if s0 < -_EPS or s1 > st.length + _EPS:
             raise ValueError(f"계단 {name}: 계단 범위 s {s0:.3f} ~ {s1:.3f} (길이 {lay.length:.2f}m) 이(가) "
                              f"내공 길이(0 ~ {st.length:g}m)를 벗어납니다. 시작 위치나 오르는 방향을 확인하세요")
+        if pocket and not clear_contains_rect(cfg, spec.lower_floor, _rect(lay), _EPS):
+            raise ValueError(f"계단 {name}: 계단 평면(s {s0:.3f} ~ {s1:.3f}, t {spec.t_lo:.3f} ~ {spec.t_hi:.3f}) 이(가) "
+                             f"{st.level_name(spec.lower_floor)} 내공(구조물 확폭 포함)을 벗어납니다")
         out.append(lay)
     return out
 

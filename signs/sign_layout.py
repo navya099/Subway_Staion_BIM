@@ -12,6 +12,7 @@
 import math
 from dataclasses import dataclass, field
 
+from config.widening import inner_at, inner_range, platform_ranges
 from rooms.room_layout import ceiling_rel, resolve_room_names
 from trains.train_layout import layout_trains
 
@@ -66,7 +67,7 @@ def finish_at(cfg, n: int, s: float, t: float):
         if fl.floor != n:
             continue
         for room in fl.rooms:
-            if any(a - _EPS <= s <= b + _EPS and c - _EPS <= t <= d + _EPS for a, b, c, d in room.rects):
+            if room.contains(s, t, _EPS):
                 sp = specs.get(room.name)
                 return fs.for_room(room.use, getattr(sp, "finish", "") if sp else "")
     return None
@@ -76,7 +77,7 @@ def floor_and_ceiling(cfg, n: int, s: float, t: float) -> tuple:
     """(바닥 마감면, 천장 하면) 본체 FL 기준. 최하층 승강장 위는 승강장 상면 기준"""
     st, pl = cfg.station, cfg.platform
     base = st.floor_level(n)
-    if n == 1 and pl.exists and any(a <= t <= b for a, b in pl.slab_t_ranges(st.width)):
+    if n == 1 and pl.exists and any(a <= t <= b for a, b in platform_ranges(cfg)):
         base = pl.top_level
     ceil = ceiling_rel(st, n)
     ft = finish_at(cfg, n, s, t)
@@ -88,8 +89,8 @@ def floor_and_ceiling(cfg, n: int, s: float, t: float) -> tuple:
 
 
 def _wall_face(cfg, n, s, side) -> float:
-    """측벽 면 |t| (내공면 − 벽 마감 표면 거리)"""
-    hw = cfg.station.width / 2.0
+    """측벽 면 |t| (내공면(구조물 확폭 포함) − 벽 마감 표면 거리)"""
+    hw = inner_at(cfg, n, side, s)
     ft = finish_at(cfg, n, s, side * (hw - 0.5))
     return hw - (ft.face if ft is not None and ft.wall_t > _EPS else 0.0)
 
@@ -123,7 +124,7 @@ def layout_signs(cfg) -> list:
     if ss is None or not ss.enabled:
         return []
     st, pl = cfg.station, cfg.platform
-    L, hw = st.length, st.width / 2.0
+    L = st.length
     out = []
     # ---- 역명판: 승강장 양쪽 측벽
     if pl.exists:
@@ -135,6 +136,9 @@ def layout_signs(cfg) -> list:
             k_max = int(max(0.0, (L / 2.0 - w / 2.0 - 0.5)) // ss.plate_interval)
             for k in range(-k_max, k_max + 1):
                 s = L / 2.0 + k * ss.plate_interval
+                lo, hi = inner_range(cfg, 1, side, s - w / 2.0, s + w / 2.0)
+                if hi - lo > 1e-6:
+                    continue                                        # 구조물 확폭 사선 전이부·계단 자리 (측벽이 곧지 않음)
                 face = _wall_face(cfg, 1, s, side)
                 base, _ = floor_and_ceiling(cfg, 1, s, side * (face - 0.5))
                 z0 = base + ss.plate_bottom
@@ -167,7 +171,7 @@ def layout_signs(cfg) -> list:
                 continue
             _, n, side, s0, s1, _, _ = lay.wall_opening
             s = (s0 + s1) / 2.0
-            t = side * (hw - ss.hang_offset)
+            t = side * (inner_at(cfg, n, side, s) - ss.hang_offset)
             e = info.get(lay.name)
             number = (e.number.strip() if e and e.number.strip() else str(k))
             base, _ = floor_and_ceiling(cfg, n, s, t)

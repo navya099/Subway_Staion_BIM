@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 979개 통과** (GUI 129개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 990개 통과** (GUI 129개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -64,7 +64,7 @@ elevators/                  엘리베이터: spec(승강로·카·문 입력), l
 passages/                   출구통로: spec(경로 꼭짓점 입력), layout(경로 해석·연귀·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
 ventilations/               환기구: spec(연속박스 단면·그릴 입력), layout(수직구·칸별 오프닝·그릴 조각), check(검증·간섭), data/engine
 entrances/                  출입구: spec(입력·구역 폭), layout(지표 EL 기준 자동 계산: 박스·계단·에스컬레이터 띠, EntranceFrame), check(검증), data/engine
-helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py
+helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py, trap_region.py(사다리꼴 영역 불 연산·경계·덩어리: 확폭 실·마감)
 engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, build_*_doc = 저장 없는 DXF 문서), bim_engine.py(BIMEngine.build)
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
@@ -72,7 +72,7 @@ exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘�
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -93,7 +93,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 3D·IFC: 사다리꼴 조각은 면 집합(직선 선형도). 스윕 면 방향은 Newell 법선으로 판정(`_outward` — 한쪽 끝 폭 0 인 삼각 조각에서 첫 두 변 외적이 0 이 되어 면이 안쪽을 향하던 문제). 평면도는 확폭이 있으면 벽 조각마다 다각형. 곡선 선형 반경 검사에 최대 확폭량 포함.
   - 검증 `check_widenings`: 쪽·층·확폭량 > 0·전이 ≥ 0, 끝 > 시작, 전이부가 내공 시점·종점 밖이면 오류(끝까지 넓히려면 비움), 같은 층·쪽 확폭 구간(전이 포함) 겹침 오류.
   - GUI: 1.선형 탭 '구조물 확폭' 표(쪽·종류·층(B2F 또는 1 = 최하층, 쉼표)·시작/끝 STA·확폭량·전이(시작/끝)), `WidenDraft`, 프로젝트 파일 `widen_drafts`. 줄마다 [선택] = 미리보기 평면에서 **지금 보는 층**의 시작·끝 두 점(새 선택 종류 `LINE`: 두 점, s 가 달라야, 직교 모드 적용) → 층(그 평면 층 이름)·시작/끝 STA(작은 쪽이 시작)·쪽(두 점 t 평균 부호). `PickRequest.floor = 0` 이면 평면 층을 바꾸지 않고, 선택이 끝나면 미리보기가 `request.floor` 에 그때 보던 층을 넣음.
-  - **2단계(미구현)**: 확폭 공간 안의 실·마감(사선 벽 마감)·점자블록·사인·통로 접합(넓어진 외벽 바깥면), 계단·오프닝 등의 내공 범위 검사를 확폭 공간까지. 지금은 확폭 공간에 실·마감이 없고, 그 공간에 계단 등을 두면 '내공 범위' 오류.
+  - **2단계(넓어진 내공 활용)**: 내공 확폭(`clear`)이 있는 층만 새 경로(없으면 예전 코드 그대로). 영역 연산은 `helper/trap_region.py`(조각 `(s0, s1, lo0, hi0, lo1, hi1)`, s 를 조각 경계·선 교차점에서 잘라 띠마다 구간 연산 — 정확, `subtract/intersect/union/merge/groups/boundary/contains`). `widening.clear_traps`(넓어진 내공), `inner_range/inner_min`, `clear_contains_rect`, `on_inner_face`, `platform_ranges`(승강장 슬래브 t 범위를 벽 쪽으로 넓힘), `has_pockets`.
+    - 실(`room_layout._layout_pocket_floor`): 실의 ±t 변이 그 s 구간 어디서나 닿는 내공면(`inner_min`) 위면 그 쪽은 본체 벽 → **실이 포켓까지 넓어짐**(맞닿은 실에 합침, 다른 입력 실 자리는 뺌), 나머지 = 기본 실(덩어리마다). 포켓 안 직사각형 실도 가능(넓어진 내공 안이면). `RoomLayout.traps`(영역 사다리꼴, `rects` = 외접 사각형), `region()`, `contains()`. 내공면 붙임도 그 실 s 구간의 `inner_min` 기준. 포켓까지 넓어진 실의 ±s 변 칸막이벽은 넓어진 내공면까지(사선이면 사다리꼴 조각 — 칸막이벽 조각 7번째 원소 = trap, 문은 사각 조각에만). 범위 검사 = 넓어진 내공.
+    - 마감(`finishes/finish_pocket.py`, 사다리꼴 실만): 바닥·천장 = 영역 연산, 본체 측벽 벽 마감 = 내공면 폴리선을 이격·마감 표면 거리로 띄운 띠(`side_bands`, 사선 벽도 같은 이격·두께, 연귀) ∩ 실 영역, 칸막이벽·단부 벽 마감은 예전 규칙(측벽 띠에 닿는 끝은 넓혀 띠에서 끝남). 조각 `(…, z0, z1[, trap])`, `room_piece(..., trap)` / `RoomPiece.trap`. 점자블록 마감 대체도 사다리꼴. 검증: 바닥 = 내공 다각형 면적, 천장 = 마감 표면만큼 안으로 띄운(연귀) 다각형 A − P·d + d²Σcot(α/2), 벽 = 두 띄운 다각형 차 × 높이 (독립 공식) + 메쉬·IFC.
+    - 범위 검사: 계단·ESC(시작 층 내공), 오프닝(슬래브 k → k층, 바닥 슬래브 → 최하층), 점자 유도 경로 꼭짓점, 승강장 위 판정(계단·EV·사인).
+    - 통로·환기구: 첫 꼭짓점 = 그 자리 벽 바깥면 `outer_at`(내공 확폭·벽체 두께 증가 모두, t 비우면 자동), 아래층 벽 턱 = 두 층 바깥면 차, 위층 바깥면이 더 바깥이면 천장 슬래브 겹침 오류(`upper_wider`).
+    - 역명판: 넓어진 내공면(− 마감 표면), 판 폭 안에서 내공면이 곧지 않으면(사선 전이부·계단) 건너뜀. 출구 사인도 넓어진 내공면 기준.
+    - 평면 사다리꼴 조각 윤곽 = `PM.plan_item`(ViewItem 의 기운 아래·위 변). `prism_member._outward` 는 Newell 법선.
+    - 남은 단순화: 미리보기 스냅의 내공면 선은 확폭 전 값, 승강장 평면 윤곽에 포켓 경계선이 보임, 사선 전이부 끝의 1mm 정도 연귀 자투리 조각.
 - 벽체(층별), 슬래브, 상대식 승강장(ㅠ형 슬래브 + 지지벽체), 중앙 기둥(층별·열별, 원/사각 혼합 패턴, 원은 지름 입력).
 - **실(구획) 1단계**: 마감을 실별로 다르게 적용하기 위한 선행 단계. `RoomSpec`(층, 용도, s 범위 × t 범위 = **칸막이벽 중심선**, 이름) + `RoomSettings`(층별 기본 실 용도 — 없으면 최하층 승강장층·그 위 대합실, 칸막이벽 두께 0.2, 재질 Masonry_Block). 용도는 `ROOM_USES` 목록 또는 직접 입력.
   - 층마다 내공 영역에서 입력 실을 뺀 나머지 = 기본 실(직사각형 조각들, `decompose.subtract_rects`). **나머지가 입력 실로 끊겨 여러 덩어리면 덩어리마다 기본 실**(`connected_groups`: 변을 길이 > 0 공유하면 연결, 꼭짓점만 닿으면 따로, 이름 `{층}_{용도}{k}` — 하나면 번호 없음, s 순). 실끼리 겹치면 오류, 내공 밖이면 오류.

@@ -57,7 +57,16 @@ class TactileEngine:
         for n in sorted({b.floor for b in blocks}):
             cov = covered.get(n, [])
             for c in cov:
-                rects.setdefault((n, c[6]), []).append(c[:6])
+                rects.setdefault((n, c[6]), []).append(c[:6] + c[7:8])          # 사다리꼴(구조물 확폭)이면 trap 이 끝에
+            if any(len(c) > 7 for c in cov):                    # 구조물 확폭 층: 사다리꼴 영역 연산
+                from finishes.finish_pocket import piece_region
+                from helper import trap_region as T
+                holes_t = [piece_region(c[:6] + c[7:8]) for c in cov]
+                for b in (b for b in blocks if b.floor == n):
+                    for q in T.subtract([T.rect(*b.rect)], holes_t):
+                        tr = T.trap_of(q)
+                        rects.setdefault((n, b.kind), []).append((*T.bbox(q), b.base, b.base + ts.block_t) + ((tr,) if tr else ()))
+                continue
             holes = [c[:4] for c in cov]
             for b in (b for b in blocks if b.floor == n):
                 for r in minus([b.rect], holes):              # 바닥 마감이 없는 곳: 기준 바닥 위에 블록 두께
@@ -65,7 +74,7 @@ class TactileEngine:
         for (n, kind), rs in sorted(rects.items()):
             level = cfg.station.level_name(n)
             name = f"TB_{level}_{CODES[kind]}"
-            pieces = [room_piece(cfg, f"{name}_P{k}", *r) for k, r in enumerate(sorted(rs), start=1)]
+            pieces = [room_piece(cfg, f"{name}_P{k}", *r) for k, r in enumerate(sorted(rs, key=lambda x: x[:6]), start=1)]
             self.elements.append(TactileElementData(
                 name=name, family_name="점자블록", type_name=f"{KIND_LABEL[kind]} {ts.size * 1000:g}mm", level=level,
                 material=MATERIALS[kind], floor=n, kind=kind, pieces=pieces))

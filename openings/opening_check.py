@@ -1,3 +1,4 @@
+from config.widening import clear_contains_rect, has_pockets
 from openings.decompose import overlap_area
 from openings.opening_kind import OpeningKind
 from openings.opening_spec import resolve_names
@@ -12,7 +13,7 @@ def slab_label(slab_no: int, floors: int) -> str:
     return f"{slab_no}층/{slab_no + 1}층 중간 슬래브"
 
 
-def check_openings(station, specs: list) -> list[str]:
+def check_openings(station, specs: list, cfg=None) -> list[str]:
     """오프닝 제원 검사. 이름 목록을 돌려줌. 오류는 ValueError.
     - 용도·치수·슬래브 번호가 올바를 것
     - 내공 영역(0~L x ±W/2) 안에 있을 것 (벽체 안으로 뚫지 않음)
@@ -35,7 +36,13 @@ def check_openings(station, specs: list) -> list[str]:
         if sp.s_start < -eps or sp.s_end > L + eps:
             raise ValueError(f"{name}: 오프닝 s 범위 {sp.s_start:.3f} ~ {sp.s_end:.3f} 이(가) "
                              f"내공 길이(0 ~ {L:g}m)를 벗어납니다")
-        if sp.t_lo < -hw - eps or sp.t_hi > hw + eps:
+        if cfg is not None and has_pockets(cfg):            # 구조물 내공 확폭: 슬래브마다 그 아래층(바닥 슬래브는 최하층) 내공
+            for k in sp.slabs:
+                n = min(max(k, 1), floors)
+                if not clear_contains_rect(cfg, n, (sp.s_start, sp.s_end, sp.t_lo, sp.t_hi), eps):
+                    raise ValueError(f"{name}: 오프닝 범위(s {sp.s_start:.3f} ~ {sp.s_end:.3f}, t {sp.t_lo:.3f} ~ {sp.t_hi:.3f}) 이(가) "
+                                     f"{station.level_name(n)} 내공(구조물 확폭 포함)을 벗어납니다")
+        elif sp.t_lo < -hw - eps or sp.t_hi > hw + eps:
             raise ValueError(f"{name}: 오프닝 t 범위 {sp.t_lo:.3f} ~ {sp.t_hi:.3f} 이(가) "
                              f"내공 폭(±{hw:g}m)을 벗어납니다")
     for i, a in enumerate(specs):

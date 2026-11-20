@@ -275,3 +275,86 @@ def mid_slab_traps(cfg, below: int) -> list:
             for s0, s1, l0, h0, l1, h1 in band(lo_poly, hi_poly, a, b):
                 out.append((s0, s1, l0, h0, l1, h1) if side > 0 else (s0, s1, -h0, -l0, -h1, -l1))
     return out
+
+
+# ---------------------------------------------------------------- 2단계: 넓어진 내공 (실·마감·검사)
+def has_pockets(cfg, floor_n: Optional[int] = None) -> bool:
+    """내공 확폭(CLEAR)이 있나 (floor_n 을 주면 그 층에)"""
+    ws = [w for w in getattr(cfg, "widenings", []) if w.kind == CLEAR]
+    return bool(ws) if floor_n is None else any(w.applies(floor_n) for w in ws)
+
+
+def clear_traps(cfg, floor_n: int) -> list:
+    """층 floor_n 의 넓어진 내공 영역 (s 0 ~ L) — 사다리꼴 조각 (helper.trap_region 형식)"""
+    from helper import trap_region as T
+    return T.merge(outline_traps(cfg, floor_n, 0.0, cfg.station.length, outer=False))
+
+
+def inner_min(cfg, floor_n: int, side: int, s0: float, s1: float) -> float:
+    """s0 ~ s1 에서 내공면 |t| 의 최솟값 (그 구간 어디서나 닿는 |t|)"""
+    return inner_range(cfg, floor_n, side, s0, s1)[0]
+
+
+def inner_range(cfg, floor_n: int, side: int, s0: float, s1: float) -> tuple:
+    """s0 ~ s1 에서 내공면 |t| 의 (최솟값, 최댓값) — 같으면 그 구간 내공면이 곧음"""
+    st = cfg.station
+    pad = st.max_wall_t + 1.0
+    poly = inner_polyline(cfg, floor_n, side, -pad, st.length + pad)
+    vals = []
+    for (a, ta), (b, tb) in zip(poly, poly[1:]):
+        if b - a < _EPS:
+            if s0 + 1e-7 < a < s1 - 1e-7:
+                vals += [ta, tb]
+            continue
+        lo, hi = max(a, s0), min(b, s1)
+        if hi - lo < -1e-9:
+            continue
+        f = lambda s: ta + (tb - ta) * (s - a) / (b - a)
+        vals += [f(lo), f(hi)]
+    return (min(vals), max(vals)) if vals else (st.width / 2.0, st.width / 2.0)
+
+
+def clear_contains_rect(cfg, floor_n: int, rect, tol: float = 1e-6) -> bool:
+    """사각형 (s0, s1, t0, t1) 이 그 층 넓어진 내공 안인가"""
+    s0, s1, t0, t1 = rect[:4]
+    L = cfg.station.length
+    if s0 < -tol or s1 > L + tol:
+        return False
+    return t1 <= inner_min(cfg, floor_n, 1, s0, s1) + tol and -t0 <= inner_min(cfg, floor_n, -1, s0, s1) + tol
+
+
+def on_inner_face(cfg, floor_n: int, a: tuple, b: tuple, tol: float = 1e-6) -> bool:
+    """선분 a–b (정거장 로컬 (s, t)) 가 그 층 내공면(확폭 포함) 위인가 — 단부 내공면(s = 0, L)도 포함"""
+    L = cfg.station.length
+    if abs(a[0] - b[0]) < tol and (abs(a[0]) < tol or abs(a[0] - L) < tol):
+        return True
+    st = cfg.station
+    pad = st.max_wall_t + 1.0
+    for p in (a, b, ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)):
+        side = 1 if p[1] > 0 else -1
+        poly = inner_polyline(cfg, floor_n, side, -pad, st.length + pad)
+        if not _on_poly(poly, p[0], abs(p[1]), tol):
+            return False
+    return True
+
+
+def _on_poly(poly, s, t, tol):
+    for (a, ta), (b, tb) in zip(poly, poly[1:]):
+        if b - a < _EPS:
+            if abs(s - a) < tol and min(ta, tb) - tol <= t <= max(ta, tb) + tol:
+                return True
+            continue
+        if a - tol <= s <= b + tol and abs(ta + (tb - ta) * (min(max(s, a), b) - a) / (b - a) - t) < tol:
+            return True
+    return False
+
+
+def platform_ranges(cfg) -> list:
+    """최하층 좌·우 승강장 슬래브 t 범위 (platform.slab_t_ranges 를 내공 확폭만큼 벽 쪽으로 넓힘 — 가장 넓은 곳 기준,
+    s 별 정확한 범위는 내공(clear_traps)으로 자름)"""
+    st, pl = cfg.station, cfg.platform
+    out = []
+    for (t0, t1), side in zip(pl.slab_t_ranges(st.width), (-1, 1)):
+        ext = max((w.amount for w in specs_for(cfg, 1, side, CLEAR)), default=0.0)
+        out.append((t0 - ext, t1) if side < 0 else (t0, t1 + ext))
+    return out

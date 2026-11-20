@@ -16,7 +16,7 @@ import math
 from dataclasses import dataclass, field
 
 from helper.box_piece import BoxPiece
-from passages.passage_layout import lower_ledge, resolve_vertices
+from passages.passage_layout import lower_ledge, resolve_vertices, upper_wider
 from ventilations.vent_type import VentPartKind
 
 _COLLINEAR = 1e-6
@@ -175,7 +175,9 @@ def layout_vent(cfg, spec, name: str) -> VentLayout:
             haunches += [[(c0, H - hh), (c0, H), (c0 + hw, H)], [(c1, H - hh), (c1 - hw, H), (c1, H)]]
     last_is_shaft = segs[-1][0] == "V"
 
-    ledge = lower_ledge(st, k)            # 아래층 벽 턱 위는 첫 덕트 바닥 슬래브를 빼고 벽 상단이 바닥 (겹침 제거)
+    ledge = lower_ledge(st, k, cfg, side, vs[0].s)            # 아래층 벽 턱 위는 첫 덕트 바닥 슬래브를 빼고 벽 상단이 바닥 (겹침 제거)
+    if upper_wider(cfg, k, side, vs[0].s) and st.floor_level(k) + spec.cell_height + spec.roof_t > st.floor_level(k + 1) + 1e-6:
+        raise ValueError(f"환기구 {name}: 위층({st.level_name(k + 1)}) 외벽(구조물 확폭)이 더 바깥이라 덕트 천장 슬래브와 겹칩니다")
     if ledge > 0 and segs[0][3] <= ledge + 1e-6:
         raise ValueError(f"환기구 {name}: 첫 구간({segs[0][3]:.3f}m)이 아래층 외벽 턱({ledge:g}m)에 비해 너무 짧습니다")
     elements: dict = {}

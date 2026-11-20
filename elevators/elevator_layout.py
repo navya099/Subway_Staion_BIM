@@ -9,6 +9,7 @@
   어떤 슬래브 두께 안에 걸리면 그 슬래브 면까지 늘려 채움 (빈 틈이 생기지 않게)
 - 카: 내공 중심, car_floor 층 정지 바닥에 카 바닥 상면. 바닥판·천장 = 카 외곽, 벽 4면, 문 쪽 벽은 문 자리를 비우고 닫힌 문 패널
 """
+from config.widening import platform_ranges
 from dataclasses import dataclass
 from typing import Optional
 
@@ -77,11 +78,11 @@ def slab_ranges(st) -> dict:
 
 
 def _on_platform(cfg, spec, name) -> bool:
-    st, pl = cfg.station, cfg.platform
+    pl = cfg.platform
     if spec.lower_floor != 1 or not pl.exists:
         return False
     _, _, t0, t1 = spec.outer_rect()
-    for p0, p1 in pl.slab_t_ranges(st.width):
+    for p0, p1 in platform_ranges(cfg):
         if p0 - _EPS <= t0 and t1 <= p1 + _EPS:
             return True
         if min(p1, t1) - max(p0, t0) > _EPS:

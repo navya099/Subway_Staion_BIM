@@ -223,6 +223,17 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 rf.ceiling_rel = c
                 wall_top = c
             obstacles = walls_fp + col_rects + ev_rects
+            if room.traps is not None:                       # 구조물 내공 확폭 층: 사다리꼴 영역 마감
+                from config.widening import clear_traps
+                from finishes.finish_pocket import finish_trap_room, piece_region
+                from helper import trap_region as T
+                walls_t = [piece_region(p) for pw in fl.partitions for p in pw.pieces]
+                ctx = dict(clear=clear_traps(cfg, n), zones=zones, obstacles_t=walls_t + T.from_rects(col_rects + ev_rects),
+                           walls_t=walls_t, stair_fp=stair_fp, below=below, above=above, tactile=tactile, lines=lines,
+                           wall_ops=wall_ops, doors=fl.doors, columns=columns, evs=evs, col_rects=col_rects, top_slab=top_slab)
+                finish_trap_room(cfg, room, rf, ft, ctx)
+                out.append(rf)
+                continue
 
             # ---- 바닥
             if ft.ffl > _EPS:

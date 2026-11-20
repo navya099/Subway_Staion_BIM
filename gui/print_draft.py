@@ -49,6 +49,7 @@ class PrintDraft:
     section_from: str = ""
     section_to: str = ""
     dae: bool = False
+    web: bool = False
 
     def ensure_floors(self, floor_count: int, prev_count: int) -> bool:
         """층수가 바뀌면: 이전에 모든 층을 골랐으면 새 층수의 모든 층, 아니면 없어진 층만 뺌. 변경 여부 반환"""
@@ -78,7 +79,8 @@ class PrintDraft:
     def to_options(self, track_spacing: float) -> OutputOptions:
         """초안 → OutputOptions. 끈 성과물의 세부 입력은 검사하지 않음 (잘못 남아 있어도 출력 가능)"""
         opt = OutputOptions(dxf3d=bool(self.dxf3d), ifc=bool(self.ifc), plan=bool(self.plan),
-                            profile=bool(self.profile), section=bool(self.section), dae=bool(self.dae))
+                            profile=bool(self.profile), section=bool(self.section), dae=bool(self.dae),
+                            web=bool(self.web))
         if opt.plan:
             opt.plan_floors = sorted(self.plan_floors)
             opt.plan_cut_h = _num(self.plan_cut_h, "평면도", "절단 높이", positive=True)
@@ -96,7 +98,8 @@ class PrintDraft:
 def preview(d: PrintDraft, start_station, length, track_spacing, level_name=str) -> str:
     """입력 중 미리보기: 출력할 성과물과 단면 개수. start_station / length / track_spacing 이 None 이면 그 부분 생략"""
     names = [n for n, on in (("3D DXF", d.dxf3d), ("평면도", d.plan), ("종단면도", d.profile), ("단면도", d.section),
-                             ("IFC", d.ifc), ("텍스처 DAE", d.dae)) if on]
+                             ("IFC", d.ifc), ("텍스처 DAE", d.dae),
+                             ("3D 웹 뷰어", d.web)) if on]
     if not names:
         return "→ 출력할 성과물을 하나 이상 선택하세요"
     lines = ["→ 출력: " + ", ".join(names)]

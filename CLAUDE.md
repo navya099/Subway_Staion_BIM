@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 990개 통과** (GUI 129개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 994개 통과** (GUI 129개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -69,10 +69,11 @@ engine/                     cad_engine.py(StationCADEngine: DXF 4종 + IFC, buil
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
+exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -247,7 +248,11 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 텍스처 좌표: 면마다 평면 투영 — 수평 면(|n_z| ≥ 0.7)은 u = 면 중심의 선형 접선(곡선은 `preview_render.station_of` 근사), v = 왼쪽 +t; 그 밖은 u = 면 안 수평, v = 면 안 위쪽. 세계 원점 기준 좌표라 이웃 면끼리 무늬가 이어짐(곡선 수평 면은 근사).
   - 좌표는 정수 원점 기준 상대 좌표(소수 5자리, 스케치업 정밀도) — 원점은 `<asset><comments>`·완료 알림. 레이어마다 노드(스케치업 그룹), 재질마다 삼각형 묶음, double_sided.
   - 기본 마감 재질 이름 변경: 바닥 기본 `석재` → **화강석**, 벽 기본 `패널` → **금속패널**(FinishType·마감 탭 초안). 옛 프로젝트 파일의 마감표는 저장된 이름 그대로라 텍스처를 쓰려면 마감 탭에서 이름을 바꿔야 함.
-- 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE.
+- **3D 웹 뷰어(`exporter/web_viewer.py`, 출력 탭 '3D 웹 뷰어(HTML)', 기본 끔 → `정거장3d뷰어.html`)**: matplotlib 3D 미리보기가 느려서 만든 브라우저 뷰어. three.js(`assets/web/three.min.js` r147, MIT)와 모델 자료를 HTML 한 파일에 넣어 인터넷 없이 열림.
+  - 자료 = `build_3d_doc` 의 3DFACE 그대로(단일 원천, 천장틀 FIN_FRAME 은 기본 제외). 묶음(레이어 × 보기 재질 `render_material`)마다 꼭짓점(float32, 정수 원점 기준 상대)·꼭짓점별 (s, FL 기준 h)·삼각형 번호·삼각형 → 부재 번호를 한 바이트 열로 이어 gzip + base64(브라우저 `DecompressionStream`). 부재 표 = 서브 엔진의 BIM 객체 중 `source_element` 를 가진 것(이름·층·재질·종류, `_element_index` 가 훑음). h 의 FL 은 선형 끝 밖을 끝 구배로 연장.
+  - 뷰어(템플릿 JS): Z 위 궤도 조작(왼쪽 회전, 오른쪽/Shift 이동, 휠 확대, 더블클릭 = 회전 중심), 표시 묶음(미리보기 `LAYER_GROUPS`), 보이는 층(그 층 천장 하면 위를 버림)·STA 범위 = 셰이더 discard(모든 재질 공통 uniform), 클릭 = 부재 정보 + 강조(잘린 면은 건너뜀), 걷기(포인터 잠금, WASD·Shift·E/Q·PgUp/PgDn 층, 눈높이 = 선형 중심 표본 FL + 층 바닥(최하층은 승강장 상면) + 1.6). `window.__viewer` 로 상태 접근(디버그).
+  - 실무 샘플: 삼각형 8.4만, 2.2MB, 약 9초.
+- 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE, 3D 웹 뷰어(HTML).
 
 ## 5. 테스트 작성 규약
 

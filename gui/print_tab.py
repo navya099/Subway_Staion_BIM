@@ -9,7 +9,7 @@ SMALL = ("Malgun Gothic", 8)
 
 # 체크박스: (초안 속성, 라벨)
 OUTPUTS = [("dxf3d", "3D DXF"), ("ifc", "IFC"), ("plan", "평면도"), ("profile", "종단면도"), ("section", "단면도"),
-           ("dae", "텍스처 DAE")]
+           ("dae", "텍스처 DAE"), ("web", "3D 웹 뷰어(HTML)")]
 PROFILE_AXES = [("profile_center", "선형 중심 (0)"), ("profile_track_l", "왼쪽 선로 중심 (+D/2)"),
                 ("profile_track_r", "오른쪽 선로 중심 (−D/2)")]
 

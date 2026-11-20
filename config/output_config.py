@@ -10,7 +10,7 @@ MAX_SECTIONS = 500               # 연속 단면 개수 상한 (간격을 너무
 @dataclass
 class OutputOptions:
     """
-    dxf3d / ifc / plan / profile / section / dae: 각 성과물 출력 여부 (dae = 텍스처 3D 모델 COLLADA, 기본 끔)
+    dxf3d / ifc / plan / profile / section / dae / web: 각 성과물 출력 여부 (dae = 텍스처 3D 모델 COLLADA, web = 3D 웹 뷰어 HTML, 기본 끔)
     plan_floors: 평면도 층 번호 목록 (1 = 최하층). None 이면 모든 층
     plan_cut_h: 평면도 절단 높이 (각 층 바닥 FL 기준, m, 모든 층 공통)
     profile_offsets: 종단면 절단 축 = 선형 중심에서의 직교 거리 t 목록 (m, 진행방향 왼쪽 +)
@@ -32,6 +32,7 @@ class OutputOptions:
     section_from: Optional[float] = None
     section_to: Optional[float] = None
     dae: bool = False
+    web: bool = False            # 3D 웹 뷰어 (three.js HTML 한 파일)
 
     def floors(self, cfg) -> list:
         n = cfg.station.floors
@@ -62,7 +63,7 @@ class OutputOptions:
     def validate(self, cfg):
         """설정(층수·정거장 범위)에 맞는지 검사. 잘못되면 ValueError"""
         p = cfg.station
-        if not any((self.dxf3d, self.ifc, self.plan, self.profile, self.section, self.dae)):
+        if not any((self.dxf3d, self.ifc, self.plan, self.profile, self.section, self.dae, self.web)):
             raise ValueError("출력: 출력할 성과물을 하나 이상 선택하세요")
         lo, hi = p.start_station, p.start_station + p.length
 

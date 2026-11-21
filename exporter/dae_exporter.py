@@ -18,8 +18,8 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-from exporter.render_material import (TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material,
-                                      railing_glass_material)
+from exporter.render_material import (ESC_MATERIALS, TEXTURE_DIR, RenderMaterial, find_image, finish_material,
+                                      layer_material, railing_glass_material)
 from preview.preview_render import station_of
 
 HORIZONTAL_NZ = 0.7          # 이 이상이면 바닥·천장처럼 수평 면으로 보고 선형 방향에 맞춰 텍스처를 깜
@@ -90,12 +90,57 @@ def frame_uv(frame, rel: np.ndarray, origin) -> np.ndarray:
     return np.stack([du / w, (d @ np.asarray(v) - k * du) / h], axis=2)
 
 
+def element_materials(engine) -> dict:
+    """3DFACE 핸들 → 보기 재질 (부재 자신의 재질을 쓰는 것: 마감·점자블록·계단 마감·유리난간·제연경계벽·에스컬레이터 부재).
+    build_3d_doc 뒤에 부를 것. 나머지 면은 레이어 재질 (DAE·웹 뷰어 공통)"""
+    cfg = engine.cfg
+    mat_of = {}
+
+    def put(e, m):
+        for ent in e.source_element or []:
+            mat_of[ent.dxf.handle] = m
+    tactile = getattr(engine, "tactiles", None)
+    stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
+    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin:
+        put(e, finish_material(e.material))
+    rails = getattr(engine, "railings", None)
+    for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
+        put(e, railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material))
+    smokes = getattr(engine, "smokes", None)
+    for e in (smokes.elements if smokes is not None else []):          # 제연경계벽: 유리 = 설정 색
+        put(e, railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material))
+    escs = getattr(engine, "escalators", None)
+    for esc in (escs.all_escalators() if escs is not None else []):  # 에스컬레이터: 핸드레일 검정·스텝·승강판 텍스처·볼라드
+        for e in list(esc.parts) + list(esc.bollards):
+            m = ESC_MATERIALS.get(e.material)
+            if m is not None:
+                put(e, m)
+        top, side = ESC_MATERIALS.get("Aluminium_Step"), ESC_MATERIALS.get("Aluminium_Step_Side")
+        for stp in esc.steps:              # 스텝: 디딤판 윗면(수평, 텍스처 틀)만 노란 경계띠 이미지, 나머지 면은 홈만
+            for ent in stp.source_element or []:
+                h = ent.dxf.handle
+                mat_of[h] = top if h in stp.face_frames and _horizontal(ent) else side
+    return mat_of
+
+
+def _horizontal(ent) -> bool:
+    """3DFACE 가 수평 면인지 (법선 |n_z| ≥ HORIZONTAL_NZ)"""
+    p = [np.asarray(ent.dxf.get(f"vtx{i}"), dtype=float) for i in range(3)]
+    n = np.cross(p[1] - p[0], p[2] - p[0])
+    return abs(n[2]) >= HORIZONTAL_NZ * max(float(np.linalg.norm(n)), 1e-12)
+
+
 def stair_face_frames(engine) -> dict:
-    """3DFACE 핸들 → 계단석 텍스처 틀 (원점, u, v, 한 장 폭, 깊이) — 디딤판 윗면에 이미지 한 장씩 (StairEngine.add_stair_mesh)"""
+    """3DFACE 핸들 → 디딤판 텍스처 틀 (원점, u, v, 한 장 폭, 깊이) — 디딤판 윗면에 이미지 한 장씩
+    (계단석: StairEngine.add_stair_mesh, 에스컬레이터 스텝: EscalatorEngine._step_frames)"""
     out = {}
     stairs = getattr(engine, "stairs", None)
     for fe in (stairs.finish_elements() if stairs is not None else []):
         out.update(getattr(fe, "face_frames", None) or {})
+    escs = getattr(engine, "escalators", None)
+    for esc in (escs.all_escalators() if escs is not None else []):
+        for stp in esc.steps:
+            out.update(stp.face_frames or {})
     return out
 
 
@@ -167,23 +212,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
     (면이 매우 많고 천장판에 가려 보이지 않음). 텍스처 이미지는 path 옆 textures/ 폴더로 복사"""
     cfg = engine.cfg
     doc = engine.build_3d_doc()
-    mat_of = {}
-    tactile = getattr(engine, "tactiles", None)
-    stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
-    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin:
-        m = finish_material(e.material)
-        for ent in e.source_element or []:
-            mat_of[ent.dxf.handle] = m
-    rails = getattr(engine, "railings", None)
-    for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
-        m = railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material)
-        for ent in e.source_element or []:
-            mat_of[ent.dxf.handle] = m
-    smokes = getattr(engine, "smokes", None)
-    for e in (smokes.elements if smokes is not None else []):          # 제연경계벽: 유리 = 설정 색
-        m = railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material)
-        for ent in e.source_element or []:
-            mat_of[ent.dxf.handle] = m
+    mat_of = element_materials(engine)
     path = Path(path)
     os.makedirs(path.parent.resolve(), exist_ok=True)
     signs = getattr(engine, "signs", None)

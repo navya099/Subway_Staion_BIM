@@ -33,6 +33,17 @@ class EscPartLayout:
 
 
 @dataclass
+class BollardLayout:
+    """승강구 앞 볼라드 1개: end = 'L'(아래층 승강구) | 'U'(위층), floor = 서는 층, (s, t) 중심, z0 = 바닥 마감면 (본체 FL 기준)"""
+    end: str
+    index: int
+    floor: int
+    s: float
+    t: float
+    z0: float
+
+
+@dataclass
 class EscalatorLayout:
     name: str
     spec: object                         # EscalatorSpec
@@ -51,6 +62,7 @@ class EscalatorLayout:
     steps: list = field(default_factory=list)      # 개별 스텝 StepLayout (escalator_geom) — 위 운행로, 아래에서 위로
     nose: object = None                  # 스텝 코 선 NoseLine (u → 절대 표고) — 스텝 자세·애니메이션
     finish_levels: tuple = None          # (아래층, 위층) 승강구 바닥 마감면 (본체 FL 기준) — 스텝 면 기준
+    bollards: list = field(default_factory=list)   # BollardLayout — 승강구 앞 볼라드 (상세 5단계)
 
     def s_at(self, u: float) -> float:
         return self.spec.s_wp + self.spec.direction * u
@@ -252,6 +264,23 @@ def newel_glass(u_end: float, sgn: int, z_top: float, r_out: float) -> list:
     return out
 
 
+def layout_bollards(cfg, spec, name, s_at, newel_us, z_base, z_top) -> list:
+    """승강구 앞 볼라드: 끝 뉴얼 바깥 끝(newel_us = (아래, 위) u)에서 bollard_dist 바깥, 두 핸드레일 중심 사이 등분.
+    바닥 = 그 자리 바닥 마감면 (아래층은 시작면 = FL 또는 승강장 상면 기준). 내공 범위 검사는 escalator_check.check_bollards"""
+    if not spec.bollard_count:
+        return []
+    from finishes.finish_layout import floor_ffl_at
+    k, L = spec.lower_floor, cfg.station.length
+    out = []
+    for end, u, floor, base in (("L", newel_us[0] - spec.bollard_dist, k, z_base),
+                                ("U", newel_us[1] + spec.bollard_dist, k + 1, z_top)):
+        s = s_at(u)
+        for i, t in enumerate(spec.bollard_ts(), start=1):
+            ffl = floor_ffl_at(cfg, floor, s, t) if 0.0 <= s <= L else 0.0
+            out.append(BollardLayout(end, i, floor, s, t, base + ffl))
+    return out
+
+
 def newel_ends(u_end: float, sgn: int, nose, hh: float, r_out: float, h_deck: float) -> list:
     """뉴얼 쪽 데크 끝 마무리 [(종류, ua, ub, (zb_a, zb_b), (zt_a, zt_b))]: 데크 끝(u_end)에서 바깥으로 반경 r_out 까지,
     윗면 = 바닥 + h_deck·√(1 − (d/r)²) (1/4 타원, 데크 윗면과 이어짐). 핸드레일 고리 띠(NEWEL_BASE)는 고리 아래 끝(바깥 반원)
@@ -387,8 +416,9 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
                              "(바닥을 내린 피트 구조는 아직 지원하지 않습니다)")
         pit_opening = OpeningSpec(kind=OpeningKind.ESCALATOR, s_start=p_lo, length=p_hi - p_lo, t_center=tc,
                                   width=spec.truss_width, slabs=[slab_no], name=f"{name}_PIT")
+    bollards = layout_bollards(cfg, spec, name, s_at, (s_lo_st - reach, s_hi_st + reach), z_base, z_top)
     return EscalatorLayout(name=name, spec=spec, lower_floor=k, on_platform=on_platform, base_level=z_base, run=run,
-                           finish_levels=(z_lo, z_hi),
+                           finish_levels=(z_lo, z_hi), bollards=bollards,
                            rise=e1 - e0, u_range=(u_lo, u_hi), s_range=tuple(sorted((s_at(u_lo), s_at(u_hi)))),
                            t_range=t_truss, parts=parts, opening=opening, pit_opening=pit_opening,
                            platform_hole=platform_hole, steps=steps, nose=nose)

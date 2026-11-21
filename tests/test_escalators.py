@@ -365,6 +365,7 @@ def test_3d_dxf_has_six_faces_per_strip(tmp_path):
     from helper.strip_member import part_faces
     want = sum(len(q) for e in eng.escalators.all_escalators() for p in list(e.parts) + list(e.steps)
                for q in part_faces(eng.cfg, p))
+    want += sum(len(PM.mesh_faces(eng.cfg, q)) for e in eng.escalators.all_escalators() for b in e.bollards for q in b.pieces)
     assert len(faces) == want
     plain = [p for e in eng.escalators.all_escalators() for p in e.parts if p.kind not in (K.HANDRAIL, K.BALUSTRADE, K.NEWEL_BASE,
                                                                                           K.NEWEL_END_IN, K.NEWEL_END_OUT)]
@@ -627,3 +628,64 @@ def test_landing_plates_comb_cladding_and_finished_floor():
         StationCADEngine(deep)
     deep.finish_settings = FinishSettings(enabled=True)
     StationCADEngine(deep)                                              # 1.25 − 0.1 = 1.15 ≤ 1.2
+
+
+def test_bollards_handrail_black_and_step_plate_textures(tmp_path):
+    """5단계: 승강구 앞 볼라드(양끝, 핸드레일 중심 사이 등분, 바닥 마감면 위 16각 기둥 — 체적 공식 = 메쉬 = IFC),
+    보기 재질(핸드레일 검정·스텝·승강판 텍스처), 스텝마다 디딤판 윗면 텍스처 틀(앞 코 = 이미지 아래)"""
+    import math as _m
+    import numpy as np
+    from exporter.dae_exporter import element_materials, stair_face_frames, tread_uv
+    from exporter.render_material import ESC_MATERIALS, find_image
+    eng = eng_with(esc(1, s=40.0, name="A"))
+    cfg = eng.cfg
+    lay = cfg.escalator_layouts()[0]
+    e = by_name(eng, "A")
+    sp = lay.spec
+    assert [b.name for b in e.bollards] == ["A_BOLLARD_L1", "A_BOLLARD_L2", "A_BOLLARD_U1", "A_BOLLARD_U2"]
+    assert [b.floor for b in e.bollards] == [1, 1, 2, 2]
+    g = abs(sum(sp.detail_t(1)["GLASS"]) / 2.0 - sp.t_center)
+    assert [b.center[1] for b in e.bollards[:2]] == pytest.approx([sp.t_center - g / 3, sp.t_center + g / 3])
+    reach = sp.newel_ext + sp.newel_radius + sp.bollard_dist
+    lo = min(x.s0 for st in e.steps for x in st.shape.strips)                 # 첫 스텝 앞 코 (+s 로 오름)
+    assert e.bollards[0].center[0] == pytest.approx(lo - reach)
+    for b, bl in zip(e.bollards, lay.bollards):
+        assert bl.z0 == pytest.approx(lay.finish_levels[0 if b.end == "L" else 1])     # 바닥 마감면 위 (마감 끔 = 구조)
+        r, h = sp.bollard_d / 2, sp.bollard_h
+        want = 8 * r * r * _m.sin(_m.pi / 8) * h
+        assert b.volume == pytest.approx(want, rel=1e-9)
+        assert sum(PM.mesh_volume(PM.mesh_faces(cfg, p)) for p in b.pieces) == pytest.approx(want, rel=1e-6)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "b.ifc"))
+    px = {x.Name: x for x in f.by_type("IfcBuildingElementProxy") if x.ObjectType == "BOLLARD"}
+    assert set(px) == {b.name for b in e.bollards}
+    for b in e.bollards:
+        assert ifc_world_volume(px[b.name]) == pytest.approx(b.volume, rel=1e-4)
+        st = next(r.RelatingStructure for r in f.by_type("IfcRelContainedInSpatialStructure") if px[b.name] in r.RelatedElements)
+        assert st.Name == b.level
+    # 평면도: 서는 층에 원
+    assert sum(1 for it in eng.escalators.plan_items(1.5, floor=2) if it.circle) == 2
+    # 볼라드 수 0 = 없음, 너무 촘촘 / 내공 밖 = 오류
+    assert not by_name(eng_with(esc(1, s=40.0, name="A", bollard_count=0)), "A").bollards
+    with pytest.raises(ValueError, match="촘촘"):
+        eng_with(esc(1, s=40.0, name="A", bollard_count=8))
+    with pytest.raises(ValueError, match="볼라드가 내공 밖"):
+        eng_with(esc(1, s=40.0, name="A", bollard_dist=60.0))
+    # 보기 재질 + 스텝 텍스처 틀
+    eng.build_3d_doc()
+    mats = element_materials(eng)
+    rail = e.part(K.HANDRAIL, 1)
+    assert {mats[x.dxf.handle].name for x in rail.source_element} == {"에스컬레이터 핸드레일"}
+    assert max(mats[rail.source_element[0].dxf.handle].color) < 0.1
+    assert {mats[x.dxf.handle].texture for x in e.steps[0].source_element} == {"escalator_step", "escalator_riser"}
+    tops = [x for x in e.steps[3].source_element if mats[x.dxf.handle].texture == "escalator_step"]
+    assert len(tops) == 2                                                   # 디딤판 판의 윗면·아랫면만 (옆면·챌판은 홈만)
+    assert {mats[x.dxf.handle].texture for x in e.part(K.FLOOR_PLATE).source_element} == {"escalator_plate"}
+    assert find_image(ESC_MATERIALS["Aluminium_Step"].texture) and find_image(ESC_MATERIALS["Aluminium_FloorPlate"].texture)
+    frames = stair_face_frames(eng)
+    for stp in e.steps:
+        assert len(stp.face_frames) == 6 and set(stp.face_frames) <= set(frames)
+    stp = e.steps[5]
+    fr = next(iter(stp.face_frames.values()))
+    nose = lay.s_at(stp.chain_u)
+    pts = np.array([[*cfg.to_world(nose, stp.t_range[0])[:2], 0.0], [*cfg.to_world(nose + sp.step_depth, stp.t_range[1])[:2], 0.0]])
+    assert tread_uv(fr, pts) == pytest.approx(np.array([[0.0, 0.0], [1.0, 1.0]]), abs=1e-9)   # 한 장 = 스텝 한 장

@@ -59,6 +59,10 @@ class EscalatorDraft:
     glass_t: str = f"{_SPEC.glass_t:g}"            # 난간 유리 두께
     newel_ext: str = f"{_SPEC.newel_ext:g}"        # 스텝 끝 너머 난간 연장
     newel_radius: str = f"{_SPEC.newel_radius:g}"  # 끝 뉴얼 반경
+    bollard_count: str = f"{_SPEC.bollard_count}"   # 승강구 앞 볼라드 수 (양끝 각각, 0 = 없음)
+    bollard_d: str = f"{_SPEC.bollard_d:g}"         # 볼라드 지름
+    bollard_h: str = f"{_SPEC.bollard_h:g}"         # 볼라드 높이
+    bollard_dist: str = f"{_SPEC.bollard_dist:g}"   # 끝 뉴얼 → 볼라드 중심 거리
 
     def to_spec(self, where: str, start_station: float) -> EscalatorSpec:
         if self.direction not in _DIR:
@@ -90,6 +94,10 @@ class EscalatorDraft:
             glass_t=num("glass_t", "유리 두께"),
             newel_ext=_num(self.newel_ext, where, "뉴얼 연장", nonneg=True),
             newel_radius=num("newel_radius", "뉴얼 반경"),
+            bollard_count=_int(self.bollard_count, where, "볼라드 수"),
+            bollard_d=num("bollard_d", "볼라드 지름"),
+            bollard_h=num("bollard_h", "볼라드 높이"),
+            bollard_dist=_num(self.bollard_dist, where, "볼라드 거리", nonneg=True),
             name=self.name.strip())
 
 

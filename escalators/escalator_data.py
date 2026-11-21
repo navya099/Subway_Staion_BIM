@@ -32,10 +32,26 @@ class EscalatorStepData(CommonBIMData):
     chain_u: float = 0.0
     t_range: tuple = (0.0, 0.0)
     shape: Optional[StripShape] = None
+    face_frames: dict = field(default_factory=dict)  # 디딤판 3DFACE 핸들 → 텍스처 틀 (원점, u, v, 폭, 깊이) — 스텝마다 이미지 한 장
 
     @property
     def volume(self) -> float:
         return self.shape.volume if self.shape else 0.0
+
+
+@dataclass
+class EscalatorBollardData(CommonBIMData):
+    """승강구 앞 볼라드 1개 (IFC: IfcBuildingElementProxy USERDEFINED BOLLARD, 서는 층 storey). 형상 = 16각 기둥을 s 방향
+    사다리꼴 조각(RoomPiece)으로 나눔. end = 'L'(아래층) | 'U'(위층), floor = 서는 층, center = (s, t), radius"""
+    end: str = "L"
+    floor: int = 1
+    center: tuple = (0.0, 0.0)
+    radius: float = 0.0
+    pieces: list = field(default_factory=list)
+
+    @property
+    def volume(self) -> float:
+        return sum(p.shape.volume for p in self.pieces)
 
 
 @dataclass
@@ -61,6 +77,7 @@ class EscalatorData(CommonBIMData):
     opening_names: list = field(default_factory=list)
     parts: list = field(default_factory=list)
     steps: list = field(default_factory=list)          # EscalatorStepData (위 운행로, 아래에서 위로)
+    bollards: list = field(default_factory=list)       # EscalatorBollardData (승강구 앞)
 
     def part(self, kind: EscalatorPartKind, side: int = 0):
         return next(p for p in self.parts if p.kind == kind and p.side == side)

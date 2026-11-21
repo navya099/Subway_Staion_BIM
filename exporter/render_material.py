@@ -48,6 +48,16 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("M바 천장틀", (0.60, 0.60, 0.60)),
     RenderMaterial("T바 천장틀", (0.60, 0.60, 0.60)),
 )}
+# 에스컬레이터 부재 재질 이름(EscalatorEngine._MATERIAL) → 보기 재질 (상세 5단계). 목록에 없는 부재는 레이어 재질.
+# 스텝 디딤판 윗면은 스텝마다 이미지 한 장 (face_frames), 승강구 바닥판은 금속 무늬 타일
+ESC_MATERIALS = {
+    "Rubber_Handrail": RenderMaterial("에스컬레이터 핸드레일", (0.04, 0.04, 0.05)),
+    "Aluminium_Step": RenderMaterial("에스컬레이터 스텝", (0.45, 0.46, 0.48), "escalator_step", 1.0, 0.4),
+    "Aluminium_Step_Side": RenderMaterial("에스컬레이터 스텝 챌판", (0.45, 0.46, 0.48), "escalator_riser", 0.4, 0.4),
+    "Aluminium_FloorPlate": RenderMaterial("에스컬레이터 승강판", (0.70, 0.71, 0.72), "escalator_plate", 0.3, 0.3),
+    "Aluminium_Comb": RenderMaterial("에스컬레이터 콤플레이트", (0.85, 0.70, 0.12)),
+    "Stainless_Bollard": RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
+}
 FINISH_DEFAULT = (0.80, 0.80, 0.80)       # 목록에 없는 마감 재질
 
 # 구조 부재 기본 재질 (벽·슬래브·승강장·기둥·계단·통로·출입구·환기구·승강로): 콘크리트 텍스처, 2m 한 장

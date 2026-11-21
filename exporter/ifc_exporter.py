@@ -398,7 +398,8 @@ class IFCExporter:
 
     def export_escalators(self, escalator_engine: EscalatorEngine):
         """에스컬레이터: IfcTransportElement(ESCALATOR) 가 트러스·스텝(IfcBuildingElementPart), 난간 패널·핸드레일(IfcRailing)을
-        IfcRelAggregates 로 묶고, IfcTransportElement 만 시작 층 IfcBuildingStorey 에 포함"""
+        IfcRelAggregates 로 묶고, IfcTransportElement 만 시작 층 IfcBuildingStorey 에 포함. 볼라드는 서는 층 storey"""
+        bollards_at: dict = {}
         for package in escalator_engine.escalator_packages:
             storey = self.storeys[package.level]
             elements = []
@@ -447,9 +448,21 @@ class IFCExporter:
                 self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
                                         RelatingObject=ifc_esc, RelatedObjects=parts)
                 elements.append(ifc_esc)
+                for b in esc.bollards:                        # 승강구 앞 볼라드: 서는 층 storey
+                    el = self.file.create_entity(
+                        "IfcBuildingElementProxy", GlobalId=ifcopenshell.guid.compress(uuid.UUID(b.guid).hex), Name=b.name,
+                        Description=f"에스컬레이터 {esc.name} {'아래층' if b.end == 'L' else '위층'} 승강구 볼라드",
+                        ObjectType="BOLLARD", ObjectPlacement=self._placement(), PredefinedType="USERDEFINED",
+                        Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in b.pieces],
+                                                           "Tessellation"))
+                    self._assign_material(el, b.material)
+                    bollards_at.setdefault(b.level, []).append(el)
             if elements:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=storey, RelatedElements=elements)
+        for level, els in bollards_at.items():
+            self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingStructure=self.storeys[level], RelatedElements=els)
 
     def export_entrances(self, entrance_engine: EntranceEngine):
         """출입구: IfcElementAssembly(USERDEFINED: ENTRANCE) 가 박스 부재(IfcSlab FLOOR/ROOF, IfcWall),

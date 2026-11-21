@@ -45,6 +45,8 @@ class EscalatorSpec:
         skirt_height: 스텝 코 선 위 스커트 높이 = 데크 하면 (m, 상세 2단계 — 그 위 데크 두께, 그 위 유리)
         deck_width: 안쪽 데크 폭 (스커트 안쪽 면 ~ 유리, m), glass_t: 난간 유리 두께 (m).
         newel_ext: 난간·핸드레일이 스텝 구간 양끝 너머로 나가는 수평 길이 (m, 상세 3단계), newel_radius: 끝 뉴얼 반원 바깥 반경 (m)
+        bollard_count: 승강구 앞 볼라드 수 (양끝 각각, 0 = 없음, 상세 5단계), bollard_d / bollard_h: 볼라드 지름·높이 (m),
+        bollard_dist: 끝 뉴얼(핸드레일 고리 바깥 끝) → 볼라드 중심 수평 거리 (m). t 위치 = 두 핸드레일 중심 사이를 수 + 1 등분
         단면(스텝 가장자리 → 바깥): 틈 SKIRT_GAP · 스커트 SKIRT_T · (데크 폭 안에서) · 유리 · 바깥 데크(트러스 바깥까지)
         name: 비우면 ES + 일련번호
     """
@@ -73,6 +75,10 @@ class EscalatorSpec:
     glass_t: float = 0.012
     newel_ext: float = 0.3
     newel_radius: float = 0.3
+    bollard_count: int = 2
+    bollard_d: float = 0.12
+    bollard_h: float = 0.9
+    bollard_dist: float = 1.2
 
     @property
     def tan(self) -> float:
@@ -110,6 +116,12 @@ class EscalatorSpec:
         g1 = g0 + self.glass_t
         return {"SKIRT": self._span(side, k0, k0 + SKIRT_T), "INNER_DECK": self._span(side, k0, g0),
                 "GLASS": self._span(side, g0, g1), "OUTER_DECK": self._span(side, g1, self.truss_width / 2.0)}
+
+    def bollard_ts(self) -> list:
+        """볼라드 중심 t 목록: 두 핸드레일(유리) 중심 사이를 bollard_count + 1 등분"""
+        g = abs(sum(self.detail_t(1)["GLASS"]) / 2.0 - self.t_center)
+        n = self.bollard_count
+        return [self.t_center + g * (2.0 * (i + 1) / (n + 1) - 1.0) for i in range(n)]
 
     def handrail_t(self, side: int) -> tuple[float, float]:
         """핸드레일 t 범위 (난간 패널 중심에 놓임)"""

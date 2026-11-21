@@ -1,5 +1,7 @@
 from config.master_config import StationProjectConfig
-from escalators.escalator_data import EscalatorData, EscalatorPartData, EscalatorStepData
+import math
+
+from escalators.escalator_data import EscalatorBollardData, EscalatorData, EscalatorPartData, EscalatorStepData
 from helper import prism_member as PM
 from helper.strip_member import Strip
 from escalators.escalator_package import EscalatorPackage
@@ -39,11 +41,13 @@ class EscalatorEngine:
         self.cfg = config
         self.sp = config.station
         self.escalator_packages: list[EscalatorPackage] = []
+        self._layouts: dict = {}                         # 이름 → EscalatorLayout (스텝 텍스처 틀)
         self._build()
 
     def _build(self):
         by_level: dict[str, EscalatorPackage] = {}
         for lay in self.cfg.escalator_layouts():
+            self._layouts[lay.name] = lay
             spec = lay.spec
             level = self.sp.level_name(lay.lower_floor)
             package = by_level.setdefault(level, EscalatorPackage(level=level, package_id=f"PKG_{level}_ESCALATORS"))
@@ -71,6 +75,7 @@ class EscalatorEngine:
                     pos_x=lay.s_at(stp.u), pos_y=spec.t_center, pos_z=min(x.zb0 for x in strips),
                     material=_MATERIAL[EscalatorPartKind.STEPS], index=stp.index, chain_u=stp.u, t_range=(st0, st1),
                     shape=StripShape(strips=strips, width=st1 - st0)))
+            bollards = [self._bollard(lay, b) for b in lay.bollards]
             s0, s1 = lay.s_range
             t0, t1 = lay.t_range
             names = [lay.opening.name] + ([lay.pit_opening.name] if lay.pit_opening else []) + \
@@ -81,9 +86,27 @@ class EscalatorEngine:
                 pos_z=self.cfg.lv(lay.s_at(0.0)) - self.sp.offset + lay.base_level,      # 하부 WP 표고
                 lower_floor=lay.lower_floor, direction=spec.direction, on_platform=lay.on_platform,
                 angle_deg=spec.angle_deg, rise=lay.rise, run=lay.run, s_wp=lay.s_wp, s_range=lay.s_range,
-                t_range=lay.t_range, opening_names=names, parts=parts, steps=steps))
+                t_range=lay.t_range, opening_names=names, parts=parts, steps=steps, bollards=bollards))
         floor_no = {self.sp.level_name(n): n for n in range(1, self.sp.floors + 1)}
         self.escalator_packages = sorted(by_level.values(), key=lambda pk: floor_no[pk.level])
+
+    BOLLARD_SIDES = 16                                   # 볼라드 단면 다각형 변 수
+
+    def _bollard(self, lay, b) -> EscalatorBollardData:
+        """볼라드 = 16각 기둥 (꼭짓점이 반지름 위, ±s 끝이 꼭짓점) → s 방향 사다리꼴 조각 8개 (양끝은 폭 0 인 삼각)"""
+        from finishes.finish_engine import room_piece
+        spec, r = lay.spec, lay.spec.bollard_d / 2.0
+        name = f"{lay.name}_BOLLARD_{b.end}{b.index}"
+        half = self.BOLLARD_SIDES // 2
+        vs = sorted((r * math.cos(math.pi * j / half), r * math.sin(math.pi * j / half)) for j in range(half + 1))
+        pieces = []
+        for k, ((da, ha), (db, hb)) in enumerate(zip(vs, vs[1:]), start=1):
+            trap = (b.t - ha, b.t + ha, b.t - hb, b.t + hb)
+            pieces.append(room_piece(self.cfg, f"{name}_{k}", b.s + da, b.s + db, b.t - max(ha, hb), b.t + max(ha, hb),
+                                     b.z0, b.z0 + spec.bollard_h, trap=trap))
+        return EscalatorBollardData(name=name, family_name="볼라드", type_name=f"D{int(round(spec.bollard_d * 1000))} 볼라드",
+                                    level=self.cfg.station.level_name(b.floor), material="Stainless_Bollard", end=b.end,
+                                    floor=b.floor, center=(b.s, b.t), radius=r, pieces=pieces)
 
     def all_escalators(self) -> list[EscalatorData]:
         return [e for pk in self.escalator_packages for e in pk.escalators]
@@ -111,6 +134,34 @@ class EscalatorEngine:
                     and esc.steps                               # 상세 형상의 유리 난간은 반투명 레이어
                 layer = "STRUCT_ESC_GLASS" if glass else "STRUCT_ESCALATOR"
                 part.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
+            self._step_frames(esc, msp)
+            for b in esc.bollards:
+                b.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_ESCALATOR"}) for p in b.pieces
+                                    for f in PM.mesh_faces(self.cfg, p)]
+
+    def _step_frames(self, esc, msp):
+        """스텝마다 디딤판 윗면에 텍스처 이미지 한 장: (원점 = 앞 코·오른쪽(−t) 끝, u = +t, v = 앞 코 → 안쪽, 스텝 폭, 스텝 깊이)
+        — 이미지 아래쪽 = 앞 코 (계단석과 같은 틀, DAE·웹 뷰어 apply_tread_uv). 앞 코 위치의 접선 기준 (곡선은 근사)"""
+        cfg = self.cfg
+        lay = self._layouts.get(esc.name)
+        if lay is None:
+            return
+
+        def unit(a, b):
+            v = (b[0] - a[0], b[1] - a[1], 0.0)
+            n = math.hypot(v[0], v[1]) or 1.0
+            return (v[0] / n, v[1] / n, 0.0)
+        dep = lay.spec.step_depth
+        for stp in esc.steps:
+            t0, t1 = stp.t_range
+            nose = lay.s_at(stp.chain_u)
+            o = cfg.to_world(nose, t0)
+            fr = ((o[0], o[1], 0.0), unit(o, cfg.to_world(nose, t0 + 1.0)),
+                  unit(o, cfg.to_world(nose + lay.spec.direction * 0.5, t0)), t1 - t0, dep)
+            n_faces = [len(q) for q in part_faces(cfg, stp)]
+            tread = max(range(len(stp.shape.strips)), key=lambda i: stp.shape.strips[i].s1 - stp.shape.strips[i].s0)
+            a = sum(n_faces[:tread])
+            stp.face_frames = {e.dxf.handle: fr for e in stp.source_element[a:a + n_faces[tread]]}
 
     # ---------- 2D 도면 ----------
     def section_items(self, sta):
@@ -125,6 +176,11 @@ class EscalatorEngine:
                         label = (esc.name, t0 + 0.1, zt + 1.3, 0.4, "SEC_TEXT")
                         labeled = True
                     items.append(ViewItem.rect(part.name, "SEC_ESCALATOR", t0, t1, zb, zt, label=label))
+            for b in esc.bollards:
+                for p in b.pieces:
+                    cut = PM.section_rect(self.cfg, p, sta)
+                    if cut:
+                        items.append(ViewItem.rect(b.name, "SEC_ESCALATOR", cut[0], cut[1], cut[2], cut[2] + p.shape.height))
         return items
 
     def profile_items(self, t_cut=0.0):
@@ -175,4 +231,8 @@ class EscalatorEngine:
                 a = min(x.s0 for st in esc.steps for x in st.shape.strips)
                 b = max(x.s1 for st in esc.steps for x in st.shape.strips)
                 items.append(ViewItem.rect(f"{esc.name}_STEPS", "PLAN_ESCALATOR", a, b, *esc.steps[0].t_range))
+        for esc in self.all_escalators():                       # 볼라드 (서는 층, 절단 높이 무관)
+            for b in esc.bollards:
+                if b.floor == floor:
+                    items.append(ViewItem(b.name, "PLAN_ESCALATOR", circle=(*b.center, b.radius)))
         return items

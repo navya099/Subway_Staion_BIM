@@ -22,6 +22,11 @@ from tactiles.tactile_spec import TactileSettings
 from config.widening import check_widenings
 from psds.psd_layout import check_psd
 from signs.sign_layout import check_signs
+from railings.railing_layout import check_railings
+from railings.railing_spec import RailingSettings
+from stairs.stair_enclosure import EnclosureSettings, enclosure_rooms
+from smokewalls.smoke_layout import check_smoke_barriers
+from smokewalls.smoke_spec import SmokeBarrierSettings
 from signs.sign_spec import SignSettings
 from psds.psd_spec import PsdSettings
 from trains.train_layout import check_train
@@ -47,6 +52,9 @@ class StationProjectConfig:
     train_settings: TrainSettings = dataclasses.field(default_factory=TrainSettings)        # 열차 편성·선로별 정차 (승하차 위치)
     psd_settings: PsdSettings = dataclasses.field(default_factory=PsdSettings)              # 스크린도어 (열차 문 위치에 유닛)
     sign_settings: SignSettings = dataclasses.field(default_factory=SignSettings)          # 역명판·안내사인
+    railing_settings: RailingSettings = dataclasses.field(default_factory=RailingSettings)   # 계단·ESC 오프닝 유리난간
+    enclosure_settings: EnclosureSettings = dataclasses.field(default_factory=EnclosureSettings)   # 계단·ESC 옆 벽체 + 하부 창고
+    smoke_settings: SmokeBarrierSettings = dataclasses.field(default_factory=SmokeBarrierSettings)   # 계단·ESC 입구 천장 제연경계벽
     tactile_settings: TactileSettings = dataclasses.field(default_factory=TactileSettings)   # 점자블록 (자동 경고 + 유도 경로)
     widenings: list = dataclasses.field(default_factory=list)     # list[WidenSpec]: 구조물 확폭 (층·쪽별 측벽 내공면 구간 확폭)
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
@@ -77,9 +85,12 @@ class StationProjectConfig:
         # 실 경계가 내공면에서 경계 벽 두께 이내면 내공면에 붙임 (입력 정규화: 이후 엔진·도면·마감은 붙인 값을 씀).
         # 계단·에스컬레이터 자동 오프닝이 아래층 천장 높이를 실 배치에서 찾으므로 그 전에
         check_widenings(self)
+        self.rooms = [r for r in self.rooms if not getattr(r, "auto", "")]      # 자동 실(계단 옆 벽체)은 아래에서 다시 만듦
         self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings, self)
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
         stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)
+        # 계단·ESC 옆 벽체 + 하부 창고 = 자동 실 (계단 시작 앞·도착 지점의 실과 천장은 바뀌지 않아 배치는 그대로)
+        self.rooms = self.rooms + enclosure_rooms(self, stairs, escs, evs)
         all_ops = self.openings + self._auto_openings(stairs, escs, evs)
         check_openings(self.station, all_ops, self)
         check_stair_layouts(self, stairs)
@@ -91,6 +102,8 @@ class StationProjectConfig:
         check_psd(self)
         check_tactile(self)
         check_signs(self)
+        check_railings(self)
+        check_smoke_barriers(self)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)

@@ -262,6 +262,8 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
     foot = (*sorted((s_at(0.0), s_at(length))), t0, t1)
     ceil = ceiling_bottom_under(cfg, k, foot)
     z_head = z_slab_bot if ceil is None else min(z_slab_bot, ceil)
+    from smokewalls.smoke_spec import head_drop
+    z_head -= head_drop(cfg)                             # 입구 천장 제연경계벽 아래에서도 머리 높이 확보
     u_open = run
     for p in parts:
         for ua, ub, zt in p.surfaces:

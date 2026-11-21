@@ -883,7 +883,9 @@ def test_generate_with_stairs_end_to_end(app, tmp_path):
     paths = BIMEngine.build(cfg, tmp_path)
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
     assert len(f.by_type("IfcStair")) == 2 and len(f.by_type("IfcStairFlight")) >= 4
-    assert sorted(o.Name.split("_")[1] for o in f.by_type("IfcOpeningElement")) == ["ST1", "ST2"]
+    ops = f.by_type("IfcOpeningElement")
+    assert sorted(o.Name.split("_")[1] for o in ops if "창고" not in o.Name) == ["ST1", "ST2"]     # 슬래브 오프닝
+    assert any("창고_D1" in o.Name for o in ops)                                              # 계단 하부 창고 문
 
 
 # ---------------- 에스컬레이터 탭 ----------------
@@ -948,8 +950,11 @@ def test_generate_with_escalators_end_to_end(app, tmp_path):
     cfg = TkAdapter.collect_entries(app.entries)
     paths = BIMEngine.build(cfg, tmp_path)
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
-    assert len(f.by_type("IfcTransportElement")) == 2 and len(f.by_type("IfcRailing")) == 8
-    assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == [
+    rails = f.by_type("IfcRailing")
+    assert len(f.by_type("IfcTransportElement")) == 2
+    assert len([r for r in rails if r.PredefinedType != "GUARDRAIL"]) == 8                    # ESC 난간·핸드레일
+    assert sorted(r.Name for r in rails if r.PredefinedType == "GUARDRAIL") == ["RL_ES1", "RL_ES2"]   # 오프닝 유리난간
+    assert sorted(o.Name for o in f.by_type("IfcOpeningElement") if "창고" not in o.Name) == [
         "OPEN_ES1_PIT_PLAT_B3F_R", "OPEN_ES1_SLAB_B2F_MID", "OPEN_ES2_PIT_SLAB_B2F_MID", "OPEN_ES2_SLAB_B1F_MID"]
 
 
@@ -1046,7 +1051,7 @@ def test_generate_with_path_passages_end_to_end(app, tmp_path):
     paths = BIMEngine.build(cfg, tmp_path)
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
     assert len([a for a in f.by_type("IfcElementAssembly") if a.ObjectType == "EXIT_PASSAGE"]) == 2   # GUI 기본은 PSD 도 켬
-    assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == ["OPEN_EX1_WALL_B1F_R", "OPEN_EX2_WALL_B1F_L"]
+    assert sorted(o.Name for o in f.by_type("IfcOpeningElement") if "창고" not in o.Name) == ["OPEN_EX1_WALL_B1F_R", "OPEN_EX2_WALL_B1F_L"]
 
 
 # ---------------- 출입구 탭 ----------------
@@ -1639,6 +1644,76 @@ def test_finish_tab_stair_finish_edit_and_round_trip(app, monkeypatch, tmp_path)
     assert not tab._vars[("stair", "nosing")].get() and not app.is_dirty()
     tab._vars[("stair", "enabled")].set(False)
     assert TkAdapter.collect_entries(app.entries).finish_settings.stair_finish() is None
+
+
+def test_stair_tab_railing_edit_and_round_trip(app, monkeypatch, tmp_path):
+    tab = app.stair_tab
+    rs = TkAdapter.collect_entries(app.entries).railing_settings
+    assert rs.enabled and rs.escalators and rs.glass_rgb == (150, 205, 190)
+    tab._vars[("railing", "glass_rgb")].set("200, 10, 20")
+    tab._vars[("railing", "rail_h1")].set("1.1")
+    tab._vars[("railing", "escalators")].set(False)
+    rs = TkAdapter.collect_entries(app.entries).railing_settings
+    assert (rs.glass_rgb, rs.rail_h1, rs.escalators) == ((200, 10, 20), 1.1, False)
+    tab._vars[("railing", "glass_rgb")].set("x")
+    with pytest.raises(ValueError, match="유리난간: 유리 색"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[("railing", "glass_rgb")].set("200, 10, 20")
+    path = str(tmp_path / "r.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[("railing", "glass_rgb")].get() == "150, 205, 190"
+    app.on_open(path)
+    assert tab._vars[("railing", "glass_rgb")].get() == "200, 10, 20" and not tab._vars[("railing", "escalators")].get()
+    assert TkAdapter.collect_entries(app.entries).railing_settings.rail_h1 == 1.1 and not app.is_dirty()
+    tab._vars[("railing", "enabled")].set(False)
+    assert not TkAdapter.collect_entries(app.entries).railing_settings.enabled
+
+
+def test_stair_tab_enclosure_edit_and_round_trip(app, monkeypatch, tmp_path):
+    tab = app.stair_tab
+    es = TkAdapter.collect_entries(app.entries).enclosure_settings
+    assert es.enabled and es.storage and es.storage_use == "창고"
+    tab._vars[("enclosure", "storage_use")].set("기계실")
+    tab._vars[("enclosure", "storage")].set(False)
+    tab._vars[("enclosure", "door_w")].set("1.2")
+    es = TkAdapter.collect_entries(app.entries).enclosure_settings
+    assert (es.storage_use, es.storage, es.door_w) == ("기계실", False, 1.2)
+    tab._vars[("enclosure", "storage_h")].set("x")
+    with pytest.raises(ValueError, match="계단 옆 벽체"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[("enclosure", "storage_h")].set("2.4")
+    path = str(tmp_path / "e.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[("enclosure", "storage_use")].get() == "창고"
+    app.on_open(path)
+    assert tab._vars[("enclosure", "storage_h")].get() == "2.4" and not tab._vars[("enclosure", "storage")].get()
+    assert not app.is_dirty()
+    tab._vars[("enclosure", "enabled")].set(False)
+    assert not TkAdapter.collect_entries(app.entries).enclosure_settings.enabled
+
+
+def test_stair_tab_smoke_barrier_edit_and_round_trip(app, monkeypatch, tmp_path):
+    tab = app.stair_tab
+    sb = TkAdapter.collect_entries(app.entries).smoke_settings
+    assert sb.enabled and sb.depth == 0.6
+    tab._vars[("smoke", "depth")].set("0.8")
+    tab._vars[("smoke", "glass_rgb")].set("10, 20, 30")
+    sb = TkAdapter.collect_entries(app.entries).smoke_settings
+    assert (sb.depth, sb.glass_rgb) == (0.8, (10, 20, 30))
+    tab._vars[("smoke", "depth")].set("x")
+    with pytest.raises(ValueError, match="제연경계벽"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[("smoke", "depth")].set("0.8")
+    path = str(tmp_path / "sb.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[("smoke", "depth")].get() == "0.6"
+    app.on_open(path)
+    assert tab._vars[("smoke", "depth")].get() == "0.8" and not app.is_dirty()
+    tab._vars[("smoke", "enabled")].set(False)
+    assert not TkAdapter.collect_entries(app.entries).smoke_settings.enabled
 
 
 def test_generate_with_finishes_end_to_end(app, tmp_path):

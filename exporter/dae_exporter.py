@@ -18,7 +18,8 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material
+from exporter.render_material import (TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material,
+                                      railing_glass_material)
 from preview.preview_render import station_of
 
 HORIZONTAL_NZ = 0.7          # 이 이상이면 바닥·천장처럼 수평 면으로 보고 선형 방향에 맞춰 텍스처를 깜
@@ -171,6 +172,16 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
     stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
     for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin:
         m = finish_material(e.material)
+        for ent in e.source_element or []:
+            mat_of[ent.dxf.handle] = m
+    rails = getattr(engine, "railings", None)
+    for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
+        m = railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material)
+        for ent in e.source_element or []:
+            mat_of[ent.dxf.handle] = m
+    smokes = getattr(engine, "smokes", None)
+    for e in (smokes.elements if smokes is not None else []):          # 제연경계벽: 유리 = 설정 색
+        m = railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m
     path = Path(path)

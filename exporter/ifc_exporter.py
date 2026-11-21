@@ -695,6 +695,7 @@ class IFCExporter:
                     ("WallFinishThickness", "IfcLengthMeasure", float(ft.wall_t)),
                     ("WallFinishFace", "IfcLengthMeasure", float(ft.face)),          # 구조체 면 → 마감 표면
                     ("WallFinishGap", "IfcLengthMeasure", float(ft.wall_gap)),       # 마감재 뒷면 이격 (하지 공간)
+                    ("PartitionFinishFace", "IfcLengthMeasure", float(ft.pface)),    # 칸막이벽 면 → 마감 표면
                     ("CeilingMaterial", "IfcLabel", ft.ceiling_material if ft.ceiling else "없음"),
                     ("CeilingHeight", "IfcLengthMeasure", float(ft.ceiling_h if ft.ceiling else 0.0)),
                     ("CeilingFrame", "IfcLabel", f"{ft.frame}바" if ft.ceiling else "없음")]
@@ -762,6 +763,67 @@ class IFCExporter:
             asms.append(asm)
         f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                         RelatingStructure=self.storeys[level], RelatedElements=asms)
+
+    def export_railings(self, railing_engine):
+        """오프닝 유리난간: 난간마다 IfcRailing(GUARDRAIL) ⊃ 경계석 IfcBuildingElementPart(USERDEFINED CURB) · POST IfcMember(POST)
+        · 레일 IfcMember(USERDEFINED HANDRAIL) · 유리 IfcPlate(CURTAIN_PANEL). 형상 = 조각 면 집합, 난간이 서는 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for r in railing_engine.railings:
+            rail = f.create_entity("IfcRailing", GlobalId=ifcopenshell.guid.compress(uuid.UUID(r.guid).hex), Name=r.name,
+                                   Description=f"오프닝 {r.opening} 유리난간 ({', '.join(r.edges)})", ObjectType=r.type_name,
+                                   ObjectPlacement=self._placement(), PredefinedType="GUARDRAIL")
+            parts = []
+            for e in r.parts:
+                kw = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
+                          ObjectPlacement=self._placement(),
+                          Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces],
+                                                             "Tessellation"))
+                if e.code in ("CURB", "SKIRT", "CORE"):
+                    kw["ObjectType"] = {"CURB": "CURB_PLATE", "SKIRT": "CURB_SKIRTING", "CORE": "CURB_CORE"}[e.code]
+                    el = f.create_entity("IfcBuildingElementPart", PredefinedType="USERDEFINED", **kw)
+                elif e.code == "POST":
+                    el = f.create_entity("IfcMember", PredefinedType="POST", **kw)
+                elif e.code == "RAIL":
+                    kw["ObjectType"] = "HANDRAIL"
+                    el = f.create_entity("IfcMember", PredefinedType="USERDEFINED", **kw)
+                else:
+                    el = f.create_entity("IfcPlate", PredefinedType="CURTAIN_PANEL", **kw)
+                self._assign_material(el, e.material)
+                parts.append(el)
+            f.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=rail, RelatedObjects=parts)
+            by_level.setdefault(r.level, []).append(rail)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+
+    def export_smoke_barriers(self, smoke_engine):
+        """제연경계벽: 경계벽마다 IfcCurtainWall(USERDEFINED SMOKE_BARRIER) ⊃ 프레임 IfcMember(USERDEFINED FRAME)·유리 IfcPlate,
+        매달린 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for b in smoke_engine.barriers:
+            wall = f.create_entity("IfcCurtainWall", GlobalId=ifcopenshell.guid.compress(uuid.UUID(b.guid).hex), Name=b.name,
+                                   Description=f"오프닝 {b.opening} 입구 천장 제연경계벽", ObjectType="SMOKE_BARRIER",
+                                   ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+            parts = []
+            for e in b.parts:
+                kw = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
+                          ObjectPlacement=self._placement(),
+                          Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces],
+                                                             "Tessellation"))
+                if e.code == "GLASS":
+                    el = f.create_entity("IfcPlate", PredefinedType="CURTAIN_PANEL", **kw)
+                else:
+                    kw["ObjectType"] = "FRAME"
+                    el = f.create_entity("IfcMember", PredefinedType="USERDEFINED", **kw)
+                self._assign_material(el, e.material)
+                parts.append(el)
+            f.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=wall, RelatedObjects=parts)
+            by_level.setdefault(b.level, []).append(wall)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
 
     def export_signs(self, sign_engine):
         """역명판·안내사인: 사인마다 IfcBuildingElementProxy(USERDEFINED, ObjectType SIGNAGE) — 본체 + 이미지 면, 재질,

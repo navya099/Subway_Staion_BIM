@@ -22,6 +22,9 @@ from gui.elevator_draft import ElevatorDraft, ElevatorDrafts
 from gui.entrance_draft import EntranceDraft, EntranceDrafts
 from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
 from gui.finish_draft import FinishTypeDraft, StairFinishDraft, default_drafts
+from gui.railing_draft import RailingDraft
+from gui.enclosure_draft import EnclosureDraft
+from gui.smoke_draft import SmokeDraft
 from gui.opening_draft import OpeningDraft, OpeningDrafts
 from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
@@ -212,6 +215,9 @@ class ProjectState:
     finish_enabled: bool = True                                                   # 마감 생성
     finish_drafts: list = field(default_factory=default_drafts)                  # 마감표 (FinishTypeDraft)
     stair_finish_draft: StairFinishDraft = field(default_factory=StairFinishDraft)   # 계단 마감 (마감 탭)
+    railing_draft: RailingDraft = field(default_factory=RailingDraft)            # 오프닝 유리난간 (계단 탭)
+    enclosure_draft: EnclosureDraft = field(default_factory=EnclosureDraft)      # 계단 옆 벽체·하부 창고 (계단 탭)
+    smoke_draft: SmokeDraft = field(default_factory=SmokeDraft)                  # 입구 천장 제연경계벽 (계단 탭)
     sign_draft: SignDraft = field(default_factory=SignDraft)                      # 역명판·안내사인 (사인 탭)
     psd_draft: PsdDraft = field(default_factory=PsdDraft)                         # 스크린도어 (승강장 탭)
     train_draft: TrainDraft = field(default_factory=TrainDraft)                   # 열차 편성·정차 (승강장 탭)
@@ -230,6 +236,9 @@ class ProjectState:
         d["finish_enabled"] = bool(self.finish_enabled)
         d["finish_drafts"] = _plain(self.finish_drafts)
         d["stair_finish_draft"] = _plain(self.stair_finish_draft)
+        d["railing_draft"] = _plain(self.railing_draft)
+        d["enclosure_draft"] = _plain(self.enclosure_draft)
+        d["smoke_draft"] = _plain(self.smoke_draft)
         d["tactile_settings"] = _plain(self.tactile_settings)
         d["train_draft"] = _plain(self.train_draft)
         d["psd_draft"] = _plain(self.psd_draft)
@@ -262,6 +271,12 @@ class ProjectState:
             st.finish_enabled = bool(d["finish_enabled"])
         if isinstance(d.get("finish_drafts"), list):                 # 옛 파일에는 없음 → 기본 마감표
             st.finish_drafts = [_build(FinishTypeDraft, x, f"마감 {i + 1}") for i, x in enumerate(d["finish_drafts"])]
+        if d.get("smoke_draft") is not None:                       # 옛 파일에는 없음 → 기본 (사용)
+            st.smoke_draft = _build(SmokeDraft, d["smoke_draft"], "제연경계벽")
+        if d.get("enclosure_draft") is not None:                   # 옛 파일에는 없음 → 기본 (사용)
+            st.enclosure_draft = _build(EnclosureDraft, d["enclosure_draft"], "계단 옆 벽체")
+        if d.get("railing_draft") is not None:                     # 옛 파일에는 없음 → 기본 (사용)
+            st.railing_draft = _build(RailingDraft, d["railing_draft"], "유리난간")
         if d.get("stair_finish_draft") is not None:                # 옛 파일에는 없음 → 기본 (사용)
             st.stair_finish_draft = _build(StairFinishDraft, d["stair_finish_draft"], "계단 마감")
         if d.get("room_settings") is not None:

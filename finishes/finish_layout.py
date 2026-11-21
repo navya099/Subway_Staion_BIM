@@ -200,6 +200,14 @@ def _boundary(rects):
     return out
 
 
+def _reflex(rects, axis, c, x) -> bool:
+    """경계 선(axis, c) 위 점 x 가 실 영역의 반사각 꼭짓점(주변 네 칸 중 세 칸이 실 안)인가 — 실이 벽 모서리를 감쌈"""
+    s, t = (x, c) if axis == "s" else (c, x)
+    d = 1e-4
+    inside = lambda u, v: any(r[0] - 1e-9 <= u <= r[1] + 1e-9 and r[2] - 1e-9 <= v <= r[3] + 1e-9 for r in rects)
+    return sum(inside(s + ds, t + dt) for ds in (-d, d) for dt in (-d, d)) == 3
+
+
 def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns: list, openings: list,
                          stairs: list, escalators: list, elevators: list, tactile: list = ()) -> list:
     """실마다 RoomFinishLayout.
@@ -224,16 +232,28 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         ev_rects = [ev.outer_rect() for ev in evs]
         risers = [x for x in list(stairs) + list(escalators) if x.lower_floor == n]      # 이 층에서 오르는 계단·ESC
         skip_ops = pit_names | {o.name for o in openings if o.name.endswith("_SHAFT")}      # 둘레 마감 없는 오프닝
+        from railings.railing_layout import railing_footprints
+        curbs = railing_footprints(cfg, n)                   # 유리난간 경계석 (구조 바닥 위) — 바닥 마감에서 뺌
         below = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
         # 위 슬래브 오프닝만큼 천장을 뺌. 단 위층 에스컬레이터 하부 피트(슬래브 두께 안에서 트러스가 막음)는 아래층 천장을 뚫지 않음
         above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs and o.name not in pit_names]
         lines = {}                                           # (축, 좌표) → [(접선 lo, hi, 반두께)] 칸막이벽·구획분리 벽
+        ptops = {}                                           # (축, 좌표) → [(접선 lo, hi, 벽 윗면)] 벽 마감이 벽 위로 나가지 않게
         for pw in fl.partitions:
-            for s0, s1, t0, t1, *_ in pw.pieces:
+            for s0, s1, t0, t1, *zz in pw.pieces:
                 if pw.axis == "s":
-                    lines.setdefault(("s", round((t0 + t1) / 2.0, 6)), []).append((s0, s1, (t1 - t0) / 2.0))
+                    key, iv = ("s", round((t0 + t1) / 2.0, 6)), (s0, s1)
+                    lines.setdefault(key, []).append((s0, s1, (t1 - t0) / 2.0))
                 else:
-                    lines.setdefault(("t", round((s0 + s1) / 2.0, 6)), []).append((t0, t1, (s1 - s0) / 2.0))
+                    key, iv = ("t", round((s0 + s1) / 2.0, 6)), (t0, t1)
+                    lines.setdefault(key, []).append((t0, t1, (s1 - s0) / 2.0))
+                if len(zz) > 1:
+                    ptops.setdefault(key, []).append((*iv, zz[1]))
+
+        def part_top(axis, c, lo, hi, default):
+            """그 선 칸막이벽 조각 중 [lo, hi] 와 겹치는 것의 가장 낮은 윗면 (계단 아래 끝 벽은 계단 하면까지라 마감도 거기까지)"""
+            tops = [z for a, b, z in ptops.get((axis, round(c, 6)), []) if min(b, hi) - max(a, lo) > _EPS]
+            return min([default] + tops)
         for room in fl.rooms:
             sp = room_specs.get(room.name)
             ft = settings.for_room(room.use, getattr(sp, "finish", "") if sp else "")
@@ -252,7 +272,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 wall_top = c
             obstacles = walls_fp + col_rects + ev_rects
             # 계단·ESC 는 바닥 마감면 아래로 내려오는 곳(접지 구간)만 바닥 마감에서 뺌 — 경사부·트러스 아래 바닥은 마감
-            stair_fp = contact_rects(cfg, risers, n, ft.ffl) if ft.ffl > _EPS else []
+            stair_fp = (contact_rects(cfg, risers, n, ft.ffl) if ft.ffl > _EPS else []) + curbs
             # 위 슬래브 오프닝 둘레 마감 (천장 속 막이 + 슬래브 옆면): 벽 마감과 같은 재질, 막이 자리는 천장판에서 뺌
             linings, lining_fp = opening_linings(cfg, n, room, ft, rf.ceiling_rel, openings, stairs, escalators,
                                                  skip_ops, obstacles) if ft.ceiling else ([], [])
@@ -307,13 +327,29 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                             if x1 - x0 > _EPS:
                                 backs.append((x0, x1, half, "wall"))
                     for x0, x1, off, kind in backs:
-                        d0, d1 = sorted((c + sign * (off + gap), c + sign * (off + face)))
+                        kg, kf = (ft.pgap, ft.pface) if kind == "wall" else (gap, face)   # 칸막이벽은 칸막이벽 전용 거리
+                        d0, d1 = sorted((c + sign * (off + kg), c + sign * (off + kf)))
+                        # 실이 벽 모서리를 감싸는 곳(반사각 꼭짓점 — 다른 실의 바깥 모서리): 마감을 모서리 너머로 늘려 서로 만나게.
+                        # s 방향 마감이 모서리를 차지(벽 반두께 + 마감 표면까지), t 방향 마감은 s 방향 마감 뒷면까지
+                        g0, g1 = x0, x1                              # 이격 공간은 벽 끝(반두께)까지만 늘림
+                        if kind == "wall":
+                            ext = off + (kf if axis == "s" else kg)
+                            other = "t" if axis == "s" else "s"
+
+                            def turns(x):                            # 모서리를 돌아 이어지는 벽이 있음 (열린 끝은 끝막음이 맡음)
+                                m = 2.0 * off + _EPS                # 직각 벽 조각은 이 선의 벽 두께만큼 잘려 있음
+                                return any(lo - m <= c <= hi + m for lo, hi, _ in lines.get((other, round(x, 6)), []))
+                            near = 2.0 * off + _EPS                  # t 방향 벽 조각은 s 방향 벽 두께만큼 짧음
+                            if abs(x0 - a) <= near and _reflex(room.rects, axis, c, a) and turns(a):
+                                x0, g0 = a - ext, a - off
+                            if abs(x1 - b) <= near and _reflex(room.rects, axis, c, b) and turns(b):
+                                x1, g1 = b + ext, b + off
                         r = (x0, x1, d0, d1) if axis == "s" else (d0, d1, x0, x1)
                         (s_strips if axis == "s" else t_strips).append((r, axis, c, kind))
-                        for depth, bucket in ((gap, gap_rects), (face, face_rects)):
+                        for depth, bucket, (y0, y1) in ((kg, gap_rects, (g0, g1)), (kf, face_rects, (x0, x1))):
                             if depth > _EPS:
                                 e0, e1 = sorted((c + sign * off, c + sign * (off + depth)))
-                                bucket.append((x0, x1, e0, e1) if axis == "s" else (e0, e1, x0, x1))
+                                bucket.append((y0, y1, e0, e1) if axis == "s" else (e0, e1, y0, y1))
                 s_rects = [r for r, *_ in s_strips]
                 pieces = []
                 for group, cut_by in ((s_strips, []), (t_strips, s_rects)):
@@ -336,7 +372,10 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                                 if kind == "station" and axis == "s":    # 본체 측벽 오프닝 (출구통로·환기구)
                                     side = 1 if c > 0 else -1
                                     holes += [(o[3], o[4], o[5], o[6]) for o in wall_ops if o[1] == n and o[2] == side]
-                                pieces += _cut_holes((*zz, z0, wall_top), axis, holes)
+                                lo_, hi_ = (zz[0], zz[1]) if axis == "s" else (zz[2], zz[3])
+                                top = part_top(axis, c, lo_, hi_, wall_top) if kind == "wall" else wall_top
+                                if top - z0 > _EPS:
+                                    pieces += _cut_holes((*zz, z0, top), axis, holes)
                 rf.walls = pieces
 
                 # ---- 기둥 둘레 · 승강로 바깥면
@@ -398,7 +437,51 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                             rf.carriers.append((*r, zb1, zc1))
             rf.walls += linings
             out.append(rf)
+        _wall_end_caps(cfg, fl, [r for r in out if r.floor == n], zones, L)
     return out
+
+
+def _wall_end_caps(cfg, fl, rfs, zones, L):
+    """칸막이벽(s 방향)이 다른 벽에 닿지 않고 끝나는 곳(계단실 앞처럼 열린 끝): 벽 마감이 구조체에서 띄워 붙어 있어 끝에서 벽과
+    양쪽 마감 사이 빈 공간이 보이므로 끝막음 — 양쪽 마감을 벽 끝 + 마감 두께까지 늘리고, 그 사이(벽 끝면 + 이격)를 끝 앞 실의
+    마감재로 덮음. 높이 = 끝 앞 실 마감면 ~ 벽 마감 윗면(천장판 하면, 없으면 슬래브 하면 — 칸막이벽 윗면 이하)"""
+    def room_at(s, t):
+        return next((rf for rf, rm in zip(rfs, fl.rooms) if rm.contains(s, t)), None)
+    walls = [(p, pw) for pw in fl.partitions for p in pw.pieces]
+    s_walls = [(p, pw) for p, pw in walls if pw.axis == "s"]
+    for p, pw in s_walls:
+        s0, s1, t0, t1 = p[:4]
+        c, h = (t0 + t1) / 2.0, (t1 - t0) / 2.0
+        for end, out_dir in ((s0, -1), (s1, +1)):
+            if end < _EPS or end > L - _EPS:
+                continue
+            touch = [q for q, _ in walls if q is not p and q[0] - _EPS <= end <= q[1] + _EPS
+                     and min(q[3], t1) - max(q[2], t0) > -_EPS]          # 모서리로 맞닿아도 연결된 끝
+            if touch:
+                continue
+            front = room_at(end + out_dir * 0.05, c)
+            if front is None or front.finish.wall_t <= _EPS:
+                continue
+            ft = front.finish
+            f = ft.wall_t
+            z_lo = front.ffl_rel
+            z_hi = min(front.ceiling_rel if ft.ceiling else p[5], p[5])
+            if z_hi - z_lo <= _EPS:
+                continue
+            cap_s = sorted((end, end + out_dir * f))
+            backs = []
+            for side in (-1, +1):                         # 양쪽: 그 쪽 실 마감을 벽 끝 + f 까지 늘림
+                rf = room_at(end - out_dir * (h + 0.05), c + side * (h + 0.05))   # 벽 끝은 실 경계(중심선 끝) + 반두께
+                if rf is None or rf.finish.wall_t <= _EPS:
+                    backs.append(c + side * h)
+                    continue
+                g, fs = rf.finish.pgap, rf.finish.pface
+                face_lo, face_hi = sorted((c + side * (h + g), c + side * (h + fs)))
+                ext = sorted((end + out_dir * f, end - out_dir * h))    # 기존 마감은 실 경계(벽 끝 − 반두께)에서 끝남
+                rf.walls.append((ext[0], ext[1], face_lo, face_hi, max(z_lo, rf.ffl_rel), z_hi))
+                backs.append(c + side * (h + g))
+            lo, hi = sorted(backs)
+            front.walls.append((cap_s[0], cap_s[1], lo, hi, z_lo, z_hi))
 
 
 def _circle_ring(cfg, s, t, r, f, z0_rel, z1_rel) -> list:

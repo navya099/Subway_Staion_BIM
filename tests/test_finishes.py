@@ -109,7 +109,8 @@ def test_wall_finish_on_station_and_partition_faces_with_door_holes():
     assert off.element("WALL").volume == pytest.approx(f * (length * h - door))
     hall = fin(eng, "B2F_대합실")                                 # 칸막이벽 바깥쪽에도 대합실 벽 마감 (문 자리 비움)
     outside = [p for p in hall.element("WALL").pieces if abs(PM.t_range(p)[1] - 1.9) < 1e-9]
-    assert outside and sum(p.shape.volume for p in outside) == pytest.approx(0.05 * (20.0 * 3.0 - 1.0 * 2.0))   # 실 경계 s 10 ~ 30
+    # 실 경계 s 10 ~ 30 + 바깥 모서리 너머(벽 반두께 0.1 + 마감 0.05)씩 — 직각으로 도는 대합실 마감과 모서리에서 만남
+    assert outside and sum(p.shape.volume for p in outside) == pytest.approx(0.05 * ((20.0 + 2 * 0.15) * 3.0 - 1.0 * 2.0))
 
 
 def test_wall_finish_skips_virtual_separation_and_passage_opening():
@@ -309,6 +310,12 @@ def test_wall_finish_offset_on_partition_and_column_rings():
     eng = StationCADEngine(gap_cfg(room))
     off = fin(eng, "OFF")
     t_low = [p for p in off.element("WALL").pieces if p.shape.length > 10 and p.pos_y < 5]     # t=2 칸막이벽 면
+    # 칸막이벽은 본체 벽 이격(0.1484)과 따로 — 칸막이 마감면 거리를 비우면 이격 없이 벽 면에 붙음
+    assert t_low and all(p.pos_y - p.shape.width / 2 == pytest.approx(2 + 0.1) for p in t_low)
+    cfg = gap_cfg(room)
+    cfg.finish_settings.table["역무실"].partition_face = 0.15
+    off2 = fin(StationCADEngine(cfg), "OFF")
+    t_low = [p for p in off2.element("WALL").pieces if p.shape.length > 10 and p.pos_y < 5]
     assert t_low and all(p.pos_y - p.shape.width / 2 == pytest.approx(2 + 0.1 + 0.1484) for p in t_low)
     # B2F 원기둥(φ1.0) 둘레: 반지름 0.5 + 이격에 외접하는 16각형
     hall = fin(eng, "B2F_대합실")

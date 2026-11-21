@@ -178,6 +178,10 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
     z_sb, z_st = z_top - st.mid_t, z_top
     ceil = ceiling_bottom_under(cfg, k, (*sorted((s_at(u_lo), s_at(u_hi))), *t_truss))
     z_head = z_sb if ceil is None else min(z_sb, ceil)
+    from smokewalls.smoke_spec import head_drop
+    sb = getattr(cfg, "smoke_settings", None)
+    if sb is None or sb.escalators:
+        z_head -= head_drop(cfg)                         # 입구 천장 제연경계벽 아래에서도 머리 높이 확보
     u_open = u_hi
     for (a, b), ttop in truss_top.items():
         for x, tt in ((a, ttop[0]), (b, ttop[1])):

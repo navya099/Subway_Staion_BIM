@@ -68,6 +68,9 @@ class EntranceLayout:
     stair: object             # SimpleNamespace(parts, n_risers, riser, flight_risers, run)
     escalator: object         # SimpleNamespace(parts, run, rise) 또는 None
     spec_stair_finish: object = None   # 계단 마감 설정 StairFinish (마감 끔 = None)
+    finish: list = field(default_factory=list)     # 내부 마감 [(코드, 종류, 재질, t 범위, 띠)] (entrance_finish, 마감 끔 = [])
+    finish_type: object = None         # 내부 마감 종류 FinishType (마감 끔 = None)
+    ceiling_raise: float = 0.0         # 천장판·천장틀 두께만큼 올린 천장 슬래브 높이
 
 
 class PL:
@@ -341,7 +344,13 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
     # (계단 피치선 = 디딤판 코를 잇는 선, 계단참은 수평 → 실무 도면처럼 계단참에서 천장이 꺾임)
     stair_parts, stair_finish = make_stair(u_s0, s_top, u_top - arrive)     # 띠·칸은 이미 출입구 좌표 (s = u0 + x)
     surfaces = sorted((u_s0 + ua, u_s0 + ub, zt) for p in stair_parts for ua, ub, zt in p.surfaces)
-    eh, sh = spec.esc_headroom, spec.stair_headroom
+    # 내부 마감 종류 (마감 켤 때): 출입구 finish, 비우면 붙은 통로의 마감 종류. 천장이 있으면 천장판·틀만큼 천장 슬래브를 올림
+    eft = None
+    if fs is not None and fs.enabled:
+        eft = fs.for_room("통로", (getattr(spec, "finish", "") or "").strip() or (getattr(pl.spec, "finish", "") or ""))
+    from entrances.entrance_finish import ceiling_raise, layout_entrance_finish
+    rz = ceiling_raise(spec, eft)
+    eh, sh = spec.esc_headroom + rz, spec.stair_headroom + rz
     flat_pl = PL([_const(0.0, far, zp + hp)])
     esc_pl = PL(nose_pl(0.0, far, eh))
     pitch = pitch_points(surfaces, ssp.tread, r)
@@ -424,6 +433,20 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
                 haunches.append(BoxPiece(ox=frame.px, oy=frame.py, ux=frame.ux, uy=frame.uy, a0=u0, a1=u1, sect=sect,
                                          z0=z0, slope=(roof_bot.at(u1, -1) - z0) / (u1 - u0)))
 
+    # ---------- 내부 마감 (마감 켤 때): 하부 평탄부 바닥·측벽·경사 천장(천장 슬래브 하면 − 올림)·천장틀·막이
+    finish = []
+    if eft is not None:
+        ceil_pl = PL([(u0, u1, z0 - rz, z1 - rz) for u0, u1, z0, z1 in roof_bot.segs]) if eft.ceiling else None
+        joint_top = roof_bot.at(0.0)
+        if pft is not None and pft.ceiling:
+            from passages.passage_finish import ceiling_fit
+            if ceiling_fit(pl.spec, pft)[0]:
+                joint_top = min(joint_top, zp + pft.ffl + pft.ceiling_h)         # 통로 천장판 하면까지 막음
+        finish = layout_entrance_finish(spec, eft, a=a, a_p=a_p, T=T, zones=zones, e_side=e_side if spec.escalator else 1,
+                                        zl=zl, G=G, u_s0=u_s0, surfaces=surfaces, u_top=u_top, u_re=u_re, truss_lo=truss_lo,
+                                        nose_at=nose, nose_breaks=nose_bps, ceil_pl=ceil_pl, roof_pl=roof_bot,
+                                        joint_top=joint_top)
+
     # ---------- 계단·에스컬레이터 부재 (출입구 좌표의 띠)
     stair = SimpleNamespace(parts=stair_parts, n_risers=n, riser=r, flight_risers=counts, run=run_s, start=u_s0,
                             finish=stair_finish, finish_base=z_st if fin is not None else None)
@@ -443,4 +466,5 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         name=name, spec=spec, passage=spec.passage, frame=frame, z_floor=zp, ground=G,
         u=dict(wp_lo=u_wp, wp_hi=u_up, truss_lo=truss_lo, truss_hi=truss_hi, cross=u_cross, stair0=u_s0,
                arrive=arrive, top=u_top, end=end, roof_end=u_re, roof_knee=u_k),
-        roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin)
+        roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin,
+        finish=finish, finish_type=eft, ceiling_raise=rz)

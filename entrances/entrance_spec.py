@@ -28,6 +28,7 @@ class EntranceSpec:
                          측벽·천장·바닥 슬래브 두께. 비우면 wall_t 일정
         roof_cover: 천장 슬래브가 끝나는 흙 덮개 두께 (m, 천장 상면이 지표 − roof_cover 에 닿는 곳에서 끝남, 0 = 지표에 닿는 곳)
         lean_t / lean_ext: 바닥 슬래브 아래 버림 콘크리트 두께 (0 = 없음) / 외곽 밖으로 나오는 폭 (m)
+        finish: 내부 마감 종류 (마감을 켤 때, 비우면 붙은 출구통로의 마감 종류 — 통로의 finish, 비우면 '통로')
         haunch_w / haunch_h: 천장 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         lower_margin: 하부 이음벽 안쪽 면 ~ 에스컬레이터 트러스 하단 끝 (m)
         top_margin: 계단·에스컬레이터 상단 끝 ~ 상단 끝벽 안쪽 면 (m)
@@ -79,6 +80,7 @@ class EntranceSpec:
     esc_newel_ext: float = 0.3
     esc_newel_radius: float = 0.3
     thickness_zones: list = dataclasses.field(default_factory=list)
+    finish: str = ""                 # 내부 마감 종류 (마감표 이름, 비우면 붙은 출구통로의 마감 종류)
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

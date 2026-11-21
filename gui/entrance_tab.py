@@ -108,6 +108,14 @@ class EntranceTab:
         self._entry(top, it, "name", (i, "name"), 6).pack(side="left", padx=(2, 6))
         tk.Label(top, text="통로", font=FONT).pack(side="left")
         self._entry(top, it, "passage", (i, "passage"), 6).pack(side="left", padx=(2, 0))
+        tk.Label(top, text="마감", font=FONT).pack(side="left", padx=(8, 0))
+        fd = self.entries.get("finish_drafts")
+        fnames = ["(통로 기준)"] + (fd.names() if fd is not None else [])
+        fc = ttk.Combobox(top, values=fnames, state="readonly", width=10, font=FONT)
+        fc.set(it.finish if it.finish in fnames else fnames[0])
+        fc.bind("<<ComboboxSelected>>", lambda e, cc=fc, k=i: setattr(self.drafts.items[k], "finish", cc.get()))
+        fc.pack(side="left", padx=(2, 0))
+        self._combos[(i, "finish")] = fc
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_entrance(i)).pack(side="right")
 
         row = tk.Frame(box)

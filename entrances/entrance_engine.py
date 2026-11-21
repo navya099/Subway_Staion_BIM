@@ -1,7 +1,7 @@
 import math
 
 from config.master_config import StationProjectConfig
-from entrances.entrance_data import EntranceData, EntranceElementData
+from entrances.entrance_data import EntranceData, EntranceElementData, EntranceFinishData
 from escalators.escalator_data import EscalatorData, EscalatorPartData, EscalatorStepData
 from escalators.escalator_type import EscalatorPartKind
 from helper.strip_member import Strip
@@ -48,11 +48,20 @@ class EntranceEngine:
                     kind=p.kind, code=p.code, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0),
                     pieces=list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []))
             stair = self._stair(lay, level)
+            fin_labels = {"FLOOR": "바닥 마감", "FILL": "바닥 채움", "WALL": "벽 마감", "CEILING": "천장판", "FRAME": "천장틀"}
+            finishes = []
+            for code, kind, mat, t_rng, strips in lay.finish:
+                ft0, ft1 = t_rng
+                finishes.append(EntranceFinishData(
+                    name=f"{lay.name}_{code}", family_name="출입구 마감",
+                    type_name=f"{lay.finish_type.name} {fin_labels[kind]}", level=level,
+                    pos_z=min(min(s.zb0, s.zb1) for s in strips), material=mat, kind=kind, code=code, t_range=t_rng,
+                    shape=StripShape(strips=strips, width=ft1 - ft0)))
             escalator = self._escalator(lay, level) if lay.escalator else None
             self.entrances.append(EntranceData(
                 name=lay.name, family_name="출입구", type_name=f"W{spec.inner_width:g}" + (" ESC" if spec.escalator else ""),
                 level=level, pos_x=lay.frame.px, pos_y=lay.frame.py, pos_z=lay.z_floor, passage=lay.passage, floor=floor,
-                frame=lay.frame, layout=lay, elements=elements, stair=stair, escalator=escalator))
+                frame=lay.frame, layout=lay, elements=elements, stair=stair, escalator=escalator, finishes=finishes))
 
     @staticmethod
     def _stair(lay, level) -> StairData:
@@ -121,6 +130,7 @@ class EntranceEngine:
         """(부재 이름, 띠 부재) — 박스 부재·계단 런/계단참·에스컬레이터 부재 (모두 출입구 좌표의 띠)"""
         out = [(e.name, e) for e in ent.elements]
         out += [(p.name, p) for p in ent.stair.parts] + [(f.name, f) for f in ent.stair.finishes]
+        out += [(f.name, f) for f in ent.finishes]
         if ent.escalator:
             out += [(p.name, p) for p in ent.escalator.parts] + [(s.name, s) for s in ent.escalator.steps]
         return out
@@ -135,6 +145,9 @@ class EntranceEngine:
                 layer = "STRUCT_ENTRANCE"                              # 박스·계단 = 콘크리트, 에스컬레이터 = 정거장 에스컬레이터와 같은 레이어
                 if isinstance(m, StairFinishData):
                     layer = "FIN_STAIR"                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
+                if isinstance(m, EntranceFinishData):                    # 내부 마감 = 실 마감과 같은 레이어
+                    layer = {"FLOOR": "FIN_FLOOR", "FILL": "FIN_FLOOR", "WALL": "FIN_WALL", "CEILING": "FIN_CEILING",
+                             "FRAME": "FIN_FRAME"}[m.kind]
                 if isinstance(m, (EscalatorPartData, EscalatorStepData)):
                     glass = getattr(m, "kind", None) == EscalatorPartKind.BALUSTRADE and m.material == "Glass_Balustrade"
                     layer = "STRUCT_ESC_GLASS" if glass else "STRUCT_ESCALATOR"
@@ -194,8 +207,10 @@ class EntranceEngine:
         for ent in self.entrances:
             labeled = False
             for name, m in self.strip_members(ent):
-                concrete = not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData))
-                fin_layer = isinstance(m, StairFinishData)
+                if isinstance(m, EntranceFinishData) and m.kind == "FRAME":
+                    continue                                    # 천장틀은 단면에 안 그림
+                concrete = not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData, EntranceFinishData))
+                fin_layer = isinstance(m, (StairFinishData, EntranceFinishData))
                 t0, t1 = m.t_range
                 polys = [cut_faces_by_plane(strip_faces(ent.frame, st, t0, t1), cx, cy, nx, ny) for st in m.shape.strips]
                 polys += [p.cut_by_plane(cx, cy, nx, ny) for p in getattr(m, "pieces", [])]

@@ -27,6 +27,20 @@ class EntranceElementData(CommonBIMData):
 
 
 @dataclass
+class EntranceFinishData(CommonBIMData):
+    """출입구 내부 마감 부재 1개 (바닥 마감재·채움 / 벽 마감·막이 / 천장판 / 천장틀). IFC: IfcCovering (FLOORING·CLADDING·CEILING) /
+    천장틀 IfcMember. kind = FLOOR / FILL / WALL / CEILING / FRAME, shape = 출입구 좌표 띠"""
+    kind: str = "WALL"
+    code: str = ""
+    t_range: tuple = (0.0, 0.0)
+    shape: Optional[StripShape] = None
+
+    @property
+    def volume(self) -> float:
+        return self.shape.volume if self.shape else 0.0
+
+
+@dataclass
 class EntranceData(CommonBIMData):
     """출입구 1개 (IFC: IfcElementAssembly 가 박스 부재·계단(IfcStair)·에스컬레이터(IfcTransportElement)를 묶음).
     level = 이어 붙은 출구통로의 층 이름
@@ -41,6 +55,8 @@ class EntranceData(CommonBIMData):
     elements: list = field(default_factory=list)
     stair: object = None
     escalator: object = None
+
+    finishes: list = field(default_factory=list)       # EntranceFinishData (내부 마감, 마감 끔 = [])
 
     def element(self, code: str) -> EntranceElementData:
         return next(e for e in self.elements if e.code == code)

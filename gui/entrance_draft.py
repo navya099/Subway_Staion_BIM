@@ -48,6 +48,7 @@ class EntranceDraft:
     roof_cover: str = f"{_SPEC.roof_cover:g}"
     lean_t: str = f"{_SPEC.lean_t:g}"
     lean_ext: str = f"{_SPEC.lean_ext:g}"
+    finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 
     def zones(self, where: str) -> list:
@@ -74,7 +75,8 @@ class EntranceDraft:
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
-                            stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where), **vals)
+                            stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
+                            finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
 
 
 def zones_summary(it: EntranceDraft) -> str:

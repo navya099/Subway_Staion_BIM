@@ -521,3 +521,76 @@ def test_entrance_stair_finish_sides_textures_and_ifc(tmp_path):
         mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m))
         assert mesh == pytest.approx(formula, rel=1e-7, abs=1e-8)
         assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
+
+
+# ===================================================== 리팩토링 4단계: 내부 마감
+def test_entrance_interior_finish_headroom_and_extent():
+    cfg = _fin_cfg()
+    lay = lay_of(cfg)
+    ft = lay.finish_type
+    assert ft.name == "통로" and lay.ceiling_raise == pytest.approx(ft.board_t + ft.frame_depth + 0.3 * (1 - ft.face / 0.3))
+    fin = {c: (k, m, t, st) for c, k, m, t, st in lay.finish}
+    ceil = sorted(fin["FIN_CEILING"][3] + fin["FIN_CEILING_J"][3], key=lambda s: s.s0)
+    roof = sorted((s for p in lay.box_parts if p.code.startswith("ROOF") for s in p.strips), key=lambda s: s.s0)
+    for st in fin["FIN_CEILING"][3]:                                                         # 천장판 하면 = 천장 슬래브 하면 − 올림
+        x = (st.s0 + st.s1) / 2
+        r_ = next(s for s in roof if s.s0 <= x <= s.s1)
+        assert r_.zb_at(x) - st.zb_at(x) == pytest.approx(lay.ceiling_raise, abs=1e-6)
+    cb = lambda x: next(s for s in ceil if s.s0 - 1e-9 <= x <= s.s1 + 1e-9).zb_at(x)
+    u0 = lay.u["stair0"]
+    noses = [(ua, zt) for p in lay.stair.parts for ua, ub, zt in [(a + u0, b + u0, z) for a, b, z in p.surfaces] if ua < lay.u["roof_end"]]
+    assert min(cb(x) - z for x, z in noses) == pytest.approx(lay.spec.stair_headroom, abs=1e-6)     # 천장판 아래 계단 머리 높이
+    nose = lay.escalator.nose
+    u_wp = lay.escalator.u_wp
+    assert all(cb(s.s0) >= nose(s.s0 - u_wp) + lay.spec.esc_headroom - 1e-6 for s in ceil if s.s0 > lay.u["wp_lo"])
+    zl = lay.escalator.finish_levels[0]
+    assert all(st.zt == pytest.approx(zl) for c in fin if c.startswith("FIN_FLOOR") for st in fin[c][3])   # 바닥 = 통로 마감면
+    op = [st for st in fin["FIN_WALL_R"][3] + fin["FIN_WALL_L"][3] if st.s0 >= lay.u["roof_end"] - 1e-9]
+    assert op and all(st.zt_end == pytest.approx(lay.ground + lay.spec.parapet) for st in op)          # 개구부 = 파라펫 윗면까지
+    assert not lay_of(cfg_with()).finish and lay_of(cfg_with()).ceiling_raise == 0.0               # 마감 끔 = 없음
+
+
+def test_entrance_interior_finish_no_overlap_and_volumes(tmp_path):
+    import random
+    eng = StationCADEngine(_fin_cfg())
+    ent = eng.entrances.entrances[0]
+    members = eng.entrances.strip_members(ent)
+    fins = [(n, m) for n, m in members if n.split("_", 1)[1].startswith("FIN_")]
+    others = [(n, m) for n, m in members if (n, m) not in fins]
+    boxes = [(n, m.t_range, s) for n, m in members for s in m.shape.strips]
+    rng = random.Random(9)
+    for n, m in fins:                                                                          # 무작위 점: 다른 부재 안에 들지 않음
+        t0, t1 = m.t_range
+        for st in m.shape.strips:
+            for _ in range(4):
+                u = rng.uniform(st.s0, st.s1)
+                t = rng.uniform(t0, t1)
+                z = rng.uniform(st.zb_at(u), st.zt_at(u))
+                if st.zt_at(u) - st.zb_at(u) < 1e-6:
+                    continue
+                for n2, (a0, a1), s2 in boxes:
+                    if n2 == n or not (a0 + 1e-9 < t < a1 - 1e-9 and s2.s0 + 1e-9 < u < s2.s1 - 1e-9):
+                        continue
+                    assert not (s2.zb_at(u) + 1e-7 < z < s2.zt_at(u) - 1e-7), (n, n2, u, t, z)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "i.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for n, m in fins:
+        formula = m.shape.volume
+        assert sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m)) == pytest.approx(formula, rel=1e-7, abs=1e-8)
+        assert ifc_world_volume(by_name[n]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
+    kinds = {e.Name: e.PredefinedType for e in f.by_type("IfcCovering")}
+    assert kinds["EN1_FIN_CEILING"] == "CEILING" and kinds["EN1_FIN_WALL_L"] == "CLADDING" and kinds["EN1_FIN_FLOOR1"] == "FLOORING"
+    assert {e.dxf.layer for n, m in fins for e in m.source_element or []} <= {"FIN_FLOOR", "FIN_WALL", "FIN_CEILING", "FIN_FRAME"}
+
+
+def test_entrance_finish_override_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    cfg = _fin_cfg()
+    cfg.entrances[0].finish = "화장실"
+    lay = lay_of(cfg)
+    assert lay.finish_type.name == "화장실" and next(m for c, k, m, t, s in lay.finish if c == "FIN_WALL_L") == "타일"
+    cfg = _fin_cfg()
+    cfg.passages[0].finish = "역무실"                                                          # 비우면 통로의 마감 종류
+    assert lay_of(cfg).finish_type.name == "역무실"
+    d = EntranceDraft(passage="EX1", finish="화장실")
+    assert d.to_spec("출입구").finish == "화장실" and EntranceDraft(passage="EX1").to_spec("출입구").finish == ""

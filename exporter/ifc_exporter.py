@@ -509,6 +509,13 @@ class IFCExporter:
                 self.file.create_entity("IfcRelCoversBldgElements", GlobalId=ifcopenshell.guid.new(),
                                         RelatingBuildingElement=ifc_stair, RelatedCoverings=covers)
                 members += covers
+            for fe in ent.finishes:                            # 내부 마감: IfcCovering (바닥·벽·천장) / 천장틀 IfcMember
+                items = self._frame_strip_solids(fe, "EntranceFinishProfile")
+                if fe.kind == "FRAME":
+                    members.append(self._frame_element("IfcMember", fe, ent.frame, items, PredefinedType="USERDEFINED"))
+                else:
+                    pre = {"FLOOR": "FLOORING", "FILL": "FLOORING", "WALL": "CLADDING", "CEILING": "CEILING"}[fe.kind]
+                    members.append(self._frame_element("IfcCovering", fe, ent.frame, items, PredefinedType=pre))
             if ent.escalator:
                 esc = ent.escalator
                 ifc_esc = self.file.create_entity(

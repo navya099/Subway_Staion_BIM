@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1032개 통과** (GUI 132개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1047개 통과** (GUI 133개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -59,7 +59,7 @@ psds/                       스크린도어: spec(PsdSettings), layout(열차 �
 trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
 tactiles/                   점자블록: spec(TactileSettings·TactilePathSpec), layout(자동 점형·유도 경로 → 층별 겹치지 않는 평면 사각형 + 검증), engine
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
-stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), finish(계단 마감: 경사 슬래브 + 계단석), check(검증), data/shape/package/engine
+stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), finish(계단 마감: 경사 슬래브 + 계단석), enclosure(옆 벽체·하부 창고 = 자동 실), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
 elevators/                  엘리베이터: spec(승강로·카·문 입력), layout(정지 바닥·피트/천장 채움·출입구·슬래브 오프닝), check(검증·간섭), data/engine
 passages/                   출구통로: spec(경로 꼭짓점 입력), layout(경로 해석·연귀·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
@@ -75,7 +75,7 @@ assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_pa
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -118,7 +118,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **문(3단계)**: `RoomSpec.doors` = `DoorSpec`(실의 변 `+s/-s/+t/-t`, 중심 — ±s 변이면 t·±t 변이면 s(GUI 는 STA), 폭 0.9·높이 2.1, 종류 여닫이·양개 여닫이·미닫이·방화문 → IFC OperationType). 그 변의 벽 조각(칸막이벽·두께 있는 구획분리 벽)에서 벽 평면 (접선, z) 으로 개구부를 빼고(`_cut_doors`, 문 위 인방 조각 유지) 닫힌 문짝(두께 0.05, 벽 중심) 생성. 벽 조각 하나의 접선 범위 안이어야 함(다른 문·승강장 끝 높이 변화에 걸치면 오류), 실 변의 끝 벽 반 두께 안쪽, 문 높이 < 벽 높이, 본체 벽 변·가상 경계선 변 불가.
     - IFC: 개구부 IfcOpeningElement(DOOR) → 벽 IfcRelVoidsElement, 문짝 **IfcDoor**(OverallWidth/Height, OperationType, 방화문 재질 Steel) → IfcRelFillsElement, 층 storey. 3D DXF STRUCT_DOOR, 횡단 SEC_DOOR·종단 PROF_DOOR(윤곽), 평면 PLAN_DOOR = 실 안쪽으로 연 문짝 + 호(여닫이, 양개는 반폭 둘), 미닫이는 실 쪽 벽면의 문짝. 평면도 칸막이벽은 절단 높이를 지나는 조각만(문 위 인방은 안 보여 문 자리가 비어 보임).
   - `decompose.subtract_rects` 는 구멍을 영역 안으로 잘라 쓴다(영역 밖 구멍이 엉뚱한 조각을 만들던 문제 수정).
-- **건축 마감(1단계)**: `FinishSettings(enabled, table)` = 용도별 마감표(`FinishType`: 바닥 `ffl`(구조 바닥 → 마감면)·`floor_t`(마감재)·`floor_fill`(mortar 채움 | void 빈 공간=액세스 플로어)·재질, 벽 `wall_t`(마감재 두께, 0 = 면처리, 형상 없음)·`wall_face`(구조체 면 → 마감 표면 거리, None/빈칸 = wall_t 즉 이격 없음, 이격 = face − wall_t 빈 공간·하지재 미모델링)·재질, 천장 `ceiling`·`ceiling_h`(마감면 → 천장판 하면)·`board_t`·재질·`frame`(M/T)·`bar_spacing`·`carrier_spacing`·바/캐링 단면). 실은 용도 이름의 종류를 쓰고(없으면 '기본') `RoomSpec.finish` 로 덮어씀. 기본 마감표(`default_finishes`)는 예시값 — 기계·전기·공조실 콘크리트 면처리 + 천장 없음, 통신실 액세스 플로어 FL+0.45, 대합실·승강장층·복도·역무실·통로·기타·기본은 **금속패널 T1.6 + 구조면→표면 0.15**(실무 상세 WB-14), 화장실 타일은 이격 없음. **모델 기본은 끔(`enabled=False`, 기존 출력·golden 유지), GUI 는 켬.**
+- **건축 마감(1단계)**: `FinishSettings(enabled, table)` = 용도별 마감표(`FinishType`: 바닥 `ffl`(구조 바닥 → 마감면)·`floor_t`(마감재)·`floor_fill`(mortar 채움 | void 빈 공간=액세스 플로어)·재질, 벽 `wall_t`(마감재 두께, 0 = 면처리, 형상 없음)·`wall_face`(구조체 면 → 마감 표면 거리, None/빈칸 = wall_t 즉 이격 없음, 이격 = face − wall_t 빈 공간·하지재 미모델링)·**`partition_face`(칸막이벽·구획분리 벽 면 → 마감 표면, 비우면 이격 없음 — 본체 측벽의 큰 이격과 따로, 사용자 지적: 실무 샘플 승강장층 wall_face 0.5 가 칸막이벽에도 0.45 이격을 만듦. `FinishType.pface/pgap`, 마감 탭 '칸막이 마감면', IFC Pset `PartitionFinishFace`)**·재질, 천장 `ceiling`·`ceiling_h`(마감면 → 천장판 하면)·`board_t`·재질·`frame`(M/T)·`bar_spacing`·`carrier_spacing`·바/캐링 단면). 실은 용도 이름의 종류를 쓰고(없으면 '기본') `RoomSpec.finish` 로 덮어씀. 기본 마감표(`default_finishes`)는 예시값 — 기계·전기·공조실 콘크리트 면처리 + 천장 없음, 통신실 액세스 플로어 FL+0.45, 대합실·승강장층·복도·역무실·통로·기타·기본은 **금속패널 T1.6 + 구조면→표면 0.15**(실무 상세 WB-14), 화장실 타일은 이격 없음. **모델 기본은 끔(`enabled=False`, 기존 출력·golden 유지), GUI 는 켬.**
   - 배치(`layout_room_finishes`, 정거장 로컬 사각 조각 → 선형 각기둥 `RoomPiece`): 기준 바닥 = 층 FL, 최하층은 승강장 슬래브 위(t 범위)만 + 기준 = 승강장 상면(선로부 바닥·벽 마감 없음, 천장 높이 기준도 승강장 상면).
     - 바닥: 실 영역 ∩ 기준 바닥 − (칸막이벽·사각 기둥·승강로·그 층 계단/에스컬레이터 **접지 구간**·아래 슬래브 오프닝). 마감재 + (mortar 면) 채움. 접지 구간(`finish_gaps.contact_rects`) = 부재 띠의 하면이 그 자리 바닥 마감면(선형 표고 + 시작면 + ffl)보다 낮은 s 구간 × 부재 t 범위 — 계단 경사부·ESC 트러스가 떠 있는 곳 아래 바닥은 마감(예전엔 평면 전체를 빼서 콘크리트가 보였음, 사용자 지적).
     - **오프닝 둘레(`finish_gaps.opening_linings`, 천장 있는 실, 위 슬래브 오프닝)**: 천장판이 오프닝 가장자리에서 끝나 천장 속이 보이던 문제 → 가장자리 바깥에 벽 마감 두께의 막이(천장판 하면 ~ 위 슬래브 하면, 그 자리는 천장판에서 뺌) + 오프닝 안쪽 슬래브 옆면 마감(슬래브 하면 ~ 상면). 계단·ESC 가 도착하는 쪽 가장자리는 없음, 옆면 마감은 부재 상면이 슬래브 하면보다 높은 s 구간에서 뺌(겹침 없음). 승강로(`_SHAFT`)·피트 오프닝 제외. 조각은 그 실의 WALL 마감(재질·레이어 FIN_WALL)에 더함. 계단 마감은 아래 '계단 마감' 참고(하부 마감은 아직 없음).
@@ -127,7 +127,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
     - 천장: 실 영역 ∩ 기준 바닥(**최하층은 승강장 위만 — 선로 구간 천장 마감 없음**, 사용자 확인) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝 — **위층 에스컬레이터 하부 피트는 제외**, 트러스가 슬래브 두께 안에서 막으므로 아래층 천장은 그대로) − 벽·사각 기둥·승강로 **마감 표면까지**(`face_rects`; 바닥은 구조체 면까지 — 실무 상세). 천장판 + 천장틀(t 방향 바를 s 의 bar_spacing 원점 격자에, s 방향 캐링 채널을 t 의 carrier_spacing 격자에, 판 위로 바 → 캐링). 천장판 + 틀이 위 슬래브 하면을 넘으면 오류.
   - IFC: 실마다 IfcCovering(FLOORING 마감재·채움 / CLADDING 벽·기둥·승강로 / CEILING 천장판) + IfcMember(천장틀), IfcRelCoversSpaces → IfcSpace, 층 storey. IfcSpace 에 속성 세트 `SSBIM_SpaceFinish`(종류·재질·마감 높이·벽 마감 두께·`WallFinishFace`·`WallFinishGap`·천장 높이·천장틀). 곡선 선형의 얇은 마감 층은 면을 중심점 4분할 삼각형으로 내보냄(비틀린 사각 면의 분할 방향 차이로 IFC 체적이 어긋나는 것 방지).
   - 3D DXF FIN_FLOOR / FIN_WALL / FIN_CEILING / FIN_FRAME, 횡단 SEC_FINISH·종단 PROF_FINISH(윤곽), 평면 PLAN_FINISH(절단 높이를 지나는 벽·기둥 마감, 원기둥 둘레는 기둥 중심 기준 회전으로 로컬 좌표 — to_station 반복은 매우 느림).
-  - 알려진 단순화: 원기둥은 바닥·천장에서 빼지 않음(겹침), 다른 실 바깥 모서리의 벽 마감 끝에 작은 틈(마감 두께 정사각형)이 생길 수 있음, 천장 행거·액세스 플로어 받침 미모델링.
+  - **바깥 모서리(다른 실 모서리를 감싸는 반사각 꼭짓점, `_reflex`)**: 모서리를 돌아 이어지는 칸막이벽이 있으면 s 방향 마감을 모서리 너머(벽 반두께 + 마감 표면)까지, t 방향 마감은 그 뒷면(반두께 + 이격)까지 늘려 서로 만남(예전엔 틈, 사용자 지적). 이격 공간은 벽 끝까지만. 열린 끝(이어지는 벽 없음)은 끝막음이 맡음. 확폭 포켓 경로는 아직.
+  - 알려진 단순화: 원기둥은 바닥·천장에서 빼지 않음(겹침), 천장 행거·액세스 플로어 받침 미모델링.
 - **점자블록(1단계, `tactiles/`)**: `cfg.tactile_settings = TactileSettings`(모델 기본 끔 — 기존 출력 유지, GUI 13.점자 탭은 켬, 옛 프로젝트도 켬). 일반값 예시 기본값(실무 기준 받으면 교체).
   - 자동 점형(경고): 승강장 연단(최하층, 선로 쪽 끝단 |t| = D/2 + 끝단 거리에서 `edge_offset` 0.6 떨어져 폭 `edge_width` 0.6, s 0~L), 계단 첫 챌판 앞(`s_at(−clear−depth .. −clear)`)·위층 도착 뒤(`s_at(length + clear ..)`, 위층), 에스컬레이터 트러스 끝 앞·뒤(`u_range` 기준, 폭 = 트러스 외폭), 엘리베이터 정지층마다 문 앞(승강로 바깥면에서 `ev_clear`, 폭 = 문 폭 + 2 × 블록 크기, 관통형은 양쪽). 이격 0.3·깊이 0.6.
   - 유도 경로 `TactilePathSpec`(층, (s, t) 꼭짓점 = 블록 중심선, 폭 비우면 블록 크기 0.3): **선분은 s 또는 t 방향만**(사선 오류 — 미리보기 경로 선택은 직교 모드), 꼭짓점마다 점형 정사각형, 사이는 선형 띠. 최하층은 승강장 위만(선로 위 오류), 내공 범위 검사, 이름 중복 오류(비우면 TP{k}).
@@ -160,6 +161,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 바닥 마감·점자블록은 경계석 자리를 뺌(`railing_footprints`). 유리 색 = `glass_rgb`(0~255)·`glass_alpha` — DAE·웹 뷰어 재질(`render_material.railing_glass_material`), 나머지는 부재 재질(화강석·스테인리스).
   - 출력: 3D DXF STRUCT_RAILING / STRUCT_RAILING_GLASS(미리보기 '계단·ESC·EV' 묶음), 횡단·종단 SEC_RAILING, 평면 PLAN_RAILING(그 층: 경계석 + 절단 높이를 지나는 POST·유리), IFC `IfcRailing`(GUARDRAIL) ⊃ 경계석 IfcBuildingElementPart(USERDEFINED CURB)·POST IfcMember(POST)·레일 IfcMember(USERDEFINED HANDRAIL)·유리 IfcPlate(CURTAIN_PANEL), 그 층 storey.
   - 다음 후보: 계단 옆 경량칸막이 벽체 + 뒤편 창고 문(사용자 예정), 원형 파이프 단면, 나란한 오프닝 사이 공유 난간, 계단 자체 핸드레일.
+- **계단·ESC 옆 벽체 + 하부 창고(`stairs/stair_enclosure.py`)**: `cfg.enclosure_settings = EnclosureSettings`(모델 기본 끔, GUI 7.계단 탭 '계단 옆 벽체 · 하부 창고' 묶음은 켬 — 옛 프로젝트도, 프로젝트 파일 `enclosure_draft`). 실무 평면(계단·ESC 승강장 쪽 긴 옆면을 칸막이벽으로, 높은 쪽 아래는 기계실·창고) 기준.
+  - **기존 실 기능을 그대로 씀**: 묶음마다 자동 실(`RoomSpec.auto = 'ENC:…'`)을 만들어 `cfg.rooms` 에 넣음 → 칸막이벽·문·마감·IfcSpace/IfcWall/IfcDoor 가 따라 나옴. `StationProjectConfig.validate` 가 처음에 자동 실을 지우고(`auto`), 계단·ESC 배치 직후 다시 만듦(두 번 검증해도 같음). 계단 시작 앞·도착 지점 실과 아래층 천장은 바뀌지 않아 계단 배치(디딤판·오프닝)는 그대로.
+  - 묶음: 같은 층·같은 오르는 방향, s 구간 겹침, t 간격 ≤ `group_gap`(1.0) 인 계단·ESC — 사이는 막지 않음. 계단실 = 그 층 기본 실 용도(마감 같음), 앞(첫 챌판 쪽) = `RoomSpec.open_sides`(벽·가상선 없음), 노출된 긴 옆면 벽 중심선 = 묶음 t 끝 − 그 실 벽 마감 표면 거리 − 반두께(마감 표면이 계단 옆면에 닿음), 내공면에 가까우면 본체 벽. 벽 두께·재질 = 실 탭 칸막이벽.
+  - 창고(`storage_use` 기본 창고 — 마감표 '창고' = 천장 없음·벽 면처리): 묶음 하면이 바닥 마감면 + `storage_h`(2.1) 이상인 첫 위치부터 높은 쪽 끝(+ 반두께 + 창고 마감면)까지, 경계 끝 벽 윗면 = 그 벽(+ 계단실 쪽 벽 마감) 구간의 부재 하면 최저(`RoomSpec.wall_tops` → 칸막이벽 조각 윗면 상한, 그 벽 면 벽 마감도 칸막이벽 윗면까지 — `finish_layout.part_top`). 문 = **뒷 벽(높은 쪽 끝) 가운데**(`door_at` 'back' 기본, 사용자 요청 — 뒷 벽이 본체 단부 벽이거나 폭이 모자라면 옆 벽) 또는 노출된 옆 벽 가운데('side', 계단 탭 '문 뒷 벽' 체크)(`door_w`×`door_h`). `min_storage` 보다 짧으면 창고 없이 계단실만.
+  - **열린 벽 끝 끝막음(`finish_layout._wall_end_caps`, 모든 s 방향 칸막이벽)**: 다른 벽에 닿지 않고 끝나는 칸막이벽 끝(계단실 앞)은 벽 마감이 구조면에서 띄워 붙어(금속패널 0.15) 벽과 마감 사이 빈 공간이 두 겹처럼 보였음(사용자 지적) → 양쪽 마감을 벽 끝 + 마감 두께까지 늘리고 그 사이(벽 끝면 + 이격)를 끝 앞 실 마감재로 덮음. 모서리로 맞닿은 벽은 연결로 봄.
+  - 칸막이벽·계단 간섭 검사(`room_check._below_member`): 벽 윗면이 그 자리 계단·ESC 하면 아래면 허용(끝 벽).
+  - 만들지 않는 경우: 입력 실과 벽 두께 이내로 가깝거나 겹침, 엘리베이터 승강로와 겹침, 구조물 내공 확폭 층(포켓 경로 미지원).
+  - 다음 후보: 확폭 층 지원, 문 위치·종류 입력, 창고 대신 실 용도 지정(기계실 등)을 계단마다, 이슈 #32(오프닝 둘레 막이와 이웃 계단).
 - **스크린도어 PSD(`psds/`)**: `cfg.psd_settings = PsdSettings`(모델 기본 끔, GUI 2.승강장 탭 '스크린도어' 묶음은 켬 — 옛 프로젝트도 켬). **열차를 써야 함**(정차 선로마다 한 줄). 치수는 실무 입면 상세도(UNIT 4,800 = 고정부 1,350 | 가동문 1,050 × 2 | 고정부 1,350(한쪽 비상문 겸용), 문 높이 2,000 + 구동부 400) + 단면은 일반값 예시(POST 0.2×0.2, 구동부 깊이 0.35, 프레임 0.05×0.05, 하부 레일 0.1, 유리 8mm), 모두 입력.
   - 배치(`layout_psds`): 유닛 중심(두 가동문 사이) = 열차 문 중심. POST 는 유닛 양옆, 이웃 유닛 POST 가 같은 자리면(문 간격 = 유닛 + POST = 5.0, 기본 20m 4도어와 같음) 하나로 공유. 유닛 사이가 벌어지면 채움 고정 패널(한 장 ≤ `fill_max` 1.5, 여러 장이면 사이 POST) + 구동부, 열차 바깥은 없음. 내공 [0, L] 밖으로 나간 조각은 잘라냄(열차가 승강장 끝에 붙은 실무 샘플). 오류: 유닛 겹침(간격 < 유닛 폭), POST 일부 겹침(공유도 아니고 떨어지지도 않음), 채움 패널이 너무 좁음.
   - 위치: PSD 중심선 |t| = 승강장 끝단(D/2 + 끝단 거리) + `edge_offset` 0.3, 그 선로 승강장 쪽. 바닥 = 그 자리 실의 바닥 마감면(`platform_base`, 마감 끔·마감 없으면 승강장 상면). 연단 점자블록(끝단 + 0.6~1.2)과 겹치지 않음.

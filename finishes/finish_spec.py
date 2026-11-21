@@ -19,6 +19,7 @@ class FinishType:
     바닥: ffl = 마감 높이 (구조 바닥 상면 → 마감면, 0 이면 바닥 마감 없음), floor_t = 마감재 두께 (마감면에서 아래로),
           floor_fill = 그 아래 (FILL_MORTAR 몰탈 채움 | FILL_VOID 빈 공간 = 액세스 플로어)
     벽: wall_t = 마감재 두께 (0 = 면처리, 형상 없음), 마감면 ~ 천장(없으면 위 슬래브 하면),
+        partition_face = 칸막이벽·구획분리 벽 면 → 마감 표면 거리 (None = wall_t, 이격 없음 — 본체 벽 wall_face 와 따로)
         wall_face = 구조체 면 → 마감 표면 거리 (None = wall_t, 이격 없음). 마감재 뒷면 이격 = wall_face − wall_t (빈 공간,
         하지재 미모델링). 예) 금속패널: 표면 0.15, 판 T1.6 → 이격 0.1484 (실무 상세 WB-14). 기둥·승강로 둘레에도 같은 거리
     천장: ceiling = 천장 있음, ceiling_h = 바닥 마감면에서 천장판 하면까지, board_t = 천장판 두께,
@@ -45,6 +46,17 @@ class FinishType:
     carrier_w: float = 0.012
     carrier_h: float = 0.038
     wall_face: float = None
+    partition_face: float = None
+
+    @property
+    def pface(self) -> float:
+        """칸막이벽·구획분리 벽 면 → 벽 마감 표면 거리 (partition_face 를 비우면 마감재 두께, 즉 이격 없음 — 본체 측벽의
+        큰 이격(설비 공간)과 따로)"""
+        return self.wall_t if self.partition_face is None else self.partition_face
+
+    @property
+    def pgap(self) -> float:
+        return self.pface - self.wall_t
 
     @property
     def face(self) -> float:

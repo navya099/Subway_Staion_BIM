@@ -68,13 +68,28 @@ def layout_rooms(cfg) -> list:
     return out
 
 
+def _below_member(cfg, rect, z_top, lay) -> bool:
+    """벽 조각(rect, 윗면 z_top 본체 FL 기준)이 계단·ESC 부재 하면 아래에 있음 (계단 아래를 가로지르는 끝 벽)"""
+    if z_top is None:
+        return False
+    off = cfg.station.offset
+    strips = [st for p in lay.parts for st in p.strips] + [st for f in getattr(lay, "finish", None) or [] for st in f.strips]
+    s0, s1 = rect[0], rect[1]
+    for k in range(11):
+        s = s0 + (s1 - s0) * k / 10.0
+        under = [st.zb_at(s) for st in strips if st.s0 - 1e-9 <= s <= st.s1 + 1e-9]
+        if under and cfg.lv(s) - off + z_top > min(under) + 1e-6:
+            return False
+    return True
+
+
 def check_room_layouts(cfg, floors: list, openings: list, stairs: list, escalators: list, elevators: list):
     """칸막이벽·구획분리 벽(두께 > 0)이 서 있는 슬래브의 오프닝 위에 놓이지 않고, 계단·에스컬레이터·엘리베이터와 평면이
     겹치지 않을 것 (두께 없는 가상 경계선은 검사하지 않음)"""
     st = cfg.station
     for fl in floors:
         for pw in fl.partitions:
-            for s0, s1, t0, t1, *_ in pw.pieces:
+            for s0, s1, t0, t1, *zz in pw.pieces:
                 r = (s0, s1, t0, t1)
                 for op in openings:
                     if fl.floor - 1 in op.slabs and overlap_area(r, (op.s_start, op.s_end, op.t_lo, op.t_hi)) > 1e-9:
@@ -82,7 +97,7 @@ def check_room_layouts(cfg, floors: list, openings: list, stairs: list, escalato
                                          "위에 놓입니다 (실 경계를 옮기세요)")
                 for kind, items in (("계단", stairs), ("에스컬레이터", escalators)):
                     for it in items:
-                        if it.lower_floor == fl.floor and overlap_area(r, (*it.s_range, *it.t_range)) > 1e-9:
+                        if it.lower_floor == fl.floor and overlap_area(r, (*it.s_range, *it.t_range)) > 1e-9                                 and not _below_member(cfg, r, zz[1] if len(zz) > 1 else None, it):
                             raise ValueError(f"칸막이벽 {pw.name}: {kind} {it.name} 과(와) 겹칩니다 (실 경계를 옮기세요)")
                 for ev in elevators:
                     if ev.lower_floor <= fl.floor <= ev.upper_floor and overlap_area(r, ev.outer_rect()) > 1e-9:

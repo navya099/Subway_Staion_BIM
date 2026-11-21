@@ -44,6 +44,9 @@ class RoomSpec:
         boundary: 경계 종류 — PARTITION(칸막이벽, 공통 두께) | SEPARATION(구획분리)
         sep_t: 구획분리 두께 (m). 0 = 두께 없는 가상 경계선(공간만 나눔), > 0 = 얇은 실제 벽
         doors: 이 실의 변에 내는 문 (DoorSpec). 그 변에 벽이 있어야 함 (본체 벽·가상 경계선은 불가)
+        open_sides: 벽을 세우지 않는 변 ('+s' / '-s' / '+t' / '-t') — 계단실 앞면처럼 열린 변 (가상선도 없음)
+        wall_tops: 변 → 그 변 벽의 윗면 높이 (본체 FL 기준, 비우면 위 슬래브 하면) — 계단 아래를 가로지르는 끝 벽
+        auto: 자동 생성한 실의 출처 (예: 'ENC:ST1' 계단 옆 벽체) — 검사 전 다시 만들므로 입력 실과 구분
     경계 중 본체 벽(내공면)이 아닌 변에는 칸막이벽/구획분리가 중심선에 맞춰 자동으로 선다.
     같은 선에서 겹치면 칸막이벽이 우선 (구획분리끼리는 두꺼운 쪽).
     """
@@ -58,6 +61,9 @@ class RoomSpec:
     sep_t: float = 0.0
     doors: list = dataclasses.field(default_factory=list)        # list[DoorSpec]
     finish: str = ""                                             # 마감 종류 (비우면 용도 이름으로 마감표에서 찾음)
+    open_sides: tuple = ()
+    wall_tops: dict = dataclasses.field(default_factory=dict)
+    auto: str = ""
 
     @property
     def rect(self) -> tuple:

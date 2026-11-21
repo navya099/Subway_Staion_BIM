@@ -695,6 +695,7 @@ class IFCExporter:
                     ("WallFinishThickness", "IfcLengthMeasure", float(ft.wall_t)),
                     ("WallFinishFace", "IfcLengthMeasure", float(ft.face)),          # 구조체 면 → 마감 표면
                     ("WallFinishGap", "IfcLengthMeasure", float(ft.wall_gap)),       # 마감재 뒷면 이격 (하지 공간)
+                    ("PartitionFinishFace", "IfcLengthMeasure", float(ft.pface)),    # 칸막이벽 면 → 마감 표면
                     ("CeilingMaterial", "IfcLabel", ft.ceiling_material if ft.ceiling else "없음"),
                     ("CeilingHeight", "IfcLengthMeasure", float(ft.ceiling_h if ft.ceiling else 0.0)),
                     ("CeilingFrame", "IfcLabel", f"{ft.frame}바" if ft.ceiling else "없음")]

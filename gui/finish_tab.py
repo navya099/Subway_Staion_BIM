@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.finish_draft import (FACE_FIELD, FILL_LABELS, FRAME_LABELS, NUM_FIELDS, STAIR_NUM_FIELDS, STAIR_TEXT_FIELDS,
+from gui.finish_draft import (FACE_FIELD, PFACE_FIELD, FILL_LABELS, FRAME_LABELS, NUM_FIELDS, STAIR_NUM_FIELDS, STAIR_TEXT_FIELDS,
                               STEP_LABELS, TEXT_FIELDS, FinishDrafts, FinishTypeDraft, preview, stair_preview)
 
 FONT = ("Malgun Gothic", 9)
@@ -118,7 +118,8 @@ class FinishTab:
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(3, 0))
-        cells = ([(a, lb, ENTRY_W) for a, lb, _ in NUM_FIELDS[:3]] + [(FACE_FIELD[0], FACE_FIELD[1], ENTRY_W)]
+        cells = ([(a, lb, ENTRY_W) for a, lb, _ in NUM_FIELDS[:3]] + [(FACE_FIELD[0], FACE_FIELD[1], ENTRY_W),
+                                                                      (PFACE_FIELD[0], PFACE_FIELD[1], ENTRY_W)]
                  + [(a, lb, 12) for a, lb in TEXT_FIELDS[:2]])
         for n, (attr, label, w) in enumerate(cells):
             r, col = divmod(n, 3)

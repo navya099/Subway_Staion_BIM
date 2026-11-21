@@ -147,15 +147,22 @@ def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsL
     # ---- 경계 중심선: 입력 실의 변 (본체 벽 위는 제외). 선마다 (구간, 종류, 두께)
     rs = cfg.room_settings
     lines = {}                       # ('s', t) → [(s0, s1, 종류, 두께)] s 방향 선,  ('t', s) → [(t0, t1, …)] t 방향 선
+    tops = {}                        # (축, 좌표) → 벽 윗면 상한 (RoomSpec.wall_tops: 계단 아래를 가로지르는 끝 벽)
     for sp in specs:
         kind = PARTITION if sp.boundary == PARTITION else SEPARATION
         thick = rs.partition_t if kind == PARTITION else sp.sep_t
-        for t in (sp.t0, sp.t1):
-            if abs(abs(t) - hw) > _EPS:
+        opened = set(getattr(sp, "open_sides", ()) or ())
+        wtops = getattr(sp, "wall_tops", None) or {}
+        for side, t in (("-t", sp.t0), ("+t", sp.t1)):
+            if abs(abs(t) - hw) > _EPS and side not in opened:
                 lines.setdefault(("s", round(t, 6)), []).append((sp.s0, sp.s1, kind, thick))
-        for s in (sp.s0, sp.s1):
-            if _EPS < s < L - _EPS:
+                if side in wtops:
+                    tops[("s", round(t, 6))] = min(tops.get(("s", round(t, 6)), 1e9), wtops[side])
+        for side, s in (("-s", sp.s0), ("+s", sp.s1)):
+            if _EPS < s < L - _EPS and side not in opened:
                 lines.setdefault(("t", round(s, 6)), []).append((sp.t0, sp.t1, kind, thick))
+                if side in wtops:
+                    tops[("t", round(s, 6))] = min(tops.get(("t", round(s, 6)), 1e9), wtops[side])
     segments = {"s": [], "t": []}    # [(선 좌표, 구간 시작, 끝, 종류, 두께)]
     for (axis, c), ivs in sorted(lines.items()):
         cuts = sorted({v for a, b, *_ in ivs for v in (a, b)})
@@ -173,14 +180,14 @@ def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsL
                 cur = [a, b, key]
                 segments[axis].append((c, cur))
     clip = lambda a, b, lo, hi: (max(a, lo), min(b, hi))
-    s_walls, t_walls, vlines = [], [], []          # 벽: (사각형, 종류, 두께),  가상선: (s0, s1, t0, t1)
+    s_walls, t_walls, vlines = [], [], []          # 벽: (사각형, 종류, 두께, 윗면 상한),  가상선: (s0, s1, t0, t1)
     for t, (a, b, (kind, th)) in segments["s"]:
         if th <= _EPS:
             vlines.append((max(a, 0.0), min(b, L), t, t))
             continue
         h = th / 2.0
-        s_walls.append(((*clip(a - h, b + h, 0.0, L), *clip(t - h, t + h, -hw, hw)), kind, th))
-    s_rects = [r for r, _, _ in s_walls]
+        s_walls.append(((*clip(a - h, b + h, 0.0, L), *clip(t - h, t + h, -hw, hw)), kind, th, tops.get(("s", t))))
+    s_rects = [r for r, *_ in s_walls]
     for s, (a, b, (kind, th)) in segments["t"]:
         a, b = clip(a, b, -hw, hw)
         if th <= _EPS:
@@ -188,31 +195,37 @@ def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsL
             continue
         h = th / 2.0
         for r in decompose.subtract_rects((*clip(s - h, s + h, 0.0, L), a, b), s_rects):
-            t_walls.append((r, kind, th))
+            t_walls.append((r, kind, th, tops.get(("t", s))))
 
     # ---- 높이 (최하층 승강장 위는 승강장 상면부터)
     z0, z1 = st.floor_level(floor), ceiling_rel(st, floor)
     plat = pl.slab_t_ranges(st.width) if (floor == 1 and pl.exists) else []
 
-    def with_heights(rect):
+    def with_heights(rect, top=None):
         s0, s1, t0, t1 = rect
         cuts = sorted({t0, t1, *(min(max(v, t0), t1) for r in plat for v in r)})
         out = []
+        zt = z1 if top is None else min(z1, top)
         for a, b in zip(cuts, cuts[1:]):
             if b - a <= _EPS:
                 continue
             on = any(p0 - _EPS <= a and b <= p1 + _EPS for p0, p1 in plat)
-            out.append((s0, s1, a, b, pl.top_level if on else z0, z1))
+            zb = pl.top_level if on else z0
+            if zt - zb > _EPS:
+                out.append((s0, s1, a, b, zb, zt))
         return out
 
     level = st.level_name(floor)
     partitions, counters = [], {}
     for axis, walls in (("s", s_walls), ("t", t_walls)):
-        for r, kind, th in walls:
+        for r, kind, th, top in walls:
+            pieces = with_heights(r, top)
+            if not pieces:
+                continue
             pre = "PW" if kind == PARTITION else "SW"
             counters[(pre, axis)] = counters.get((pre, axis), 0) + 1
             partitions.append(PartitionLayout(f"{pre}_{level}_{axis.upper()}{counters[(pre, axis)]}", floor, axis,
-                                              with_heights(r), kind, th))
+                                              pieces, kind, th))
     seps = [SeparationLineLayout(f"SL_{level}_{k}", floor, "s" if abs(r[2] - r[3]) < _EPS else "t", r, z0)
             for k, r in enumerate(vlines, start=1)]
     doors = _cut_doors(cfg, specs, names, partitions, seps)

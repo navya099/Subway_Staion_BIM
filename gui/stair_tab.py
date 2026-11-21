@@ -3,6 +3,7 @@ from tkinter import ttk
 from gui import pick_buttons as PB
 
 from gui.stair_draft import DIRECTIONS, StairDraft, StairDrafts, floor_choice_label, preview
+from gui.enclosure_draft import NUM_FIELDS as ENC_NUM, EnclosureDraft, preview as enc_preview
 from gui.railing_draft import NUM_FIELDS as RAIL_NUM, TEXT_FIELDS as RAIL_TEXT, RailingDraft, preview as rail_preview
 
 FONT = ("Malgun Gothic", 9)
@@ -33,6 +34,8 @@ class StairTab:
         self.entries['stair_drafts'] = self.drafts
         self.railing = RailingDraft()                   # 오프닝 유리난간 (계단·ESC 공통)
         self.entries['railing_draft'] = self.railing
+        self.enclosure = EnclosureDraft()               # 계단·ESC 옆 벽체 + 하부 창고
+        self.entries['enclosure_draft'] = self.enclosure
         self.floor_count = 0
         self._vars = {}            # 테스트/갱신용: (번호, 필드) → StringVar
         self._info_vars = []       # (StringVar, StairDraft) 미리보기
@@ -142,6 +145,7 @@ class StairTab:
         self._info_vars.clear()
         self._combos.clear()
         self._build_railing()
+        self._build_enclosure()
         if not self.drafts.items:
             tk.Label(self.body, text="계단 없음", fg="#888888", font=FONT).pack(anchor="w", padx=8, pady=6)
         for i, it in enumerate(self.drafts.items):
@@ -193,6 +197,38 @@ class StairTab:
         self._info_vars.append((info, it))
         tk.Label(box, textvariable=info, font=FONT, fg="#1565C0", anchor="w", justify="left").pack(fill="x", pady=(2, 0))
 
+    def _build_enclosure(self):
+        """계단·ESC 옆 벽체 + 하부 창고 (모든 계단·ESC 공통, 자동 실·칸막이벽·문)"""
+        d = self.enclosure
+        box = tk.LabelFrame(self.body, text=" 계단 옆 벽체 · 하부 창고 (모든 계단·ESC 공통) ", font=FONT_B, fg="#5D4037",
+                            padx=6, pady=4)
+        box.pack(fill="x", padx=(5, 8), pady=4)
+        top = tk.Frame(box)
+        top.pack(fill="x")
+        for attr, text in (("enabled", "옆 벽체"), ("escalators", "에스컬레이터도"), ("storage", "하부 창고"),
+                           ("door_back", "문 뒷 벽")):
+            var = tk.BooleanVar(value=getattr(d, attr))
+            self._vars[("enclosure", attr)] = var
+
+            def on_chk(*_, a=attr, v=var):
+                setattr(self.enclosure, a, bool(v.get()))
+                self.refresh_info()
+            var.trace_add("write", on_chk)
+            tk.Checkbutton(top, text=text, variable=var, font=FONT).pack(side="left", padx=(0, 8))
+        tk.Label(top, text="창고 용도", font=FONT).pack(side="left")
+        self._entry(top, d, "storage_use", ("enclosure", "storage_use"), 8).pack(side="left", padx=(2, 0))
+        grid = tk.Frame(box)
+        grid.pack(fill="x", pady=(3, 0))
+        for n, (attr, label) in enumerate(ENC_NUM):
+            r, col = divmod(n, 3)
+            tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
+            self._entry(grid, d, attr, ("enclosure", attr), ENTRY_W).grid(row=r, column=col * 2 + 1, padx=(2, 8), pady=1,
+                                                                        sticky="w")
+        info = tk.StringVar(value="")
+        self._enc_info = info
+        tk.Label(box, textvariable=info, font=("Malgun Gothic", 8), fg="#1565C0", anchor="w", justify="left",
+                 wraplength=500).pack(fill="x", pady=(2, 0))
+
     def _build_railing(self):
         """오프닝 유리난간 (모든 계단·ESC 오프닝 공통): 경계석 + POST + 유리판 + 파이프 레일 2개"""
         d = self.railing
@@ -237,6 +273,8 @@ class StairTab:
         """계단별 미리보기: 단수·단높이·계단참·길이·STA 범위 (FL 기준, 구배 무시 추정)"""
         if getattr(self, "_rail_info", None) is not None:
             self._rail_info.set(rail_preview(self.railing))
+        if getattr(self, "_enc_info", None) is not None:
+            self._enc_info.set(enc_preview(self.enclosure))
         start = self._start_station()
         for var, it in self._info_vars:
             h = self._floor_height(it.lower_floor)

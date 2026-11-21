@@ -134,16 +134,17 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
                     if x1 - x0 > _EPS:
                         backs.append((x0, x1, half, "wall"))
             for x0, x1, off, kind in backs:
+                kg, kf = (ft.pgap, ft.pface) if kind == "wall" else (gap, face)   # 칸막이벽은 칸막이벽 전용 거리
                 if vertical:                                     # 측벽 내공면에 닿는 끝은 넓혀서 띠에서 끝나게
                     if on_inner_face(cfg, n, (c, x0), (c, x0)):
                         x0 = -T.BIG
                     if on_inner_face(cfg, n, (c, x1), (c, x1)):
                         x1 = T.BIG
-                d0, d1 = sorted((c + sign * (off + gap), c + sign * (off + face)))
+                d0, d1 = sorted((c + sign * (off + kg), c + sign * (off + kf)))
                 r = T.rect(x0, x1, d0, d1) if axis == "s" else T.rect(d0, d1, x0, x1)
                 strip = T.intersect(clear, [r])
                 (primary if axis == "s" else secondary).extend((p, kind, axis, c) for p in strip)
-                for depth, bucket in ((gap, gaps), (face, face_regs)):
+                for depth, bucket in ((kg, gaps), (kf, face_regs)):
                     if depth > _EPS:
                         e0, e1 = sorted((c + sign * off, c + sign * (off + depth)))
                         rr = T.rect(x0, x1, e0, e1) if axis == "s" else T.rect(e0, e1, x0, x1)

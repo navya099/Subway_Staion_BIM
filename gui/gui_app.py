@@ -249,8 +249,10 @@ class StationBIMApp:
 
     def _ensure_preview(self):
         if self.preview is None or not self.preview.alive:
+            tabs = {"passage": self.passage_tab, "vent": self.vent_tab, "tactile": self.tactile_tab}
             self.preview = PreviewWindow(self.root, lambda: TkAdapter.collect_entries(self.entries),
-                                         print_draft=self.entries.get("print_draft"))
+                                         print_draft=self.entries.get("print_draft"), entries=self.entries,
+                                         on_path_edit=lambda kind: tabs[kind].render())
         return self.preview
 
     def request_pick(self, request) -> bool:

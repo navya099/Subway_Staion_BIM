@@ -15,6 +15,7 @@ from matplotlib.figure import Figure
 from config.output_config import PLAN_CUT_H
 from engine.cad_engine import StationCADEngine
 from exporter import live_viewer
+from gui import path_edit as PE
 from preview import pick as P
 from preview import preview_render as R
 
@@ -69,8 +70,15 @@ class _View:
 class PreviewWindow:
     """get_config(): 현재 입력 → StationProjectConfig (오류면 예외). print_draft: 출력 탭 초안 (처음 보기 값만 가져옴)"""
 
-    def __init__(self, master, get_config, print_draft=None):
+    def __init__(self, master, get_config, print_draft=None, entries=None, on_path_edit=None):
+        """entries: 입력 초안(경로 편집 대상), on_path_edit(kind): 경로를 고친 뒤 그 탭을 다시 그림"""
         self.get_config = get_config
+        self.entries = entries
+        self.on_path_edit = on_path_edit
+        self.paths = []            # 평면 경로 객체 (gui.path_edit.EditPath)
+        self.path_sel = None       # 고른 꼭짓점 (종류, 초안 번호, 꼭짓점 번호)
+        self.path_drag = None      # 끄는 중: {"what": vertex|mid, "path", "k", "cur", "press", "moved"}
+        self._path_artists = []
         self.cfg = None
         self.engine = None
         self.mesh = None
@@ -83,8 +91,9 @@ class PreviewWindow:
         self.top.geometry("1200x800")
         self.top.protocol("WM_DELETE_WINDOW", self.close)
         self.top.bind("<F5>", lambda e: (self.refresh(), "break")[1])   # break: 메인 창의 bind_all F5 와 중복 실행 방지
-        self.top.bind("<Escape>", lambda e: self.cancel_pick())
+        self.top.bind("<Escape>", lambda e: (self.cancel_pick(), self._clear_path_sel()))
         self.top.bind("<F8>", lambda e: self.toggle_ortho())
+        self.top.bind("<Delete>", self._on_delete_key)
 
         head = tk.Frame(self.top, bg="#ECEFF1")
         head.pack(fill="x")
@@ -148,6 +157,9 @@ class PreviewWindow:
         v = tk.BooleanVar(value=True)
         self._vars["ortho"] = v
         tk.Checkbutton(bar, text="직교 (F8)", variable=v, font=FONT).pack(side="left", padx=(6, 0))
+        v = tk.BooleanVar(value=True)
+        self._vars["paths"] = v
+        tk.Checkbutton(bar, text="경로 표시", variable=v, font=FONT, command=lambda: self._draw_paths()).pack(side="left", padx=(6, 0))
 
         # 명령줄 (그림 아래): 선택 중 좌표 직접 입력
         cmd = tk.Frame(self.plan.frame, bg="#ECEFF1")
@@ -158,10 +170,11 @@ class PreviewWindow:
         self.command.bind("<Return>", lambda e: self.on_command())
         self.cursor_label = tk.Label(cmd, text="", font=FONT, bg="#ECEFF1", fg="#37474F", anchor="w")
         self.cursor_label.pack(side="left", fill="x", expand=True, padx=8)
-        tk.Label(cmd, text="STA,offset | @ds,dt | Enter = 경로 끝 | U = 한 점 취소 | F8 = 직교 | Esc = 취소", font=FONT,
+        tk.Label(cmd, text="STA,offset | @ds,dt | Enter = 경로 끝 | U = 한 점 취소 | D·Delete = 꼭짓점 삭제 | F8 = 직교 | Esc = 취소", font=FONT,
                  bg="#ECEFF1", fg="#78909C").pack(side="right", padx=6)
         self.plan.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.plan.canvas.mpl_connect("button_press_event", self._on_click)
+        self.plan.canvas.mpl_connect("button_release_event", self._on_release)
 
     def _build_profile_bar(self):
         bar = self.profile.bar
@@ -265,6 +278,7 @@ class PreviewWindow:
                 messagebox.showerror("미리보기", f"{type(e).__name__}: {e}", parent=self.top)
             return False
         self.cfg, self.engine, self.mesh = cfg, engine, None
+        self.paths = PE.collect_paths(cfg, self.entries) if self.entries is not None else []
         self._update_choices()
         for v in self.views:
             v.stale = True
@@ -359,7 +373,9 @@ class PreviewWindow:
             self._fail("평면", e)
             return
         self._pick_artists = []                         # 다시 그리면 겹쳐 그린 선택 표시도 지워짐
+        self._path_artists = []
         self.plan.draw_2d(doc, ("plan", n))
+        self._draw_paths()
         self._say(self.pick.prompt() if self.pick else f"평면 {self.plan_floor.get()} (FL+{h:g}m)")
 
     def draw_profile(self):
@@ -605,6 +621,9 @@ class PreviewWindow:
     def _on_motion(self, ev):
         if self.cfg is None or ev.inaxes is not self.plan.ax or ev.xdata is None:
             return
+        if self.path_drag is not None:
+            self._drag_path(ev)
+            return
         try:
             s, t, label = self.snap_event(ev.xdata, ev.ydata, fast=True)
         except ValueError:                               # 곡선 선형에서 선형 범위 밖
@@ -614,6 +633,9 @@ class PreviewWindow:
             self._draw_pick((s, t), label)
 
     def _on_click(self, ev):
+        if self.pick is None and ev.inaxes is self.plan.ax and ev.xdata is not None:
+            self._path_press(ev)
+            return
         if self.pick is None or ev.inaxes is not self.plan.ax or ev.xdata is None:
             return
         if self.plan.toolbar.mode:                       # 이동·확대 도구를 쓰는 중이면 선택하지 않음
@@ -646,9 +668,13 @@ class PreviewWindow:
             self._say(self.pick.prompt())
 
     def on_command(self):
-        """명령줄 Enter: 좌표 입력 / 빈 줄 = 경로 끝 / U = 한 점 취소"""
+        """명령줄 Enter: 좌표 입력 / 빈 줄 = 경로 끝 / U = 한 점 취소. 선택 중이 아니고 경로 꼭짓점을 골랐으면
+        좌표 = 그 꼭짓점 옮김 (@ = 지금 위치 기준), D = 삭제"""
         text = self.command.get().strip()
         self.command.delete(0, "end")
+        if self.pick is None and self._selected() is not None and text:
+            self._path_command(text)
+            return
         if self.pick is None:
             if text:
                 self._say("먼저 입력 탭의 [선택] 버튼으로 선택을 시작하세요", error=True)
@@ -687,3 +713,185 @@ class PreviewWindow:
             self._say(f"[{sess.request.title}] 반영했습니다")
         else:
             self._say(f"[{sess.request.title}] 반영했지만 모델 오류: {self.last_error}", error=True)
+
+    # ------------------------------------------------------------ 경로 객체 표시·편집 (출구통로·환기구·점자 유도 경로)
+    _PATH_COLOR = {PE.PASSAGE: "#00E5FF", PE.VENT: "#76FF03", PE.TACTILE: "#FFD600"}
+
+    def _plan_floor_no(self) -> int:
+        return dict(R.floor_choices(self.cfg)).get(self.plan_floor.get(), 1) if self.cfg is not None else 1
+
+    def _visible_paths(self) -> list:
+        if not self._vars["paths"].get() or self.cfg is None:
+            return []
+        n = self._plan_floor_no()
+        return [p for p in self.paths if p.floor == n]
+
+    def _selected(self):
+        """고른 꼭짓점 → (경로, k) 또는 None"""
+        if self.path_sel is None:
+            return None
+        kind, idx, k = self.path_sel
+        p = next((x for x in self.paths if x.kind == kind and x.index == idx), None)
+        if p is None or not 0 <= k < len(p.points):
+            return None
+        return p, k
+
+    def _clear_path_sel(self):
+        if self.path_sel is not None or self.path_drag is not None:
+            self.path_sel, self.path_drag = None, None
+            self._draw_paths()
+
+    def _draw_paths(self, preview=None):
+        """경로 중심선·꼭짓점 손잡이(■, 벽을 따라만 움직이는 첫 꼭짓점 □, 고정 ■ 회색)·구간 가운데 손잡이(○ = 끌거나 눌러 꼭짓점 추가).
+        preview = 끄는 중인 모양 (꼭짓점 목록)"""
+        for a in self._path_artists:
+            try:
+                a.remove()
+            except (ValueError, AttributeError, NotImplementedError):
+                pass
+        self._path_artists = []
+        if self.cfg is None:
+            return
+        ax = self.plan.ax
+        sel = self._selected()
+        for p in self._visible_paths():
+            c = self._PATH_COLOR[p.kind]
+            xs, ys = self._line_xy(p.points)
+            self._path_artists += ax.plot(xs, ys, "--", color=c, linewidth=1.0, alpha=0.9)
+            for k, (s, t) in enumerate(p.points):
+                x, y = self.to_xy(s, t)
+                mv = p.moves[k]
+                face = "#9E9E9E" if mv == PE.FIXED else ("none" if mv == PE.ALONG_S else c)
+                big = sel is not None and sel[0] is p and sel[1] == k
+                self._path_artists += ax.plot([x], [y], "s", markersize=9 if big else 6,
+                                              markerfacecolor="#FF5252" if big else face,
+                                              markeredgecolor="#FF5252" if big else c, markeredgewidth=1.2)
+            for k, (s, t) in p.midpoints():
+                x, y = self.to_xy(s, t)
+                self._path_artists += ax.plot([x], [y], "o", markersize=4, markerfacecolor="none", markeredgecolor=c)
+            x, y = self.to_xy(*p.points[-1])
+            self._path_artists.append(ax.annotate(p.label, (x, y), xytext=(8, -12), textcoords="offset points", color=c,
+                                                  fontsize=8, fontname="Malgun Gothic"))
+        if preview is not None:
+            xs, ys = self._line_xy(preview)
+            self._path_artists += ax.plot(xs, ys, "-", color="#FF5252", linewidth=1.4)
+        self.plan.canvas.draw_idle()
+
+    def _path_press(self, ev):
+        """평면 누름 (선택 중이 아닐 때): 꼭짓점 = 고르고 끌기 시작, 가운데 = 꼭짓점 추가 끌기, 오른쪽 = 꼭짓점 삭제, 빈 곳 = 선택 해제"""
+        if self.plan.toolbar.mode:
+            return
+        paths = self._visible_paths()
+        hit = PE.nearest(paths, self.to_xy, ev.xdata, ev.ydata, self._tol(8)) if paths else None
+        if hit is None:
+            self._clear_path_sel()
+            return
+        what, p, k = hit
+        if ev.button == 3:
+            if what == "vertex":
+                self._path_edit(p, lambda: PE.delete(self.entries, p, k), None, f"{p.label} 꼭짓점 {k + 1} 삭제")
+            return
+        if ev.button != 1:
+            return
+        if what == "vertex":
+            self.path_sel = (p.kind, p.index, k)
+        self.path_drag = {"what": what, "path": p, "k": k, "cur": None, "press": (getattr(ev, "x", 0) or 0, getattr(ev, "y", 0) or 0), "moved": False}
+        self._draw_paths()
+        self._say(f"{p.label} 꼭짓점 {k + 1} (끌어 옮기기 · 명령줄 좌표 · D/Delete = 삭제)" if what == "vertex"
+                  else f"{p.label} 꼭짓점 {k + 1}–{k + 2} 사이에 추가 (끌어 놓기·누르기)")
+
+    def _drag_point(self, ev):
+        """끄는 위치 → 스냅·직교·벽 구속을 적용한 (s, t, 설명)"""
+        d = self.path_drag
+        p, k = d["path"], d["k"]
+        s, t = self.to_st(ev.xdata, ev.ydata, fast=True)
+        sn = self._snapper()
+        if d["what"] == "vertex":
+            prev = p.points[k - 1] if k > 0 else (p.points[k + 1] if k + 1 < len(p.points) else None)
+        else:
+            prev = p.points[k]
+        if self._vars["ortho"].get() and prev is not None:
+            s, t, label = P.ortho_snap(sn, prev, s, t, self._tol())
+        else:
+            s, t, label = sn.snap(s, t, self._tol())
+        if d["what"] == "vertex":
+            s, t = PE.constrain(p, k, s, t)
+        return s, t, label
+
+    def _drag_path(self, ev):
+        d = self.path_drag
+        if abs((getattr(ev, "x", 0) or 0) - d["press"][0]) + abs((getattr(ev, "y", 0) or 0) - d["press"][1]) > 4:
+            d["moved"] = True
+        if not d["moved"]:
+            return
+        try:
+            s, t, label = self._drag_point(ev)
+        except ValueError as e:
+            self._say(str(e), error=True)
+            return
+        d["cur"] = (s, t)
+        p, k = d["path"], d["k"]
+        pts = list(p.points)
+        if d["what"] == "vertex":
+            for j in p.group(k):
+                pts[j] = (s, t)
+        else:
+            pts.insert(k + 1, (s, t))
+        self.cursor_label.config(text=self._cursor_text(s, t, label))
+        self._draw_paths(preview=pts)
+
+    def _on_release(self, ev):
+        d, self.path_drag = self.path_drag, None
+        if d is None:
+            return
+        p, k = d["path"], d["k"]
+        base, to_world = self.cfg.station.start_station, self.cfg.to_world
+        if d["what"] == "vertex":
+            if not d["moved"] or d["cur"] is None:
+                self._draw_paths()
+                return
+            s, t = d["cur"]
+            self._path_edit(p, lambda: PE.move(self.entries, p, k, s, t, base, to_world), k,
+                            f"{p.label} 꼭짓점 {k + 1} 옮김")
+        else:
+            s, t = d["cur"] if (d["moved"] and d["cur"] is not None) else dict(p.midpoints())[k]
+            self._path_edit(p, lambda: PE.insert(self.entries, p, k, s, t, base, to_world), k + 1,
+                            f"{p.label} 꼭짓점 {k + 2} 추가")
+
+    def _path_command(self, text):
+        p, k = self._selected()
+        if text.upper() == "D":
+            self._path_edit(p, lambda: PE.delete(self.entries, p, k), None, f"{p.label} 꼭짓점 {k + 1} 삭제")
+            return
+        try:
+            s, t = P.parse_input(text, self.cfg.station.start_station, p.points[k])
+        except ValueError as e:
+            self._say(f"경로: {e}", error=True)
+            return
+        base, to_world = self.cfg.station.start_station, self.cfg.to_world
+        self._path_edit(p, lambda: PE.move(self.entries, p, k, s, t, base, to_world), k, f"{p.label} 꼭짓점 {k + 1} 옮김")
+
+    def _on_delete_key(self, ev):
+        if isinstance(ev.widget, (tk.Entry, ttk.Entry, ttk.Combobox)) or self.pick is not None:
+            return
+        sel = self._selected()
+        if sel is not None:
+            p, k = sel
+            self._path_edit(p, lambda: PE.delete(self.entries, p, k), None, f"{p.label} 꼭짓점 {k + 1} 삭제")
+
+    def _path_edit(self, p, fn, k_after, what):
+        """경로 편집 실행 → 입력 탭 다시 그림 → 모델 갱신 (확대 유지). 오류면 아무것도 안 바뀜"""
+        try:
+            fn()
+        except ValueError as e:
+            self._say(f"경로: {e}", error=True)
+            self._draw_paths()
+            return
+        if self.on_path_edit is not None:
+            self.on_path_edit(p.kind)
+        self.path_sel = (p.kind, p.index, k_after) if k_after is not None else None
+        if self.refresh(popup=False):
+            self._say(f"{what} — 입력 탭에 반영했습니다")
+        else:
+            self._say(f"{what} — 반영했지만 모델 오류: {self.last_error}", error=True)
+            self._draw_paths()

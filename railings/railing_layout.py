@@ -59,7 +59,7 @@ def layout_railings(cfg) -> list:
     rs = getattr(cfg, "railing_settings", None)
     if rs is None or not rs.enabled:
         return []
-    from config.widening import inner_min
+    from finishes.finish_clear import wall_surface
     from finishes.finish_layout import floor_ffl_at
     st = cfg.station
     L = st.length
@@ -74,9 +74,9 @@ def layout_railings(cfg) -> list:
         S0, S1, T0, T1 = rect
         cw = rs.curb_w
         skip = {"S0" if abs(arrive - S0) < abs(arrive - S1) else "S1"}
-        if T0 - cw < -inner_min(cfg, n, -1, S0, S1) + _EPS:
+        if T0 - cw < -wall_surface(cfg, n, -1, S0, S1) + _EPS:      # 위층 벽 마감 표면 기준
             skip.add("T0")
-        if T1 + cw > inner_min(cfg, n, +1, S0, S1) - _EPS:
+        if T1 + cw > wall_surface(cfg, n, +1, S0, S1) - _EPS:
             skip.add("T1")
         if S0 - cw < _EPS:
             skip.add("S0")

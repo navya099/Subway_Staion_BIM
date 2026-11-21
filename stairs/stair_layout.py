@@ -199,10 +199,10 @@ def _exposed_sides(cfg, spec, fin, k: int, s_lo: float, s_hi: float) -> tuple:
     """계단 옆면 마감 두께 (t0 쪽, t1 쪽). 내공면(벽)에 붙은 쪽은 0 (벽 마감이 덮음)"""
     if fin is None or fin.side_t <= TOL:
         return 0.0, 0.0
-    from config.widening import inner_min
-    tol = 0.01
-    lo = fin.side_t if spec.t_lo > -inner_min(cfg, k, -1, s_lo, s_hi) + tol else 0.0
-    hi = fin.side_t if spec.t_hi < inner_min(cfg, k, +1, s_lo, s_hi) - tol else 0.0
+    from finishes.finish_clear import wall_surface
+    tol = 0.01                                           # 본체 벽 마감 표면에 붙은 쪽은 노출 아님 (이슈 #32)
+    lo = fin.side_t if spec.t_lo > -wall_surface(cfg, k, -1, s_lo, s_hi) + tol else 0.0
+    hi = fin.side_t if spec.t_hi < wall_surface(cfg, k, +1, s_lo, s_hi) - tol else 0.0
     if spec.width - lo - hi < 0.1:
         raise ValueError(f"계단 옆면 마감 두께({fin.side_t:g})가 계단 폭({spec.width:g})에 비해 너무 큽니다")
     return lo, hi

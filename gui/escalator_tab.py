@@ -9,7 +9,7 @@ FONT_B = ("Malgun Gothic", 9, "bold")
 ENTRY_W = 8
 
 # (라벨, 속성) 2열 배치
-_FIELDS = [("하부 WP STA", "sta_wp", "t 위치", "t_center"),
+_FIELDS = [("하부 WP STA", "sta_wp", "t 값", "t_center"),     # t 값 = t 기준점의 t (벽 마감면 기준이면 이격)
            ("경사각(°)", "angle_deg", "스텝 폭", "step_width"),
            ("트러스 외폭", "truss_width", "트러스 높이", "truss_depth"),
            ("하부 연장", "lower_ext", "상부 연장", "upper_ext"),
@@ -174,6 +174,17 @@ class EscalatorTab:
         dc.pack(side="left", padx=(2, 0))
         dc.bind("<<ComboboxSelected>>", lambda e, c=dc, k=i: self.set_direction(k, c.get()))
         self._combos[(i, "direction")] = dc
+        from finishes.finish_clear import T_REF_LABELS
+        tk.Label(row, text="t 기준", font=FONT).pack(side="left", padx=(10, 0))
+        rc = ttk.Combobox(row, values=list(T_REF_LABELS), state="readonly", width=14, font=FONT)
+        rc.set(it.t_ref if it.t_ref in T_REF_LABELS else "중심")
+        rc.pack(side="left", padx=(2, 0))
+
+        def on_ref(e, c=rc, d=it):
+            d.t_ref = c.get()
+            self.refresh_info()
+        rc.bind("<<ComboboxSelected>>", on_ref)
+        self._combos[(i, "t_ref")] = rc
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))

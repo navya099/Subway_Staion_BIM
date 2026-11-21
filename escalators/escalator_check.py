@@ -81,6 +81,9 @@ def check_escalator_layouts(cfg, esc_layouts: list, stair_layouts: list):
     - 같은 층에서 시작하는 에스컬레이터·계단끼리 평면이 겹치지 않을 것
     - 에스컬레이터가 서 있는 슬래브(시작 층 − 1)에 뚫린 다른 오프닝(수동·계단) 위에 놓이지 않을 것
     - 계단이 서 있는 슬래브의 에스컬레이터 피트 오프닝 위에 놓이지 않을 것"""
+    from finishes.finish_clear import check_wall_clearance
+    for lay in esc_layouts:                               # 본체 측벽 벽 마감 표면 (이슈 #32)
+        check_wall_clearance(cfg, "에스컬레이터", lay.name, lay.lower_floor, lay.s_range, lay.t_range)
     floors = cfg.station.floors
     level = cfg.station.level_name
     for i, a in enumerate(esc_layouts):

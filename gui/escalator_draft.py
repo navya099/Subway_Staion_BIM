@@ -22,6 +22,13 @@ def _int(text, where, label) -> int:
     return v
 
 
+def _t_ref(label: str, where: str) -> str:
+    from finishes.finish_clear import T_REF_LABELS
+    if label not in T_REF_LABELS:
+        raise ValueError(f"{where}: t 기준이 올바르지 않습니다 ('{label}')")
+    return T_REF_LABELS[label]
+
+
 @dataclass
 class EscalatorDraft:
     """에스컬레이터 1대 (입력창 문자열 그대로 보관)
@@ -32,6 +39,7 @@ class EscalatorDraft:
     direction: str = UP_PLUS
     sta_wp: str = "0"
     t_center: str = "6.5"
+    t_ref: str = "중심"             # t 기준 (finishes.finish_clear.T_REF_LABELS) — 벽 마감면이면 t = 마감면에서의 이격 (≥ 0)
     angle_deg: str = f"{_SPEC.angle_deg:g}"
     step_width: str = f"{_SPEC.step_width:g}"
     truss_width: str = f"{_SPEC.truss_width:g}"
@@ -53,7 +61,9 @@ class EscalatorDraft:
             lower_floor=self.lower_floor,
             s_wp=_num(self.sta_wp, where, "하부 WP 측점") - start_station,
             direction=_DIR[self.direction],
-            t_center=_num(self.t_center, where, "t 위치"),
+            t_center=_num(self.t_center, where, "벽 마감면 이격" if "벽" in self.t_ref else "t 위치",
+                          nonneg="벽" in self.t_ref),
+            t_ref=_t_ref(self.t_ref, where),
             angle_deg=num("angle_deg", "경사각"),
             step_width=num("step_width", "스텝 폭"),
             truss_width=num("truss_width", "트러스 외폭"),
@@ -107,4 +117,14 @@ def preview(it: EscalatorDraft, floor_height: float, start_station: float) -> st
     wp1 = wp0 + sp.direction * run
     lo, hi = sorted((wp0 - sp.direction * sp.lower_ext, wp1 + sp.direction * sp.upper_ext))
     return (f"→ WP 간 {run:.2f}m, 트러스 길이 {run + sp.lower_ext + sp.upper_ext:.2f}m, 상부 WP STA {wp1:.2f}\n"
-            f"   STA {lo:.2f} ~ {hi:.2f},  t {sp.t_lo:g} ~ {sp.t_hi:g}  (FL 기준 추정)")
+            f"   STA {lo:.2f} ~ {hi:.2f},  {t_text(sp, sp.truss_width)}  (FL 기준 추정)")
+
+
+def t_text(sp, width: float) -> str:
+    """미리보기용 t 범위 문구 (벽 마감면 기준은 검증 때 실제 t 를 계산)"""
+    ref = getattr(sp, "t_ref", "center")
+    if ref.startswith("wall"):
+        side = "왼쪽" if ref == "wall+t" else "오른쪽"
+        return f"{side} 벽 마감면에서 {sp.t_center:g} 띄움 (폭 {width:g})"
+    c = sp.t_center - width / 2.0 if ref == "+t" else (sp.t_center + width / 2.0 if ref == "-t" else sp.t_center)
+    return f"t {c - width / 2.0:g} ~ {c + width / 2.0:g}"

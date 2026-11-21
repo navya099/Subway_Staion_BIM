@@ -40,6 +40,7 @@ class EscalatorSpec:
     s_wp: float = 0.0
     direction: int = 1
     t_center: float = 0.0
+    t_ref: str = "center"        # t 기준점 (계단과 같음, 폭 = 트러스 외폭) — 검증 전에 중심으로 풀림
     angle_deg: float = 30.0
     step_width: float = 1.0
     truss_width: float = 1.6

@@ -71,6 +71,9 @@ def check_stair_layouts(cfg, layouts: list):
         for b in layouts[i + 1:]:
             if a.lower_floor == b.lower_floor and overlap_area(_rect(a), _rect(b)) > 1e-9:
                 raise ValueError(f"계단 {a.name} 와 {b.name} 이(가) {cfg.station.level_name(a.lower_floor)} 에서 서로 겹칩니다")
+    from finishes.finish_clear import check_wall_clearance
+    for lay in layouts:                                   # 본체 측벽 벽 마감 표면 (이슈 #32)
+        check_wall_clearance(cfg, "계단", lay.name, lay.lower_floor, lay.s_range, lay.t_range)
     op_names = resolve_names(cfg.openings)
     for lay in layouts:
         if lay.on_platform:

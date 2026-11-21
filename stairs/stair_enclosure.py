@@ -120,8 +120,11 @@ def enclosure_rooms(cfg, stairs, escs, evs) -> list:
         use = rs.default_use(n)
         face = face_of(use)
         lo_face, hi_face = -inner_min(cfg, n, -1, S0, S1), inner_min(cfg, n, +1, S0, S1)
+        from finishes.finish_clear import wall_surface
+        lo_surf, hi_surf = -wall_surface(cfg, n, -1, S0, S1), wall_surface(cfg, n, +1, S0, S1)
         c0, c1 = T0 - face - h, T1 + face + h
-        wall_lo, wall_hi = c0 - h > lo_face + _EPS, c1 + h < hi_face - _EPS
+        # 칸막이벽이 본체 벽 마감 표면 안쪽에 설 자리가 없으면 그 쪽은 본체 벽 (벽 마감 표면 기준 — 이슈 #32)
+        wall_lo, wall_hi = c0 - h > lo_surf + _EPS, c1 + h < hi_surf - _EPS
         t0 = c0 if wall_lo else lo_face
         t1 = c1 if wall_hi else hi_face
         front, back = (S0, S1) if d > 0 else (S1, S0)

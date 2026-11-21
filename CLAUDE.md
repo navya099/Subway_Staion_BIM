@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1059개 통과** (GUI 134개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1066개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -52,7 +52,7 @@ config/                     모델·선형
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
-finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
+finishes/                   건축 마감: clear(계단·ESC 와 벽 마감 표면: t 기준점·간섭 검사 — 이슈 #32), spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 railings/                   오프닝 유리난간: spec(RailingSettings), layout(계단·ESC 오프닝 둘레 경계석·POST·레일·유리 조각 + 검증), engine
 smokewalls/                 입구 천장 제연경계벽: spec(SmokeBarrierSettings·head_drop), layout(오프닝 입구 가장자리 프레임·유리 조각), engine
@@ -76,7 +76,7 @@ assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_pa
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -200,6 +200,9 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
     - 바닥 마감 접지 구간(`contact_rects`)·오프닝 옆면 마감은 계단 마감 부재도 포함(계단당 s 구간을 합쳐 계단 폭 사각형 하나). 검증: `StairFinish.check`(방식·0 이상·받침 > 디딤판/깔 몰탈·논슬립 깊이·디딤판 < 단높이), 옆면이 폭에 비해 큼.
     - 검증된 성질(테스트): 세 방식 모두 무작위 점에서 부재끼리 겹침·연직 빈틈 없음 + 맨 위 = 걷는 면, 체적 띠 공식 = 메쉬 = IFC(곡선 rel 1e-4).
     - 다음 후보: **계단·ESC 옆 칸막이벽으로 구조 옆면 가리기**(사용자 예정 — 실무 사진: 계단·ESC 옆을 벽체로 막음), 계단 하부 마감(천장판·도장), 계단 난간·핸드레일, 계단석 줄눈·분할, 에스컬레이터 마감(트러스 옆·하부 패널), 출입구 계단 마감.
+  - **t 기준점·벽 마감 간섭(`finishes/finish_clear.py`, 이슈 #32 근본 원인 — 사용자 지적: 마감 간섭 검사가 없어 문제 개체가 조용히 생김, 중심 t 입력이라 벽 마감면까지 거리를 모름)**: `StairSpec.t_ref`·`EscalatorSpec.t_ref` = `center`(t = 중심) | `+t`/`-t`(t = 왼쪽·오른쪽 변) | `wall+t`/`wall-t`(t = 그 쪽 본체 벽 마감 표면에서의 이격 ≥ 0, 벽 쪽 변을 마감 표면에 맞춤). `StationProjectConfig.validate` 가 배치 전에 중심 t 로 풀어 `t_ref = center` 로 바꿈(`normalize_t_refs`, 두 번 검증해도 같음). 벽 마감 표면 `wall_surface` = 내공면(구간 최안쪽, 확폭 포함) − 그 벽에 붙은 실들(구간 1m 표본) 중 가장 큰 `FinishType.face`(마감 끔·벽 마감 없음 = 0). 계단·ESC 탭 't 기준' 콤보, 입력칸 이름 't 값', 미리보기에 '왼쪽 벽 마감면에서 0.1 띄움'.
+    - 간섭 검사 `check_wall_clearance`(계단·ESC 배치 검사): 평면이 본체 측벽 벽 마감 표면 안쪽으로 들어가면 오류 + 들어간 거리(마감 켰을 때만). 실무 샘플 내부계단 #1~4·ESC 는 벽 마감면 0.5 안으로 0.4m 들어가 이제 오류 — 't 기준'을 벽 마감면으로 바꿔야 함. 칸막이벽 마감과의 검사는 아직(구조체 겹침만).
+    - 벽에 붙은 쪽 판단도 벽 마감 표면 기준: 계단실 옆 벽(`stair_enclosure`: 칸막이벽이 마감 표면 안쪽에 설 자리가 없으면 본체 벽 — 예전엔 마감 이격 안에 칸막이벽이 섬), 계단 옆면 마감 노출(`_exposed_sides`), 유리난간 가장자리(위층 마감 표면).
   - IFC: `IfcStair`(STRAIGHT_RUN_STAIR) ⊃ `IfcStairFlight` + `IfcSlab`(LANDING), IfcStair 만 시작 층 storey 에 포함. 평면도는 최하층 계단만 표시.
   - 검증: 층 범위·치수·내공 범위, 같은 층 계단끼리 비겹침, 서 있는 슬래브(k−1)의 오프닝 위 금지, 시작 층 기둥 비관통(자동 오프닝은 k·k+1층 기둥 검사).
 - **에스컬레이터(1단계)**: `EscalatorSpec`(시작 층 k → k+1, **하부 WP** STA + 오르는 방향, t 중심, 경사각 30°, 스텝 폭 1.0(S1000), 트러스 외폭 1.6·연직 높이 1.15(=피트 깊이), 하부/상부 연장 2.4/2.8, 평탄 스텝 2/3단, 스텝 깊이 0.4, 핸드레일 높이 1.0, 머리 높이 2.3 — 모두 입력 가능).

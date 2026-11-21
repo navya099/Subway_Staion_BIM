@@ -224,6 +224,8 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         ev_rects = [ev.outer_rect() for ev in evs]
         risers = [x for x in list(stairs) + list(escalators) if x.lower_floor == n]      # 이 층에서 오르는 계단·ESC
         skip_ops = pit_names | {o.name for o in openings if o.name.endswith("_SHAFT")}      # 둘레 마감 없는 오프닝
+        from railings.railing_layout import railing_footprints
+        curbs = railing_footprints(cfg, n)                   # 유리난간 경계석 (구조 바닥 위) — 바닥 마감에서 뺌
         below = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
         # 위 슬래브 오프닝만큼 천장을 뺌. 단 위층 에스컬레이터 하부 피트(슬래브 두께 안에서 트러스가 막음)는 아래층 천장을 뚫지 않음
         above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs and o.name not in pit_names]
@@ -252,7 +254,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                 wall_top = c
             obstacles = walls_fp + col_rects + ev_rects
             # 계단·ESC 는 바닥 마감면 아래로 내려오는 곳(접지 구간)만 바닥 마감에서 뺌 — 경사부·트러스 아래 바닥은 마감
-            stair_fp = contact_rects(cfg, risers, n, ft.ffl) if ft.ffl > _EPS else []
+            stair_fp = (contact_rects(cfg, risers, n, ft.ffl) if ft.ffl > _EPS else []) + curbs
             # 위 슬래브 오프닝 둘레 마감 (천장 속 막이 + 슬래브 옆면): 벽 마감과 같은 재질, 막이 자리는 천장판에서 뺌
             linings, lining_fp = opening_linings(cfg, n, room, ft, rf.ceiling_rel, openings, stairs, escalators,
                                                  skip_ops, obstacles) if ft.ceiling else ([], [])

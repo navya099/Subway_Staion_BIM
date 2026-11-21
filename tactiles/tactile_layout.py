@@ -172,6 +172,8 @@ def layout_tactile(cfg, columns=()) -> list:
         holes += [ev.outer_rect() for ev in evs if ev.lower_floor <= n <= ev.upper_floor]
         holes += [(*x.s_range, *x.t_range) for x in stairs + escs if x.lower_floor == n]
         holes += [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
+        from railings.railing_layout import railing_footprints
+        holes += railing_footprints(cfg, n)                  # 유리난간 경계석
         placed = []                                       # 이미 놓은 사각형 (뒤에 오는 블록에서 뺌)
         items = [(BOARD, src, r, lb) for src, r, lb in board] + [(WARNING, src, r, "") for src, r in warn] +                 [(GUIDE, src, r, "") for src, r in guide]
         for kind, src, r, lb in items:

@@ -37,6 +37,7 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("몰탈", (0.70, 0.70, 0.68)),
     RenderMaterial("콘크리트", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("논슬립", (0.22, 0.22, 0.24)),
+    RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
     RenderMaterial("점자블록 점형", (0.96, 0.80, 0.10), "tactile_warning", 0.3, 0.3),
@@ -61,7 +62,15 @@ LAYER_MATERIALS = {
     "STRUCT_SIGN": RenderMaterial("사인 본체", (0.30, 0.31, 0.33)),
     "STRUCT_SIGN_FACE": RenderMaterial("사인 면", (0.95, 0.95, 0.95)),
     "STRUCT_PSD_GLASS": RenderMaterial("PSD 유리", (0.70, 0.85, 0.92), alpha=0.3),
+    "STRUCT_RAILING": RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
+    "STRUCT_RAILING_GLASS": RenderMaterial("난간 유리", (0.59, 0.80, 0.75), alpha=0.35),
 }
+
+
+def railing_glass_material(rs) -> RenderMaterial:
+    """유리난간 유리 보기 재질 — 설정 색(RGB 0~255)·불투명도"""
+    r, g, b = (max(0, min(255, int(c))) / 255.0 for c in rs.glass_rgb)
+    return RenderMaterial("난간 유리", (r, g, b), alpha=float(rs.glass_alpha))
 
 
 def finish_material(name: str) -> RenderMaterial:

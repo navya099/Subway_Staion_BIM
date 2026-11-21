@@ -3,6 +3,7 @@ from tkinter import ttk
 from gui import pick_buttons as PB
 
 from gui.stair_draft import DIRECTIONS, StairDraft, StairDrafts, floor_choice_label, preview
+from gui.railing_draft import NUM_FIELDS as RAIL_NUM, TEXT_FIELDS as RAIL_TEXT, RailingDraft, preview as rail_preview
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -30,6 +31,8 @@ class StairTab:
         self.entries = entries_dict
         self.drafts = StairDrafts()
         self.entries['stair_drafts'] = self.drafts
+        self.railing = RailingDraft()                   # 오프닝 유리난간 (계단·ESC 공통)
+        self.entries['railing_draft'] = self.railing
         self.floor_count = 0
         self._vars = {}            # 테스트/갱신용: (번호, 필드) → StringVar
         self._info_vars = []       # (StringVar, StairDraft) 미리보기
@@ -138,6 +141,7 @@ class StairTab:
         self._vars.clear()
         self._info_vars.clear()
         self._combos.clear()
+        self._build_railing()
         if not self.drafts.items:
             tk.Label(self.body, text="계단 없음", fg="#888888", font=FONT).pack(anchor="w", padx=8, pady=6)
         for i, it in enumerate(self.drafts.items):
@@ -189,6 +193,36 @@ class StairTab:
         self._info_vars.append((info, it))
         tk.Label(box, textvariable=info, font=FONT, fg="#1565C0", anchor="w", justify="left").pack(fill="x", pady=(2, 0))
 
+    def _build_railing(self):
+        """오프닝 유리난간 (모든 계단·ESC 오프닝 공통): 경계석 + POST + 유리판 + 파이프 레일 2개"""
+        d = self.railing
+        box = tk.LabelFrame(self.body, text=" 오프닝 유리난간 (모든 계단·ESC 공통) ", font=FONT_B, fg="#00695C", padx=6, pady=4)
+        box.pack(fill="x", padx=(5, 8), pady=4)
+        top = tk.Frame(box)
+        top.pack(fill="x")
+        for attr, text in (("enabled", "유리난간"), ("escalators", "에스컬레이터 오프닝에도")):
+            var = tk.BooleanVar(value=getattr(d, attr))
+            self._vars[("railing", attr)] = var
+
+            def on_chk(*_, a=attr, v=var):
+                setattr(self.railing, a, bool(v.get()))
+                self.refresh_info()
+            var.trace_add("write", on_chk)
+            tk.Checkbutton(top, text=text, variable=var, font=FONT).pack(side="left", padx=(0, 8))
+        tk.Label(top, text="유리 색 (R, G, B)", font=FONT).pack(side="left")
+        self._entry(top, d, "glass_rgb", ("railing", "glass_rgb"), 12).pack(side="left", padx=(2, 0))
+        grid = tk.Frame(box)
+        grid.pack(fill="x", pady=(3, 0))
+        cells = [(a, lb, ENTRY_W) for a, lb in RAIL_NUM] + [(a, lb, 10) for a, lb in RAIL_TEXT]
+        for n, (attr, label, w) in enumerate(cells):
+            r, col = divmod(n, 3)
+            tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
+            self._entry(grid, d, attr, ("railing", attr), w).grid(row=r, column=col * 2 + 1, padx=(2, 8), pady=1, sticky="w")
+        info = tk.StringVar(value="")
+        self._rail_info = info
+        tk.Label(box, textvariable=info, font=("Malgun Gothic", 8), fg="#1565C0", anchor="w", justify="left",
+                 wraplength=500).pack(fill="x", pady=(2, 0))
+
     def _entry(self, parent, obj, attr, key, width):
         var = tk.StringVar(value=getattr(obj, attr))
         self._vars[key] = var
@@ -201,6 +235,8 @@ class StairTab:
 
     def refresh_info(self):
         """계단별 미리보기: 단수·단높이·계단참·길이·STA 범위 (FL 기준, 구배 무시 추정)"""
+        if getattr(self, "_rail_info", None) is not None:
+            self._rail_info.set(rail_preview(self.railing))
         start = self._start_station()
         for var, it in self._info_vars:
             h = self._floor_height(it.lower_floor)

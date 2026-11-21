@@ -57,6 +57,10 @@ LAYER_DEFINITIONS = {
     "STRUCT_PSD_GLASS": {"color": 151},  # 스크린도어 유리
     "SEC_PSD": {"color": 252},           # 횡단·종단면도 스크린도어
     "PLAN_PSD": {"color": 252},          # 평면도 스크린도어
+    "STRUCT_RAILING": {"color": 254},    # 오프닝 유리난간 경계석·POST·레일
+    "STRUCT_RAILING_GLASS": {"color": 131},   # 오프닝 유리난간 유리
+    "SEC_RAILING": {"color": 254},       # 횡단·종단면도 유리난간
+    "PLAN_RAILING": {"color": 254},      # 평면도 유리난간
     "FIN_TACTILE": {"color": 2},         # 점자블록 (점형·선형)
     "SEC_TACTILE": {"color": 2},         # 횡단·종단면도 점자블록
     "PLAN_TACTILE": {"color": 2},        # 평면도 점자블록

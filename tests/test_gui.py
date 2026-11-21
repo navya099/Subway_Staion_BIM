@@ -948,7 +948,10 @@ def test_generate_with_escalators_end_to_end(app, tmp_path):
     cfg = TkAdapter.collect_entries(app.entries)
     paths = BIMEngine.build(cfg, tmp_path)
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
-    assert len(f.by_type("IfcTransportElement")) == 2 and len(f.by_type("IfcRailing")) == 8
+    rails = f.by_type("IfcRailing")
+    assert len(f.by_type("IfcTransportElement")) == 2
+    assert len([r for r in rails if r.PredefinedType != "GUARDRAIL"]) == 8                    # ESC 난간·핸드레일
+    assert sorted(r.Name for r in rails if r.PredefinedType == "GUARDRAIL") == ["RL_ES1", "RL_ES2"]   # 오프닝 유리난간
     assert sorted(o.Name for o in f.by_type("IfcOpeningElement")) == [
         "OPEN_ES1_PIT_PLAT_B3F_R", "OPEN_ES1_SLAB_B2F_MID", "OPEN_ES2_PIT_SLAB_B2F_MID", "OPEN_ES2_SLAB_B1F_MID"]
 
@@ -1639,6 +1642,30 @@ def test_finish_tab_stair_finish_edit_and_round_trip(app, monkeypatch, tmp_path)
     assert not tab._vars[("stair", "nosing")].get() and not app.is_dirty()
     tab._vars[("stair", "enabled")].set(False)
     assert TkAdapter.collect_entries(app.entries).finish_settings.stair_finish() is None
+
+
+def test_stair_tab_railing_edit_and_round_trip(app, monkeypatch, tmp_path):
+    tab = app.stair_tab
+    rs = TkAdapter.collect_entries(app.entries).railing_settings
+    assert rs.enabled and rs.escalators and rs.glass_rgb == (150, 205, 190)
+    tab._vars[("railing", "glass_rgb")].set("200, 10, 20")
+    tab._vars[("railing", "rail_h1")].set("1.1")
+    tab._vars[("railing", "escalators")].set(False)
+    rs = TkAdapter.collect_entries(app.entries).railing_settings
+    assert (rs.glass_rgb, rs.rail_h1, rs.escalators) == ((200, 10, 20), 1.1, False)
+    tab._vars[("railing", "glass_rgb")].set("x")
+    with pytest.raises(ValueError, match="유리난간: 유리 색"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[("railing", "glass_rgb")].set("200, 10, 20")
+    path = str(tmp_path / "r.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[("railing", "glass_rgb")].get() == "150, 205, 190"
+    app.on_open(path)
+    assert tab._vars[("railing", "glass_rgb")].get() == "200, 10, 20" and not tab._vars[("railing", "escalators")].get()
+    assert TkAdapter.collect_entries(app.entries).railing_settings.rail_h1 == 1.1 and not app.is_dirty()
+    tab._vars[("railing", "enabled")].set(False)
+    assert not TkAdapter.collect_entries(app.entries).railing_settings.enabled
 
 
 def test_generate_with_finishes_end_to_end(app, tmp_path):

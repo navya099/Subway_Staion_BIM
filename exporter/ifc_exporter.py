@@ -763,6 +763,39 @@ class IFCExporter:
         f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                         RelatingStructure=self.storeys[level], RelatedElements=asms)
 
+    def export_railings(self, railing_engine):
+        """오프닝 유리난간: 난간마다 IfcRailing(GUARDRAIL) ⊃ 경계석 IfcBuildingElementPart(USERDEFINED CURB) · POST IfcMember(POST)
+        · 레일 IfcMember(USERDEFINED HANDRAIL) · 유리 IfcPlate(CURTAIN_PANEL). 형상 = 조각 면 집합, 난간이 서는 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for r in railing_engine.railings:
+            rail = f.create_entity("IfcRailing", GlobalId=ifcopenshell.guid.compress(uuid.UUID(r.guid).hex), Name=r.name,
+                                   Description=f"오프닝 {r.opening} 유리난간 ({', '.join(r.edges)})", ObjectType=r.type_name,
+                                   ObjectPlacement=self._placement(), PredefinedType="GUARDRAIL")
+            parts = []
+            for e in r.parts:
+                kw = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
+                          ObjectPlacement=self._placement(),
+                          Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces],
+                                                             "Tessellation"))
+                if e.code == "CURB":
+                    kw["ObjectType"] = "CURB"
+                    el = f.create_entity("IfcBuildingElementPart", PredefinedType="USERDEFINED", **kw)
+                elif e.code == "POST":
+                    el = f.create_entity("IfcMember", PredefinedType="POST", **kw)
+                elif e.code == "RAIL":
+                    kw["ObjectType"] = "HANDRAIL"
+                    el = f.create_entity("IfcMember", PredefinedType="USERDEFINED", **kw)
+                else:
+                    el = f.create_entity("IfcPlate", PredefinedType="CURTAIN_PANEL", **kw)
+                self._assign_material(el, e.material)
+                parts.append(el)
+            f.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=rail, RelatedObjects=parts)
+            by_level.setdefault(r.level, []).append(rail)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+
     def export_signs(self, sign_engine):
         """역명판·안내사인: 사인마다 IfcBuildingElementProxy(USERDEFINED, ObjectType SIGNAGE) — 본체 + 이미지 면, 재질,
         속성 세트 SSBIM_Sign(종류·문구), 그 층 storey"""

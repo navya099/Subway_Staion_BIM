@@ -22,6 +22,8 @@ from tactiles.tactile_spec import TactileSettings
 from config.widening import check_widenings
 from psds.psd_layout import check_psd
 from signs.sign_layout import check_signs
+from railings.railing_layout import check_railings
+from railings.railing_spec import RailingSettings
 from signs.sign_spec import SignSettings
 from psds.psd_spec import PsdSettings
 from trains.train_layout import check_train
@@ -47,6 +49,7 @@ class StationProjectConfig:
     train_settings: TrainSettings = dataclasses.field(default_factory=TrainSettings)        # 열차 편성·선로별 정차 (승하차 위치)
     psd_settings: PsdSettings = dataclasses.field(default_factory=PsdSettings)              # 스크린도어 (열차 문 위치에 유닛)
     sign_settings: SignSettings = dataclasses.field(default_factory=SignSettings)          # 역명판·안내사인
+    railing_settings: RailingSettings = dataclasses.field(default_factory=RailingSettings)   # 계단·ESC 오프닝 유리난간
     tactile_settings: TactileSettings = dataclasses.field(default_factory=TactileSettings)   # 점자블록 (자동 경고 + 유도 경로)
     widenings: list = dataclasses.field(default_factory=list)     # list[WidenSpec]: 구조물 확폭 (층·쪽별 측벽 내공면 구간 확폭)
     vents: list = dataclasses.field(default_factory=list)         # list[VentSpec]: 환기구 (연속박스 덕트 + 수직구 + 그릴, 측벽 칸별 오프닝)
@@ -91,6 +94,7 @@ class StationProjectConfig:
         check_psd(self)
         check_tactile(self)
         check_signs(self)
+        check_railings(self)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)

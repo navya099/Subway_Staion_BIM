@@ -410,6 +410,22 @@ class IFCExporter:
                     if part.material:
                         self._assign_material(el, part.material)
                     parts.append(el)
+                for stp in esc.steps:                         # 개별 스텝: IfcBuildingElementPart(STEP) + 번호·체인 위치
+                    el = self.file.create_entity(
+                        "IfcBuildingElementPart", GlobalId=ifcopenshell.guid.compress(uuid.UUID(stp.guid).hex),
+                        Name=stp.name, ObjectType="STEP", ObjectPlacement=self._placement(),
+                        Representation=self._product_shape([self._face_set(q) for q in part_faces(self.config, stp)],
+                                                           "Tessellation"), PredefinedType="USERDEFINED")
+                    self._assign_material(el, stp.material)
+                    props = [self.file.create_entity("IfcPropertySingleValue", Name="Index",
+                                                     NominalValue=self.file.create_entity("IfcInteger", stp.index)),
+                             self.file.create_entity("IfcPropertySingleValue", Name="ChainU",
+                                                     NominalValue=self.file.create_entity("IfcLengthMeasure", float(stp.chain_u)))]
+                    pset = self.file.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(),
+                                                   Name="SSBIM_EscalatorStep", HasProperties=props)
+                    self.file.create_entity("IfcRelDefinesByProperties", GlobalId=ifcopenshell.guid.new(),
+                                            RelatedObjects=[el], RelatingPropertyDefinition=pset)
+                    parts.append(el)
                 self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
                                         RelatingObject=ifc_esc, RelatedObjects=parts)
                 elements.append(ifc_esc)

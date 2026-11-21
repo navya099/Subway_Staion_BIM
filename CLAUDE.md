@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1068개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1072개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -209,6 +209,9 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - **에스컬레이터(1단계)**: `EscalatorSpec`(시작 층 k → k+1, **하부 WP** STA + 오르는 방향, t 중심, 경사각 30°, 스텝 폭 1.0(S1000), 트러스 외폭 1.6·연직 높이 1.15(=피트 깊이), 하부/상부 연장 2.4/2.8, 평탄 스텝 2/3단, 스텝 깊이 0.4, 핸드레일 높이 1.0, 머리 높이 2.3 — 모두 입력 가능).
   - 스텝 코 선 N(u): 하부 WP 앞은 시작면(FL 또는 승강장 상면), WP 사이 경사선, 상부 WP 뒤 위층 바닥면. 상부 WP = 경사선이 위층 바닥(구배 반영)과 만나는 점.
   - 부재(모두 띠 부재): 트러스(N − 높이 ~ 스텝 아래/덮개판=바닥면), 스텝(경사 디딤판 수평·앞 코가 N 위, 평탄 스텝은 바닥면, 하면 N − 단높이 − 0.1), 난간 패널 좌/우(N ~ N + 핸드레일 높이 − 0.08), 핸드레일 좌/우(0.08×0.08). 세부 상수는 `escalator_spec.py`.
+  - **상세 형상 1단계(`escalators/escalator_geom.py`, 사용자: ESC 를 개략형상에서 완전 개조 — 4단계 중 1)**: 스텝 코 선 `NoseLine` = 아래층 바닥 → **하부 곡선 전이**(오목, `lower_radius` 1.0) → 경사선 → **상부 곡선 전이**(볼록, `upper_radius` 1.5) → 위층 바닥. 전이부 = WP 에서 만나는 두 직선(바닥은 WP 기울기로 근사 — 종단구배)에 접하는 원호(필렛), 0 이면 예전 꺾임. 띠 부재(트러스·난간·핸드레일)는 전이부를 `ARC_STEP` 0.05 로 따라 자름(`escalator_part_strips(extra_us, steps_range)`).
+    - **스텝 개별 객체**(애니메이션 대비, 위 운행로만 — 사용자 선택): 스텝 k 코 u_k = 첫 스텝 + k·스텝 깊이(수평), 코가 N 위·디딤판 수평(`step_pose(nose, u, dep)` → (디딤판 윗면, 아래 스텝과 높이차)), 형상 `step_pieces` = 디딤판 판(`STEP_PLATE_T`) + 앞 챌판 판(`STEP_RISER_T` 0.03, 아래 스텝 디딤판 높이 ~ 디딤판 하면) — 이웃 스텝과 겹침 없음, u 를 옮겨도 같음. 스텝 범위 = 평탄부 끝(전이 시작/끝) ± 평탄 스텝 수, 트러스보다 길면 오류. `EscalatorLayout.steps`(StepLayout)·`nose`, BIM `EscalatorStepData`(이름 `{ESC}_STEP001…`, `chain_u`), 예전 `STEPS` 띠 부재는 없어짐(출입구 에스컬레이터는 예전 형상 그대로). IFC 스텝마다 `IfcBuildingElementPart`(USERDEFINED, ObjectType STEP, Pset `SSBIM_EscalatorStep` Index·ChainU, 면 집합) ⊂ IfcTransportElement. 3D DXF STRUCT_ESCALATOR, 종단 스텝마다 윤곽, 평면 스텝 범위 사각형. ESC 탭 '하부/상부 전이 반경'.
+    - 다음 단계: 2 난간·데크·스커트, 3 핸드레일 고리·뉴얼, 4 승강구(바닥판·콤) + 트러스 외장 마감.
   - 자동 오프닝: 위층 슬래브(번호 k) = 트러스가 슬래브를 지나는 구간 ∪ 머리 높이 부족 구간 ~ 트러스 상단 끝. 머리 높이 기준은 계단과 같이 아래층 천장판 하면(마감 켬, 더 낮을 때), 폭 = 트러스 외폭 + 2 × `side_clear`. 하부 피트 = 트러스 하면이 시작면 아래인 구간 → 아래 슬래브(k−1) 오프닝, **피트가 슬래브보다 깊으면 오류**(바닥 내린 피트는 이후 단계). 승강장 위면 승강장 슬래브에 구멍(`cfg.platform_holes()`, `PlatformData.pieces/openings`), 지지벽체와 겹치면 오류.
   - IFC: `IfcTransportElement`(ESCALATOR) ⊃ 트러스·스텝 `IfcBuildingElementPart`, 난간 `IfcRailing`(BALUSTRADE), 핸드레일 `IfcRailing`(HANDRAIL). 승강장 IfcSlab 에도 IfcOpeningElement.
   - 검증: 치수·층·내공 범위, 트러스 폭 ≥ 스텝+난간, 같은 층 에스컬레이터·계단끼리 비겹침, 서 있는 슬래브의 다른 오프닝 위 금지(계단도 피트 위 금지), 시작 층 기둥 비관통.

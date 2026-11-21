@@ -7,7 +7,7 @@
 상부 WP(u_up)는 경사선이 위층 바닥면과 만나는 점 (종단구배 반영).
 """
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from escalators.escalator_spec import HANDRAIL_H, STEP_PLATE_T
@@ -47,6 +47,8 @@ class EscalatorLayout:
     opening: OpeningSpec                 # 위층 슬래브 오프닝
     pit_opening: Optional[OpeningSpec]   # 아래층 바닥 슬래브 피트 오프닝 (승강장 위면 None)
     platform_hole: Optional[tuple]       # 승강장 위: (이름, s0, s1, t0, t1) 승강장 슬래브 피트 구멍
+    steps: list = field(default_factory=list)      # 개별 스텝 StepLayout (escalator_geom) — 위 운행로, 아래에서 위로
+    nose: object = None                  # 스텝 코 선 NoseLine (u → 절대 표고) — 스텝 자세·애니메이션
 
     def s_at(self, u: float) -> float:
         return self.spec.s_wp + self.spec.direction * u
@@ -62,15 +64,17 @@ class EscalatorLayout:
         return names
 
 
-def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor):
+def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor, extra_us=(), steps_range=None):
     """에스컬레이터 부재 띠 (정거장·출입구 공통 핵심 기하).
     nose(u): 스텝 코 선 절대 표고, e0 = 하부 WP 표고, run = WP 간 수평 거리, s_at(u): 진행 좌표 → 부재 s 좌표,
     curve_factor(sa, sb, t_center): 띠 체적 보정. t 범위는 spec(t_center, 폭)으로 정한다.
+    extra_us: 더 자를 u (곡선 전이부 표본), steps_range: (lo, hi) 를 주면 스텝은 개별 객체(escalator_geom)로 따로 만들고
+    여기서는 스텝 띠를 만들지 않음 — 그 범위가 스텝 구간(트러스 상면 = 코 선 − 단높이 − 판 두께, 난간·핸드레일)
     반환: (부재 목록 EscPartLayout, 구간별 트러스 상면 {(ua, ub): (z_a, z_b)}, 구간 경계 u 목록)"""
     r, dep, depth = spec.riser, spec.step_depth, spec.truss_depth
     u_lo, u_hi = -spec.lower_ext, run + spec.upper_ext
-    step_lo, step_hi = -spec.lower_flat_steps * dep, run + spec.upper_flat_steps * dep
-    pts = {u_lo, u_hi, step_lo, step_hi, 0.0, run}
+    step_lo, step_hi = steps_range or (-spec.lower_flat_steps * dep, run + spec.upper_flat_steps * dep)
+    pts = {u_lo, u_hi, step_lo, step_hi, 0.0, run, *(x for x in extra_us if u_lo < x < u_hi)}
     j = 1
     while j * dep < run - TOL:                         # 경사 스텝 경계
         pts.add(j * dep)
@@ -83,7 +87,9 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor)
     tc = spec.t_center
     t_truss = (spec.t_lo, spec.t_hi)
     t_steps = (tc - spec.step_width / 2.0, tc + spec.step_width / 2.0)
-    part_defs = [(EscalatorPartKind.TRUSS, 0, t_truss), (EscalatorPartKind.STEPS, 0, t_steps)]
+    part_defs = [(EscalatorPartKind.TRUSS, 0, t_truss)]
+    if steps_range is None:
+        part_defs.append((EscalatorPartKind.STEPS, 0, t_steps))
     for side in (1, -1):
         part_defs += [(EscalatorPartKind.BALUSTRADE, side, spec.balustrade_t(side)),
                       (EscalatorPartKind.HANDRAIL, side, spec.handrail_t(side))]
@@ -106,13 +112,14 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor)
         na, nb = nose(a), nose(b)
         in_steps = step_lo < m < step_hi
         if in_steps:
-            if 0.0 < m < run:                          # 경사 스텝: 디딤판 상면 수평, 앞 코가 경사선 위
-                tread = e0 + math.floor(m / dep + TOL) * r
-                top = (tread, tread)
-            else:                                      # 평탄 스텝: 바닥면을 따름
-                top = (na, nb)
             bot = (na - plate, nb - plate)
-            add((EscalatorPartKind.STEPS, 0), a, b, bot, top)
+            if steps_range is None:
+                if 0.0 < m < run:                      # 경사 스텝: 디딤판 상면 수평, 앞 코가 경사선 위
+                    tread = e0 + math.floor(m / dep + TOL) * r
+                    top = (tread, tread)
+                else:                                  # 평탄 스텝: 바닥면을 따름
+                    top = (na, nb)
+                add((EscalatorPartKind.STEPS, 0), a, b, bot, top)
             ttop = bot
             for side in (1, -1):
                 rail_bot = (na + hh - HANDRAIL_H, nb + hh - HANDRAIL_H)
@@ -161,17 +168,18 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
         raise ValueError(f"에스컬레이터 {name}: 위층 바닥이 시작면보다 낮습니다")
     e1 = elev(run, z_top)
 
-    def nose(u):
-        """스텝 코 선"""
-        if u <= 0.0:
-            return elev(u, z_base)
-        if u >= run:
-            return elev(u, z_top)
-        return e0 + u * tan
-
+    from escalators.escalator_geom import NoseLine, layout_steps, step_range
+    nose = NoseLine(e0, run, tan, lambda u: elev(u, z_base), lambda u: elev(u, z_top),
+                    spec.lower_radius, spec.upper_radius)          # 스텝 코 선 (곡선 전이부)
     u_lo, u_hi = -spec.lower_ext, run + spec.upper_ext
+    s_lo_st, s_hi_st, _ = step_range(spec, nose)
+    if s_lo_st < u_lo - 1e-6 or s_hi_st > u_hi + 1e-6:
+        raise ValueError(f"에스컬레이터 {name}: 스텝(평탄 스텝 + 곡선 전이부)이 트러스보다 깁니다 "
+                         f"(하부/상부 연장 {spec.lower_ext:g}/{spec.upper_ext:g} 을 늘리거나 평탄 스텝 수·반경을 줄이세요)")
+    steps = layout_steps(spec, nose)
     parts, truss_top, us = escalator_part_strips(
-        spec, nose, e0, run, s_at, lambda sa, sb, tc: PM.curve_factor(cfg, sa, sb, tc))
+        spec, nose, e0, run, s_at, lambda sa, sb, tc: PM.curve_factor(cfg, sa, sb, tc),
+        extra_us=nose.breakpoints(), steps_range=(s_lo_st, s_hi_st))
 
     # 위층 슬래브(번호 k) 오프닝: 트러스가 슬래브를 지나는 구간 + 스텝 코 선 위 머리 높이 부족 구간 → 트러스 상단 끝까지
     # 머리 높이는 아래층(k) 천장 마감이 슬래브 하면보다 낮으면 천장판 하면 기준 (오프닝이 그만큼 길어짐)
@@ -223,5 +231,5 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
     return EscalatorLayout(name=name, spec=spec, lower_floor=k, on_platform=on_platform, base_level=z_base, run=run,
                            rise=e1 - e0, u_range=(u_lo, u_hi), s_range=tuple(sorted((s_at(u_lo), s_at(u_hi)))),
                            t_range=t_truss, parts=parts, opening=opening, pit_opening=pit_opening,
-                           platform_hole=platform_hole)
+                           platform_hole=platform_hole, steps=steps, nose=nose)
 

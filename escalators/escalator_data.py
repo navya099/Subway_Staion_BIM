@@ -22,6 +22,23 @@ class EscalatorPartData(CommonBIMData):
 
 
 @dataclass
+class EscalatorStepData(CommonBIMData):
+    """스텝 1개 (IFC: IfcBuildingElementPart USERDEFINED STEP, Pset SSBIM_EscalatorStep). 애니메이션은 chain_u 를 옮겨
+    escalator_geom.step_pose → step_pieces 로 다시 만든 자세를 씀
+    Attributes:
+        index: 아래에서 0, chain_u: 코 위치 진행 좌표 u (하부 WP = 0), t_range: 스텝 폭
+        shape: 디딤판 판 + 챌판 판 띠 (s 구간이 겹칠 수 있어 면 집합으로만 내보냄)"""
+    index: int = 0
+    chain_u: float = 0.0
+    t_range: tuple = (0.0, 0.0)
+    shape: Optional[StripShape] = None
+
+    @property
+    def volume(self) -> float:
+        return self.shape.volume if self.shape else 0.0
+
+
+@dataclass
 class EscalatorData(CommonBIMData):
     """에스컬레이터 1대 (IFC: IfcTransportElement ESCALATOR 가 구성 부재를 묶음). level = 시작 층 이름
     Attributes:
@@ -43,10 +60,11 @@ class EscalatorData(CommonBIMData):
     t_range: tuple = (0.0, 0.0)
     opening_names: list = field(default_factory=list)
     parts: list = field(default_factory=list)
+    steps: list = field(default_factory=list)          # EscalatorStepData (위 운행로, 아래에서 위로)
 
     def part(self, kind: EscalatorPartKind, side: int = 0):
         return next(p for p in self.parts if p.kind == kind and p.side == side)
 
     @property
     def volume(self) -> float:
-        return sum(p.shape.volume for p in self.parts if p.shape)
+        return sum(p.shape.volume for p in self.parts if p.shape) + sum(s.volume for s in self.steps)

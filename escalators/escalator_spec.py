@@ -3,6 +3,7 @@ import math
 
 # 형상 상수 (입력 항목으로 두지 않는 세부 치수, m)
 STEP_PLATE_T = 0.10        # 스텝 판 두께: 스텝 층의 하면 = 스텝 코 선 − (단높이 + 판 두께)
+STEP_RISER_T = 0.03        # 스텝 챌판 판 두께 (개별 스텝)
 BALUSTRADE_GAP = 0.02      # 스텝 가장자리 ~ 난간 패널 안쪽 면
 BALUSTRADE_T = 0.03        # 난간 패널 두께
 HANDRAIL_W = 0.08          # 핸드레일 단면 폭
@@ -34,6 +35,7 @@ class EscalatorSpec:
         handrail_height: 핸드레일 높이 (m, 스텝 코 선 기준 연직)
         headroom: 스텝 코 선 위 최소 유효 높이 (m) (마감을 켜면 아래층 천장판 하면이 슬래브 하면보다 낮을 때 천장판 하면 기준)
         side_clear: 위층 자동 오프닝 옆 여유 (m, 트러스 외폭 양쪽에 더함, 기본 0)
+        lower_radius / upper_radius: 하부(오목)·상부(볼록) 곡선 전이 반경 (m, 일반값 1.0 / 1.5, 0 = 꺾임)
         name: 비우면 ES + 일련번호
     """
     lower_floor: int = 1
@@ -54,6 +56,8 @@ class EscalatorSpec:
     headroom: float = 2.3
     name: str = ""
     side_clear: float = 0.0
+    lower_radius: float = 1.0
+    upper_radius: float = 1.5
 
     @property
     def tan(self) -> float:

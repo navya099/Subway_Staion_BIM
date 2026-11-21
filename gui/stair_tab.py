@@ -4,6 +4,7 @@ from gui import pick_buttons as PB
 
 from gui.stair_draft import DIRECTIONS, StairDraft, StairDrafts, floor_choice_label, preview
 from gui.enclosure_draft import NUM_FIELDS as ENC_NUM, EnclosureDraft, preview as enc_preview
+from gui.smoke_draft import NUM_FIELDS as SMOKE_NUM, SmokeDraft, preview as smoke_preview
 from gui.railing_draft import NUM_FIELDS as RAIL_NUM, TEXT_FIELDS as RAIL_TEXT, RailingDraft, preview as rail_preview
 
 FONT = ("Malgun Gothic", 9)
@@ -36,6 +37,8 @@ class StairTab:
         self.entries['railing_draft'] = self.railing
         self.enclosure = EnclosureDraft()               # 계단·ESC 옆 벽체 + 하부 창고
         self.entries['enclosure_draft'] = self.enclosure
+        self.smoke = SmokeDraft()                       # 입구 천장 제연경계벽
+        self.entries['smoke_draft'] = self.smoke
         self.floor_count = 0
         self._vars = {}            # 테스트/갱신용: (번호, 필드) → StringVar
         self._info_vars = []       # (StringVar, StairDraft) 미리보기
@@ -146,6 +149,7 @@ class StairTab:
         self._combos.clear()
         self._build_railing()
         self._build_enclosure()
+        self._build_smoke()
         if not self.drafts.items:
             tk.Label(self.body, text="계단 없음", fg="#888888", font=FONT).pack(anchor="w", padx=8, pady=6)
         for i, it in enumerate(self.drafts.items):
@@ -196,6 +200,37 @@ class StairTab:
         info = tk.StringVar(value="")
         self._info_vars.append((info, it))
         tk.Label(box, textvariable=info, font=FONT, fg="#1565C0", anchor="w", justify="left").pack(fill="x", pady=(2, 0))
+
+    def _build_smoke(self):
+        """계단·ESC 입구 천장 제연경계벽 (모든 계단·ESC 공통)"""
+        d = self.smoke
+        box = tk.LabelFrame(self.body, text=" 입구 천장 제연경계벽 (모든 계단·ESC 공통) ", font=FONT_B, fg="#37474F",
+                            padx=6, pady=4)
+        box.pack(fill="x", padx=(5, 8), pady=4)
+        top = tk.Frame(box)
+        top.pack(fill="x")
+        for attr, text in (("enabled", "제연경계벽"), ("escalators", "에스컬레이터도")):
+            var = tk.BooleanVar(value=getattr(d, attr))
+            self._vars[("smoke", attr)] = var
+
+            def on_chk(*_, a=attr, v=var):
+                setattr(self.smoke, a, bool(v.get()))
+                self.refresh_info()
+            var.trace_add("write", on_chk)
+            tk.Checkbutton(top, text=text, variable=var, font=FONT).pack(side="left", padx=(0, 8))
+        tk.Label(top, text="유리 색 (R, G, B)", font=FONT).pack(side="left")
+        self._entry(top, d, "glass_rgb", ("smoke", "glass_rgb"), 12).pack(side="left", padx=(2, 0))
+        grid = tk.Frame(box)
+        grid.pack(fill="x", pady=(3, 0))
+        cells = [(a, lb, ENTRY_W) for a, lb in SMOKE_NUM] + [("frame_material", "프레임 재질", 12)]
+        for n, (attr, label, w) in enumerate(cells):
+            r, col = divmod(n, 3)
+            tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
+            self._entry(grid, d, attr, ("smoke", attr), w).grid(row=r, column=col * 2 + 1, padx=(2, 8), pady=1, sticky="w")
+        info = tk.StringVar(value="")
+        self._smoke_info = info
+        tk.Label(box, textvariable=info, font=("Malgun Gothic", 8), fg="#1565C0", anchor="w", justify="left",
+                 wraplength=500).pack(fill="x", pady=(2, 0))
 
     def _build_enclosure(self):
         """계단·ESC 옆 벽체 + 하부 창고 (모든 계단·ESC 공통, 자동 실·칸막이벽·문)"""
@@ -275,6 +310,8 @@ class StairTab:
             self._rail_info.set(rail_preview(self.railing))
         if getattr(self, "_enc_info", None) is not None:
             self._enc_info.set(enc_preview(self.enclosure))
+        if getattr(self, "_smoke_info", None) is not None:
+            self._smoke_info.set(smoke_preview(self.smoke))
         start = self._start_station()
         for var, it in self._info_vars:
             h = self._floor_height(it.lower_floor)

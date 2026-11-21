@@ -116,6 +116,11 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         m = railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m
+    smokes = getattr(engine, "smokes", None)
+    for e in (smokes.elements if smokes is not None else []):          # 제연경계벽: 유리 = 설정 색
+        m = railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material)
+        for ent in e.source_element or []:
+            mat_of[ent.dxf.handle] = m
     sign_img = {}                                        # 사인 재질 이름 → PIL 이미지 (면에 한 장)
     signs = getattr(engine, "signs", None)
     for e in (signs.elements if signs is not None else []):

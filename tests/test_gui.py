@@ -1694,6 +1694,28 @@ def test_stair_tab_enclosure_edit_and_round_trip(app, monkeypatch, tmp_path):
     assert not TkAdapter.collect_entries(app.entries).enclosure_settings.enabled
 
 
+def test_stair_tab_smoke_barrier_edit_and_round_trip(app, monkeypatch, tmp_path):
+    tab = app.stair_tab
+    sb = TkAdapter.collect_entries(app.entries).smoke_settings
+    assert sb.enabled and sb.depth == 0.6
+    tab._vars[("smoke", "depth")].set("0.8")
+    tab._vars[("smoke", "glass_rgb")].set("10, 20, 30")
+    sb = TkAdapter.collect_entries(app.entries).smoke_settings
+    assert (sb.depth, sb.glass_rgb) == (0.8, (10, 20, 30))
+    tab._vars[("smoke", "depth")].set("x")
+    with pytest.raises(ValueError, match="제연경계벽"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[("smoke", "depth")].set("0.8")
+    path = str(tmp_path / "sb.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[("smoke", "depth")].get() == "0.6"
+    app.on_open(path)
+    assert tab._vars[("smoke", "depth")].get() == "0.8" and not app.is_dirty()
+    tab._vars[("smoke", "enabled")].set(False)
+    assert not TkAdapter.collect_entries(app.entries).smoke_settings.enabled
+
+
 def test_generate_with_finishes_end_to_end(app, tmp_path):
     set_floors(app, 3)
     app.room_tab.add_room(); app.root.update()

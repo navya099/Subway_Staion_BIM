@@ -38,6 +38,7 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("콘크리트", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("논슬립", (0.22, 0.22, 0.24)),
     RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
+    RenderMaterial("알루미늄 프레임", (0.75, 0.76, 0.78)),
     RenderMaterial("흑색 걸레받이", (0.10, 0.10, 0.11), "Skirting", 0.8, 0.2),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
@@ -65,13 +66,15 @@ LAYER_MATERIALS = {
     "STRUCT_PSD_GLASS": RenderMaterial("PSD 유리", (0.70, 0.85, 0.92), alpha=0.3),
     "STRUCT_RAILING": RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
     "STRUCT_RAILING_GLASS": RenderMaterial("난간 유리", (0.59, 0.80, 0.75), alpha=0.35),
+    "STRUCT_SMOKE": RenderMaterial("알루미늄 프레임", (0.75, 0.76, 0.78)),
+    "STRUCT_SMOKE_GLASS": RenderMaterial("제연 유리", (0.59, 0.80, 0.75), alpha=0.35),
 }
 
 
-def railing_glass_material(rs) -> RenderMaterial:
-    """유리난간 유리 보기 재질 — 설정 색(RGB 0~255)·불투명도"""
+def railing_glass_material(rs, name: str = "난간 유리") -> RenderMaterial:
+    """유리난간·제연경계벽 유리 보기 재질 — 설정 색(RGB 0~255)·불투명도"""
     r, g, b = (max(0, min(255, int(c))) / 255.0 for c in rs.glass_rgb)
-    return RenderMaterial("난간 유리", (r, g, b), alpha=float(rs.glass_alpha))
+    return RenderMaterial(name, (r, g, b), alpha=float(rs.glass_alpha))
 
 
 def finish_material(name: str) -> RenderMaterial:

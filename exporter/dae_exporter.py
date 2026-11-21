@@ -179,6 +179,11 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
         m = railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m
+    smokes = getattr(engine, "smokes", None)
+    for e in (smokes.elements if smokes is not None else []):          # 제연경계벽: 유리 = 설정 색
+        m = railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material)
+        for ent in e.source_element or []:
+            mat_of[ent.dxf.handle] = m
     path = Path(path)
     os.makedirs(path.parent.resolve(), exist_ok=True)
     signs = getattr(engine, "signs", None)

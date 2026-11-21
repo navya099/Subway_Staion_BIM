@@ -797,6 +797,34 @@ class IFCExporter:
             f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                             RelatingStructure=self.storeys[level], RelatedElements=els)
 
+    def export_smoke_barriers(self, smoke_engine):
+        """제연경계벽: 경계벽마다 IfcCurtainWall(USERDEFINED SMOKE_BARRIER) ⊃ 프레임 IfcMember(USERDEFINED FRAME)·유리 IfcPlate,
+        매달린 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for b in smoke_engine.barriers:
+            wall = f.create_entity("IfcCurtainWall", GlobalId=ifcopenshell.guid.compress(uuid.UUID(b.guid).hex), Name=b.name,
+                                   Description=f"오프닝 {b.opening} 입구 천장 제연경계벽", ObjectType="SMOKE_BARRIER",
+                                   ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+            parts = []
+            for e in b.parts:
+                kw = dict(GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
+                          ObjectPlacement=self._placement(),
+                          Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces],
+                                                             "Tessellation"))
+                if e.code == "GLASS":
+                    el = f.create_entity("IfcPlate", PredefinedType="CURTAIN_PANEL", **kw)
+                else:
+                    kw["ObjectType"] = "FRAME"
+                    el = f.create_entity("IfcMember", PredefinedType="USERDEFINED", **kw)
+                self._assign_material(el, e.material)
+                parts.append(el)
+            f.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=wall, RelatedObjects=parts)
+            by_level.setdefault(b.level, []).append(wall)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+
     def export_signs(self, sign_engine):
         """역명판·안내사인: 사인마다 IfcBuildingElementProxy(USERDEFINED, ObjectType SIGNAGE) — 본체 + 이미지 면, 재질,
         속성 세트 SSBIM_Sign(종류·문구), 그 층 storey"""

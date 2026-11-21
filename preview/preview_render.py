@@ -18,7 +18,7 @@ PREVIEW_FONT = "malgun.ttf"      # 한글 글자(실 이름 등)가 깨지지 �
 LAYER_GROUPS = [
     ("구조체", ("STRUCT_WALL", "STRUCT_SLAB", "STRUCT_PLATFORM", "STRUCT_COLUMN"), True),
     ("계단·ESC·EV", ("STRUCT_STAIR", "STRUCT_ESCALATOR", "STRUCT_ELEVATOR", "STRUCT_ELEVATOR_CAR", "STRUCT_RAILING",
-                    "STRUCT_RAILING_GLASS"), True),
+                    "STRUCT_RAILING_GLASS", "STRUCT_SMOKE", "STRUCT_SMOKE_GLASS"), True),
     ("통로·출입구·환기구", ("STRUCT_PASSAGE", "STRUCT_ENTRANCE", "STRUCT_VENT", "STRUCT_GRILL"), True),
     ("칸막이·문", ("STRUCT_PARTITION", "STRUCT_SEPARATION", "STRUCT_DOOR"), True),
     ("스크린도어", ("STRUCT_PSD", "STRUCT_PSD_GLASS"), True),

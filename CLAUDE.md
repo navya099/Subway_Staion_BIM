@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1047개 통과** (GUI 133개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1059개 통과** (GUI 134개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -55,6 +55,7 @@ rooms/                      실(구획): spec(실·공통 설정·용도 목록)
 finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 railings/                   오프닝 유리난간: spec(RailingSettings), layout(계단·ESC 오프닝 둘레 경계석·POST·레일·유리 조각 + 검증), engine
+smokewalls/                 입구 천장 제연경계벽: spec(SmokeBarrierSettings·head_drop), layout(오프닝 입구 가장자리 프레임·유리 조각), engine
 psds/                       스크린도어: spec(PsdSettings), layout(열차 문마다 유닛·POST·구동부·채움 패널 조각 + 검증), engine
 trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
 tactiles/                   점자블록: spec(TactileSettings·TactilePathSpec), layout(자동 점형·유도 경로 → 층별 겹치지 않는 평면 사각형 + 검증), engine
@@ -75,7 +76,7 @@ assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_pa
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -169,6 +170,11 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 칸막이벽·계단 간섭 검사(`room_check._below_member`): 벽 윗면이 그 자리 계단·ESC 하면 아래면 허용(끝 벽).
   - 만들지 않는 경우: 입력 실과 벽 두께 이내로 가깝거나 겹침, 엘리베이터 승강로와 겹침, 구조물 내공 확폭 층(포켓 경로 미지원).
   - 다음 후보: 확폭 층 지원, 문 위치·종류 입력, 창고 대신 실 용도 지정(기계실 등)을 계단마다, 이슈 #32(오프닝 둘레 막이와 이웃 계단).
+- **입구 천장 제연경계벽(`smokewalls/`)**: `cfg.smoke_settings = SmokeBarrierSettings`(모델 기본 끔, GUI 7.계단 탭 '입구 천장 제연경계벽' 묶음은 켬 — 옛 프로젝트도, 프로젝트 파일 `smoke_draft`). 사용자 지정: **계단·ESC 입구 쪽만**(다른 사례는 오프닝 옆까지 있으나 옆은 계단 옆 벽체가 막음), 천장 아래 `depth` 0.6, 유리 + 위·아래 프레임, 유리 색 RGB.
+  - 배치(`layout_smoke_barriers`): 계단(항상)·ESC(`escalators`) 자동 오프닝마다 입구 쪽 가장자리(계단 첫 챌판 `s_at(0)` / ESC `u_range[0]` 에 가까운 가장자리) 바깥에 진행방향 두께 `frame_d`, t 폭 = 오프닝 폭 전체, 위 = 그 자리 아래층 천장판 하면(`ceiling_bottom_under`, 천장 없거나 마감 끔이면 위 슬래브 하면), 아래 = 위 − depth. 위·아래 프레임(`frame_h`) + 가운데 유리(`glass_t`, 가운데).
+  - **오프닝 연장(`smoke_spec.head_drop`)**: 켜면 계단·ESC 자동 오프닝의 머리 높이 기준을 depth 만큼 낮춤(`stair_layout`·`escalator_layout` 의 z_head) → 오프닝이 입구 쪽으로 길어져 경계벽 아래에서도 머리 높이 확보(ESC 는 `escalators` 일 때만).
+  - 출력: 3D DXF STRUCT_SMOKE / STRUCT_SMOKE_GLASS(미리보기 '계단·ESC·EV' 묶음), 횡단·종단 SEC_RAILING, 평면 PLAN_RAILING(그 층, 매달림이라 절단 높이 무관), IFC `IfcCurtainWall`(USERDEFINED, ObjectType SMOKE_BARRIER) ⊃ 프레임 IfcMember(USERDEFINED FRAME)·유리 IfcPlate(CURTAIN_PANEL), 그 층 storey. DAE·웹 뷰어 유리 = 설정 색(`railing_glass_material(…, '제연 유리')`), 프레임 '알루미늄 프레임'.
+  - 다음 후보: 오프닝 옆 경계벽(옆 벽체가 없는 경우), 측면 프레임·행거, 제연경계 폭 검사(법규).
 - **스크린도어 PSD(`psds/`)**: `cfg.psd_settings = PsdSettings`(모델 기본 끔, GUI 2.승강장 탭 '스크린도어' 묶음은 켬 — 옛 프로젝트도 켬). **열차를 써야 함**(정차 선로마다 한 줄). 치수는 실무 입면 상세도(UNIT 4,800 = 고정부 1,350 | 가동문 1,050 × 2 | 고정부 1,350(한쪽 비상문 겸용), 문 높이 2,000 + 구동부 400) + 단면은 일반값 예시(POST 0.2×0.2, 구동부 깊이 0.35, 프레임 0.05×0.05, 하부 레일 0.1, 유리 8mm), 모두 입력.
   - 배치(`layout_psds`): 유닛 중심(두 가동문 사이) = 열차 문 중심. POST 는 유닛 양옆, 이웃 유닛 POST 가 같은 자리면(문 간격 = 유닛 + POST = 5.0, 기본 20m 4도어와 같음) 하나로 공유. 유닛 사이가 벌어지면 채움 고정 패널(한 장 ≤ `fill_max` 1.5, 여러 장이면 사이 POST) + 구동부, 열차 바깥은 없음. 내공 [0, L] 밖으로 나간 조각은 잘라냄(열차가 승강장 끝에 붙은 실무 샘플). 오류: 유닛 겹침(간격 < 유닛 폭), POST 일부 겹침(공유도 아니고 떨어지지도 않음), 채움 패널이 너무 좁음.
   - 위치: PSD 중심선 |t| = 승강장 끝단(D/2 + 끝단 거리) + `edge_offset` 0.3, 그 선로 승강장 쪽. 바닥 = 그 자리 실의 바닥 마감면(`platform_base`, 마감 끔·마감 없으면 승강장 상면). 연단 점자블록(끝단 + 0.6~1.2)과 겹치지 않음.

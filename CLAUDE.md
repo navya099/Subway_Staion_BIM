@@ -70,7 +70,8 @@ preview/                    preview_render.py(미리보기 작도, 화면 비의
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
 exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
-assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
+assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·stair_stone·tactile_*·Polished Concrete New 등, **저장소에 포함** — 출처·라이선스는 README) + README
+assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
 tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_gui

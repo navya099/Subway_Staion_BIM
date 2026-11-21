@@ -1,3 +1,4 @@
+from config.layout_cache import cached_layout
 from config.widening import clear_contains_rect, has_pockets
 from openings.decompose import overlap_area
 from rooms.room_layout import layout_floor_rooms, resolve_room_names
@@ -56,6 +57,7 @@ def check_room_specs(cfg, specs: list, names: list):
                 raise ValueError(f"실 {names[i]} 와 {names[j]} 이(가) {st.level_name(a.floor)} 에서 서로 겹칩니다")
 
 
+@cached_layout("rooms")
 def layout_rooms(cfg) -> list:
     """층마다 FloorRoomsLayout (입력 실 검사 + 기본 실 + 칸막이벽). 모든 층을 돌려줌 (입력 실이 없으면 기본 실 하나)"""
     specs = list(cfg.rooms)

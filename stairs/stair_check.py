@@ -1,3 +1,4 @@
+from config.layout_cache import cached_layout
 from config.widening import clear_contains_rect, has_pockets
 from openings.decompose import overlap_area
 from openings.opening_check import slab_label
@@ -39,6 +40,7 @@ def check_stair_spec(station, spec, name: str, widened: bool = False):
         raise ValueError(f"계단 {name}: 시작 위치 s={spec.s_start:.3f} 이(가) 내공 길이(0 ~ {station.length:g}m)를 벗어납니다")
 
 
+@cached_layout("stairs")
 def layout_stairs(cfg) -> list:
     """계단마다 StairLayout (이름 확정 + 입력 검사 + 배치 계산). 정거장 내공 길이를 벗어나면 오류"""
     st = cfg.station

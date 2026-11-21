@@ -2,6 +2,7 @@
 깊이 depth 만큼 내려온 유리벽 — 오프닝 t 폭 전체, 진행방향 두께 frame_d 를 오프닝 가장자리 바깥(아래층 쪽)에 둠.
 위 = 그 자리 아래층 실의 천장판 하면 (천장이 없거나 마감을 끄면 위 슬래브 하면). 조각 (s0, s1, t0, t1, z0, z1) 본체 FL 기준
 """
+from config.layout_cache import cached_layout
 from dataclasses import dataclass, field
 
 FRAME, GLASS = "FRAME", "GLASS"
@@ -16,6 +17,7 @@ class SmokeBarrierLayout:
     parts: dict = field(default_factory=dict)        # FRAME / GLASS → [조각]
 
 
+@cached_layout("smokes")
 def layout_smoke_barriers(cfg) -> list:
     sb = getattr(cfg, "smoke_settings", None)
     if sb is None or not sb.enabled:

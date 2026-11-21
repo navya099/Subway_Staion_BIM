@@ -8,6 +8,7 @@
 - 높이(본체 FL 기준): 위층 FL = 구조 바닥, 마감면 = FL + 그 자리 실의 마감 높이(마감을 끄면 0)
 조각 = (s0, s1, t0, t1, z0, z1)
 """
+from config.layout_cache import cached_layout
 import math
 from dataclasses import dataclass, field
 
@@ -55,6 +56,7 @@ def _sources(cfg, rs):
     return out
 
 
+@cached_layout("railings")
 def layout_railings(cfg) -> list:
     rs = getattr(cfg, "railing_settings", None)
     if rs is None or not rs.enabled:
@@ -173,6 +175,7 @@ def _parts(rs, rect, present, fl, ffl) -> dict:
     return parts
 
 
+@cached_layout("railing_footprints")
 def railing_footprints(cfg, floor: int) -> list:
     """그 층 유리난간 경계석 평면 [(s0, s1, t0, t1)] — 바닥 마감·점자블록이 피함"""
     return [r for lay in layout_railings(cfg) if lay.floor == floor for r in lay.curb_rects]

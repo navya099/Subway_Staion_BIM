@@ -10,6 +10,7 @@
   문·패널 = 바닥 ~ 바닥 + door_h, 구동부 = 그 위 header_h, POST = 바닥 ~ 바닥 + door_h + header_h
 - 패널(고정부·가동문·채움) = 프레임(양옆 기둥·위 레일 = frame_w, 아래 레일 = kick_h, 두께 frame_d) + 유리(glass_t, 가운데)
 """
+from config.layout_cache import cached_layout
 import math
 from dataclasses import dataclass, field
 
@@ -88,6 +89,7 @@ def _clip(part, L):
     return part
 
 
+@cached_layout("psds")
 def layout_psds(cfg) -> list:
     """선로마다 PsdRun (PSD 를 쓰지 않으면 빈 목록). 겹침·좁은 간격은 ValueError"""
     ps = getattr(cfg, "psd_settings", None)

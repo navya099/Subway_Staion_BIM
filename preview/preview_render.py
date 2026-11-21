@@ -135,17 +135,26 @@ def _clip(f, col, lim, sign):
 
 
 def station_of(cfg, pts_xy: np.ndarray, lo: float, hi: float):
-    """세계 평면 좌표 → 정거장 로컬 s 근사 (1m 간격 중심선 표본 중 가장 가까운 점 + 접선 방향 투영)"""
+    """세계 평면 좌표 → 정거장 로컬 s 근사 (1m 간격 중심선 표본 중 가장 가까운 점 + 접선 방향 투영).
+    가장 가까운 표본은 성긴 표본(COARSE m 간격)에서 먼저 찾고 그 둘레 ±WINDOW 표본에서 다시 찾음 (모든 표본과 비교하던 것보다
+    수십 배 빠름 — 실무 샘플 웹 뷰어 갱신의 큰 몫)"""
+    COARSE, WINDOW = 16, 24
     ss = np.arange(lo, hi + 1e-9, 1.0)
     c = np.array([cfg.to_world(s, 0.0) for s in ss])
     th = np.array([cfg.theta_at(s) for s in ss])
+    cos_t, sin_t = np.cos(th), np.sin(th)
+    coarse = np.arange(0, len(ss), COARSE)
+    win = np.arange(-WINDOW, WINDOW + 1)
     out = np.empty(len(pts_xy))
-    for i0 in range(0, len(pts_xy), 2000):                 # 메모리 절약: 2000 개씩
-        p = pts_xy[i0:i0 + 2000]
-        d2 = ((p[:, None, :] - c[None, :, :]) ** 2).sum(axis=2)
-        k = d2.argmin(axis=1)
+    for i0 in range(0, len(pts_xy), 20000):                # 메모리 절약: 2만 개씩
+        p = pts_xy[i0:i0 + 20000]
+        d2 = ((p[:, None, :] - c[coarse][None, :, :]) ** 2).sum(axis=2)
+        kc = coarse[d2.argmin(axis=1)]
+        cand = np.clip(kc[:, None] + win[None, :], 0, len(ss) - 1)
+        d2 = ((p[:, None, :] - c[cand]) ** 2).sum(axis=2)
+        k = cand[np.arange(len(p)), d2.argmin(axis=1)]
         dv = p - c[k]
-        out[i0:i0 + 2000] = ss[k] + dv[:, 0] * np.cos(th[k]) + dv[:, 1] * np.sin(th[k])
+        out[i0:i0 + 20000] = ss[k] + dv[:, 0] * cos_t[k] + dv[:, 1] * sin_t[k]
     return out
 
 

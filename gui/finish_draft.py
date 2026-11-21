@@ -75,7 +75,8 @@ STEP_LABELS = {"판석 + 몰탈 채움": STEP_PLATE, "통석 + 깔 몰탈": STEP
 STEP_OF = {v: k for k, v in STEP_LABELS.items()}
 # 계단 마감 숫자 칸 (속성, 라벨)
 STAIR_NUM_FIELDS = [("depth", "받침 두께"), ("tread_t", "디딤판 두께"), ("riser_t", "챌판 두께"), ("bed", "깔 몰탈"),
-                    ("side_t", "옆면 두께"), ("nosing_w", "논슬립 폭"), ("nosing_t", "논슬립 깊이"), ("nosing_end", "논슬립 끝 여유")]
+                    ("side_t", "옆면 두께"), ("nosing_w", "논슬립 폭"), ("nosing_t", "논슬립 깊이"), ("nosing_end", "논슬립 끝 여유"),
+                    ("stone_len", "계단석 한 장 길이")]
 STAIR_TEXT_FIELDS = [("material", "계단석 재질"), ("fill_material", "채움 재질"), ("side_material", "옆면 재질"),
                      ("nosing_material", "논슬립 재질")]
 
@@ -85,7 +86,7 @@ class StairFinishDraft:
     """계단 마감 입력 (문자열). 마감을 켜고 enabled 일 때 계단 = 매끈한 경사 슬래브 + 계단석"""
     enabled: bool = True
     method: str = "판석 + 몰탈 채움"
-    material: str = "화강석"
+    material: str = "계단석"
     fill_material: str = "몰탈"
     depth: str = "0.1"
     tread_t: str = "0.03"
@@ -98,6 +99,7 @@ class StairFinishDraft:
     nosing_material: str = "논슬립"
     side_t: str = "0.02"
     side_material: str = "화강석"
+    stone_len: str = "1.2"
 
     def to_finish(self) -> StairFinish:
         where = "계단 마감"

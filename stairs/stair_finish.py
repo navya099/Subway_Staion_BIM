@@ -36,6 +36,7 @@ class FinishPart:
     material: str
     t_range: tuple
     strips: list = field(default_factory=list)
+    columns: list = field(default_factory=list)   # 칸 [(s0, s1, 앞 코 s, 스텝 t0, t1, 계단참 여부)] — 텍스처를 디딤판마다 맞출 때
 
 
 def _lin(xa, za, xb, zb):
@@ -181,6 +182,7 @@ def finished_stair(spec, fin, counts: list, r: float, e_base: float, floor_fn, s
                                 t_range=(t0, t1)))
     mats = {"TREAD": fin.material, "RISER": fin.material, "STONE": fin.material, "FILL": fill_mat,
             "NOSING": fin.nosing_material, "SIDE": fin.side_material}
-    out = [FinishPart(code, mats[code], (ta, tb), sorted(strips, key=lambda s: s.s0))
+    columns = sorted((*sorted((s_at(ua), s_at(ub))), s_at(ua), a0, a1, landing) for ua, ub, _, _, _, _, landing, _ in cols)
+    out = [FinishPart(code, mats[code], (ta, tb), sorted(strips, key=lambda s: s.s0), columns)
            for (code, ta, tb), strips in sorted(pieces.items(), key=lambda kv: (list(CODES).index(kv[0][0]), kv[0][1]))]
     return parts, out

@@ -46,8 +46,8 @@ def dae_notes(res: DaeResult) -> list:
     return out
 
 
-def _triangles(doc, mat_of, skip_layers):
-    """3DFACE → {(레이어, 재질): [삼각형 (3, 3)]}"""
+def _triangles(doc, mat_of, skip_layers, handles=None):
+    """3DFACE → {(레이어, 재질): [삼각형 (3, 3)]}. handles 를 주면 {(레이어, 재질): [3DFACE 핸들]} 을 같은 순서로 채움"""
     out = {}
     for ent in doc.modelspace().query("3DFACE"):
         d = ent.dxf
@@ -56,9 +56,14 @@ def _triangles(doc, mat_of, skip_layers):
         v = [tuple(d.vtx0), tuple(d.vtx1), tuple(d.vtx2), tuple(d.vtx3)]
         mat = mat_of.get(d.handle) or layer_material(d.layer)
         tris = out.setdefault((d.layer, mat), [])
+        hs = handles.setdefault((d.layer, mat), []) if handles is not None else None
         tris.append(v[:3])
+        if hs is not None:
+            hs.append(d.handle)
         if v[3] != v[2]:
             tris.append((v[0], v[2], v[3]))
+            if hs is not None:
+                hs.append(d.handle)
     return out
 
 
@@ -82,6 +87,36 @@ def frame_uv(frame, rel: np.ndarray, origin) -> np.ndarray:
     d = rel - (np.asarray(o, dtype=float) - origin)
     du = d @ np.asarray(u)
     return np.stack([du / w, (d @ np.asarray(v) - k * du) / h], axis=2)
+
+
+def stair_face_frames(engine) -> dict:
+    """3DFACE 핸들 → 계단석 텍스처 틀 (원점, u, v, 한 장 폭, 깊이) — 디딤판 윗면에 이미지 한 장씩 (StairEngine.add_stair_mesh)"""
+    out = {}
+    stairs = getattr(engine, "stairs", None)
+    for fe in (stairs.finish_elements() if stairs is not None else []):
+        out.update(getattr(fe, "face_frames", None) or {})
+    return out
+
+
+def tread_uv(frame, pts: np.ndarray) -> np.ndarray:
+    """계단석 틀 + 세계 좌표 점 (K, 3) → (K, 2) 텍스처 좌표 (u = 폭 방향 / 한 장 폭, v = 앞 코에서 / 깊이)"""
+    o, u, v, w, depth = frame
+    d = pts - np.asarray(o, dtype=float)
+    d[:, 2] = 0.0
+    return np.stack([d @ np.asarray(u) / w, d @ np.asarray(v) / depth], axis=1)
+
+
+def apply_tread_uv(uv: np.ndarray, tris: np.ndarray, handles: list, frames: dict) -> np.ndarray:
+    """삼각형 (N, 3, 3) 세계 좌표의 텍스처 좌표 uv (N, 3, 2) 중 계단석 틀이 있는 수평 면만 바꿈"""
+    if not frames:
+        return uv
+    n = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
+    flat = np.abs(n[:, 2]) >= HORIZONTAL_NZ * np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+    for i, h in enumerate(handles):
+        fr = frames.get(h)
+        if fr is not None and flat[i]:
+            uv[i] = tread_uv(fr, tris[i])
+    return uv
 
 
 def texture_uv(cfg, tris: np.ndarray, rel: np.ndarray, size_u: float, size_v: float) -> np.ndarray:
@@ -150,7 +185,9 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
                 mat_of[ent.dxf.handle] = m
-    groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"})
+    handles = {}
+    groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"}, handles)
+    tread_frames = stair_face_frames(engine)
     first = next((t[0][0] for t in groups.values() if t), (0.0, 0.0, 0.0))
     origin = np.floor(np.array(first, dtype=float))
 
@@ -198,7 +235,9 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
     for g, ((layer, m), tris) in enumerate(sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1].name))):
         t = np.array(tris, dtype=float)
         n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
-        t = t[np.linalg.norm(n, axis=1) > 1e-10]                       # 넓이 0 삼각형 제외
+        keep = np.linalg.norm(n, axis=1) > 1e-10
+        t = t[keep]                                                    # 넓이 0 삼각형 제외
+        hs = [h for h, k in zip(handles.get((layer, m), []), keep) if k]
         if len(t) == 0:
             continue
         rel = t - origin
@@ -209,7 +248,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
                f'<param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>')
         inputs = f'<input semantic="VERTEX" source="#{gid}-vtx" offset="0"/>'
         if m in images:
-            uv = frame_uv(m.frame, rel, origin) if m.frame else texture_uv(cfg, t, rel, m.size_u, m.size_v)
+            uv = frame_uv(m.frame, rel, origin) if m.frame else                 apply_tread_uv(texture_uv(cfg, t, rel, m.size_u, m.size_v), t, hs, tread_frames)
             src += (f'<source id="{gid}-uv"><float_array id="{gid}-uv-array" count="{nv * 2}">{_floats_uv(uv)}</float_array>'
                     f'<technique_common><accessor source="#{gid}-uv-array" count="{nv}" stride="2"><param name="S" type="float"/>'
                     f'<param name="T" type="float"/></accessor></technique_common></source>')

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1015개 통과** (GUI 131개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1016개 통과** (GUI 131개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -173,7 +173,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
     - 구조 = **매끈한 경사 슬래브**: 상면 T(u) = min(마감 안쪽 모서리 선, 다음 면 높이) − `depth`(받침 두께), 하면 = T − 허리 두께/cos, 첫 런은 시작면 아래 잘라냄(상·하면 모두 max(바닥, …)). 꺾임 위치는 일체형과 같음(마지막 챌판 + 단너비). 상면이 기운 띠 = `Strip.zt1`.
     - 스텝(칸 = 디딤판·계단참·위층 도착 디딤판, 앞에 챌판): `plate` 판석(디딤판 `tread_t` 칸 전체 + 앞 챌판 `riser_t` [아래 디딤판 높이 ~ 디딤판 하면] + 나머지 채움 `fill_material`), `solid` 통석(칸 전체 돌 + 깔 몰탈 `bed`, 계단참은 판석), `concrete` 칸 전체 채움(재질 콘크리트). 첫 챌판 아래(아래층 마감면 아래)는 채움.
     - 논슬립: 칸마다 앞 코에서 `nosing_w` × (폭 − 2·`nosing_end`) × 상면에서 `nosing_t` — 맨 위 재료에서 그 자리를 빼고 끝 쪽은 따로 조각. 옆면: **노출된 쪽만**(`config.widening.inner_min` 내공면에 붙은 쪽 제외) 계단 폭 안쪽 `side_t`, **스텝(계단석·채움) 부분만** — 구조 상면 ~ 마감면(계단 모양), 스텝은 그만큼 좁아짐. **구조 슬래브 옆면은 콘크리트 노출**(사용자 지정, 실무 — 실제 지하철은 계단 옆 칸막이벽이 가림), 구조는 계단 폭 전체(`PartLayout.t_range` = 계단 폭).
-    - 부재: `FinishPart(code TREAD/RISER/STONE/FILL/NOSING/SIDE, 재질, t 범위, 띠)` → `StairFinishData`(이름 `{계단}_FIN_{코드}_{k}`, `StairData.finishes`, `StairEngine.finish_elements()`). 3D DXF `FIN_STAIR`(미리보기 '바닥·벽 마감' 묶음), 횡단 SEC_FINISH·종단 PROF_FINISH(절단면 지나는 것만), IFC `IfcCovering`(디딤판·통석·채움 FLOORING, 챌판·옆면 CLADDING, 논슬립 USERDEFINED, 면 집합) → `IfcRelCoversBldgElements`(IfcStair), 층 storey. DAE·웹 뷰어 재질 = 부재 재질(논슬립·콘크리트 보기 재질 추가).
+    - 부재: `FinishPart(code TREAD/RISER/STONE/FILL/NOSING/SIDE, 재질, t 범위, 띠)` → `StairFinishData`(이름 `{계단}_FIN_{코드}_{k}`, `StairData.finishes`, `StairEngine.finish_elements()`). 3D DXF `FIN_STAIR`(미리보기 '바닥·벽 마감' 묶음), 횡단 SEC_FINISH·종단 PROF_FINISH(절단면 지나는 것만), IFC `IfcCovering`(디딤판·통석·채움 FLOORING, 챌판·옆면 CLADDING, 논슬립 USERDEFINED, 면 집합) → `IfcRelCoversBldgElements`(IfcStair), 층 storey. DAE·웹 뷰어 재질 = 부재 재질(논슬립·콘크리트 보기 재질 추가). **계단석 재질 기본 `계단석`**(바닥 화강석과 구분, 옆면은 화강석) — 텍스처 `stair_stone`(사용자 준비), **디딤판 윗면은 디딤판마다 이미지 한 장**(`StairEngine._tread_frames` → `StairFinishData.face_frames` 핸들 → (원점, u = +t, v = 앞 코 → 안쪽, 한 장 폭, 단너비), 폭은 `stone_len`(기본 1.2)에 가깝게 고르게 나눔, 이미지 아래쪽 = 앞 코, `dae_exporter.apply_tread_uv`/`tread_uv` 를 DAE·웹 뷰어가 공유). 계단참·챌판·연직 면은 일반 타일(0.6×0.6, 사용자가 이음매 없는 정사각 무늬로 교체).
     - 바닥 마감 접지 구간(`contact_rects`)·오프닝 옆면 마감은 계단 마감 부재도 포함(계단당 s 구간을 합쳐 계단 폭 사각형 하나). 검증: `StairFinish.check`(방식·0 이상·받침 > 디딤판/깔 몰탈·논슬립 깊이·디딤판 < 단높이), 옆면이 폭에 비해 큼.
     - 검증된 성질(테스트): 세 방식 모두 무작위 점에서 부재끼리 겹침·연직 빈틈 없음 + 맨 위 = 걷는 면, 체적 띠 공식 = 메쉬 = IFC(곡선 rel 1e-4).
     - 다음 후보: **계단·ESC 옆 칸막이벽으로 구조 옆면 가리기**(사용자 예정 — 실무 사진: 계단·ESC 옆을 벽체로 막음), 계단 하부 마감(천장판·도장), 계단 난간·핸드레일, 계단석 줄눈·분할, 에스컬레이터 마감(트러스 옆·하부 패널), 출입구 계단 마감.

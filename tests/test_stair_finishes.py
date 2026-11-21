@@ -210,7 +210,7 @@ def test_drawings_and_viewer_materials(tmp_path):
     assert not any(it.layer == "PROF_FINISH" for it in eng.stairs.profile_items(t_cut=0.0))
     data, _ = build_web_data(eng)
     mats = {c["material"] for c in data["chunks"] if c["layer"] == "FIN_STAIR"}
-    assert {"화강석", "논슬립", "몰탈"} <= mats
+    assert {"계단석", "화강석", "논슬립", "몰탈"} <= mats                       # 계단석 · 옆면 화강석
     assert any(e["name"].startswith("ST_FIN_NOSING") and e["material"] == "논슬립" for e in data["elements"])
 
 
@@ -263,3 +263,37 @@ def test_platform_stair_starts_on_platform_finish():
     assert lay.finish_base == pytest.approx(cfg.platform.top_level + ffl)
     eng = StationCADEngine(cfg)
     assert eng.stairs.all_stairs()[0].finishes
+
+
+def test_tread_texture_one_stone_per_tread(tmp_path):
+    """계단석 텍스처: 디딤판 윗면마다 이미지 한 장 — u = 폭 방향 / 한 장 폭(폭을 stone_len 에 가깝게 나눔), v = 앞 코 0 → 안쪽 1"""
+    from exporter.dae_exporter import apply_tread_uv, stair_face_frames
+    cfg = make()
+    eng = StationCADEngine(cfg)
+    eng.build_3d_doc()
+    frames = stair_face_frames(eng)
+    stair = eng.stairs.all_stairs()[0]
+    tread = next(f for f in stair.finishes if f.code == "TREAD" and f.t_range[1] - f.t_range[0] > 1.0)
+    assert any(e.dxf.handle in frames for e in tread.source_element)
+    width = tread.t_range[1] - tread.t_range[0]                     # 1.96 → 2장 (1.2 에 가깝게)
+    fr = next(frames[e.dxf.handle] for e in tread.source_element if e.dxf.handle in frames)
+    assert fr[3] == pytest.approx(width / 2) and fr[4] == pytest.approx(cfg.stairs[0].tread)
+    vs, us = [], []
+    for e in tread.source_element:
+        if e.dxf.handle not in frames:
+            continue
+        pts = np.array([tuple(e.dxf.get(f"vtx{i}")) for i in range(3)], dtype=float)
+        n = np.cross(pts[1] - pts[0], pts[2] - pts[0])
+        if abs(n[2]) < 0.7 * np.linalg.norm(n):
+            continue
+        uv = apply_tread_uv(np.zeros((1, 3, 2)), pts[None], [e.dxf.handle], frames)[0]
+        us += list(uv[:, 0]); vs += list(uv[:, 1])
+    assert min(vs) == pytest.approx(0.0, abs=1e-9) and max(vs) == pytest.approx(1.0, abs=1e-9)
+    assert min(us) == pytest.approx(0.0, abs=1e-9) and max(us) == pytest.approx(2.0, abs=1e-9)
+    # 계단참은 틀 없음 (일반 타일), 챌판(연직)은 apply 해도 바뀌지 않음
+    land_cols = [c for c in tread.columns if c[5]]
+    assert land_cols and all(fr is not None for fr in frames.values())
+    path = tmp_path / "m.dae"
+    from exporter.dae_exporter import export_dae
+    res = export_dae(eng, path)
+    assert "계단석" in res.materials

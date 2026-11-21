@@ -36,6 +36,7 @@ class StairFinishData(CommonBIMData):
     code: str = ""
     t_range: tuple = (0.0, 0.0)
     shape: Optional[StairPartShape] = None
+    columns: list = field(default_factory=list)      # 칸 [(s0, s1, 앞 코 s, 스텝 t0, t1, 계단참 여부)] (디딤판마다 텍스처 한 장)
 
     @property
     def volume(self) -> float:

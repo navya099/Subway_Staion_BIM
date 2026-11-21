@@ -1,3 +1,5 @@
+import math
+
 from config.master_config import StationProjectConfig
 from helper.strip_member import part_faces, section_spans
 from helper.geometry_helper import CommonHelper
@@ -17,6 +19,9 @@ def part_quads(cfg, part: StairPartData) -> list[list[tuple]]:
 
 def spec_fin_t(cfg, attr: str) -> float:
     return getattr(cfg.finish_settings.stair, attr)
+
+
+TREAD_TEXTURE_CODES = ("TREAD", "STONE")      # 디딤판마다 계단석 이미지 한 장 (윗면)
 
 
 class StairEngine:
@@ -66,7 +71,7 @@ class StairEngine:
                     type_name=f"{f.material} {int(round(thick * 1000))}mm" if thick else f.material, level=level,
                     pos_x=(f.strips[0].s0 + f.strips[-1].s1) / 2.0, pos_y=(fa + fb) / 2.0,
                     pos_z=min(min(st.zb0, st.zb1) for st in f.strips), material=f.material, code=f.code, t_range=f.t_range,
-                    shape=StairPartShape(strips=f.strips, width=fb - fa)))
+                    shape=StairPartShape(strips=f.strips, width=fb - fa), columns=list(f.columns)))
             t0, t1 = lay.t_range
             s0, s1 = lay.s_range
             package.add_stair(StairData(
@@ -108,8 +113,40 @@ class StairEngine:
                 faces = [f for quads in part_quads(self.cfg, part) for f in quads]
                 part.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_STAIR"}) for f in faces]
             for fe in stair.finishes:
-                faces = [f for quads in part_quads(self.cfg, fe) for f in quads]
-                fe.source_element = [msp.add_3dface(f, dxfattribs={"layer": "FIN_STAIR"}) for f in faces]
+                fe.source_element, fe.face_frames = [], {}
+                frames = self._tread_frames(stair, fe) if fe.code in TREAD_TEXTURE_CODES else None
+                for strip, quads in zip(fe.shape.strips, part_quads(self.cfg, fe)):
+                    ents = [msp.add_3dface(f, dxfattribs={"layer": "FIN_STAIR"}) for f in quads]
+                    fe.source_element += ents
+                    if frames:
+                        fr = frames(strip)
+                        if fr is not None:
+                            fe.face_frames.update({e.dxf.handle: fr for e in ents})
+
+    def _tread_frames(self, stair, fe):
+        """디딤판마다 계단석 이미지 한 장을 맞추는 텍스처 틀: 띠 → (원점 세계 좌표, u 방향, v 방향, 한 장 폭, 깊이).
+        u = 계단 폭 방향(+t, 한 장 폭마다 반복), v = 앞 코 → 안쪽 (이미지 아래쪽 = 앞 코), 계단참은 None(일반 타일).
+        앞 코 위치의 접선 기준 (곡선은 근사)"""
+        cfg, d = self.cfg, stair.direction
+        n_len = cfg.finish_settings.stair.stone_len
+
+        def unit(a, b):
+            v = (b[0] - a[0], b[1] - a[1], 0.0)
+            n = math.hypot(v[0], v[1]) or 1.0
+            return (v[0] / n, v[1] / n, 0.0)
+
+        def frame(strip):
+            mid = (strip.s0 + strip.s1) / 2.0
+            col = next((c for c in fe.columns if c[0] - 1e-9 <= mid <= c[1] + 1e-9), None)
+            if col is None or col[5]:                        # 계단참은 늘어나지 않게 일반 타일로
+                return None
+            s0, s1, nose, t0, t1, _ = col
+            o = cfg.to_world(nose, t0)
+            u = unit(o, cfg.to_world(nose, t0 + 1.0))
+            v = unit(o, cfg.to_world(nose + d * 0.5, t0))
+            pieces = max(1, round((t1 - t0) / n_len))
+            return ((o[0], o[1], 0.0), u, v, (t1 - t0) / pieces, s1 - s0)
+        return frame
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
     def section_items(self, sta):

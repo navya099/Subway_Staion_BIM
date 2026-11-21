@@ -28,6 +28,7 @@ class RenderMaterial:
 FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("금속패널", (0.78, 0.79, 0.80), "metal_panel", 1.2, 0.6),
     RenderMaterial("화강석", (0.62, 0.60, 0.58), "granite", 0.6, 0.6),
+    RenderMaterial("계단석", (0.74, 0.74, 0.73), "stair_stone", 0.6, 0.6),   # 디딤판 윗면은 한 장씩 맞춤 (face_frames)
     RenderMaterial("알루미늄 천장판", (0.93, 0.93, 0.92), "ceiling_panel", 0.6, 0.6),
     RenderMaterial("석재", (0.66, 0.64, 0.60)),
     RenderMaterial("타일", (0.90, 0.90, 0.88)),

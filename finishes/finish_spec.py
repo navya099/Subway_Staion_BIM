@@ -103,10 +103,11 @@ class StairFinish:
     tread_t / riser_t: 디딤판·챌판 판석 두께 (판석), 계단참 판석도 tread_t (통석도 계단참은 판석)
     bed: 통석 아래 깔 몰탈 두께 (통석)
     nosing: 논슬립 (디딤판·계단참 앞 코에서 nosing_w 폭, 상면에서 nosing_t 깊이로 박음, 양 끝 nosing_end 띄움)
+    stone_len: 계단석 한 장 길이 (계단 폭 방향, 보기 텍스처를 디딤판마다 한 장씩 맞출 때 — 폭을 이 길이에 가깝게 고르게 나눔)
     side_t: 노출된 계단 옆면 마감 두께 (0 = 없음, 벽에 붙은 쪽은 없음). 계단 폭 안쪽에 두고 구조·스텝은 그만큼 좁아짐"""
     enabled: bool = True
     method: str = STEP_PLATE
-    material: str = "화강석"
+    material: str = "계단석"
     fill_material: str = "몰탈"
     depth: float = 0.1
     tread_t: float = 0.03
@@ -119,6 +120,7 @@ class StairFinish:
     nosing_material: str = "논슬립"
     side_t: float = 0.02
     side_material: str = "화강석"
+    stone_len: float = 1.2
 
     def check(self, riser: float = None) -> None:
         """입력 검사 (riser = 실제 단높이, 주면 판석 두께와 비교)"""
@@ -129,6 +131,8 @@ class StairFinish:
                       ("논슬립 끝 여유", self.nosing_end), ("옆면 마감 두께", self.side_t)):
             if v < 0:
                 raise ValueError(f"계단 마감 {nm}({v:g})는 0 이상이어야 합니다")
+        if self.stone_len <= 0:
+            raise ValueError("계단석 한 장 길이는 0 보다 커야 합니다")
         if self.depth <= 0:
             raise ValueError("계단 마감 받침 두께는 0 보다 커야 합니다")
         if self.method == STEP_PLATE and self.depth < self.tread_t + 1e-6:

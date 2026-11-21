@@ -18,6 +18,13 @@ def floor_choice_label(floor_count: int, floor_n: int) -> str:
     return f"{level_name(floor_count, floor_n)} → {level_name(floor_count, floor_n + 1)}"
 
 
+def _t_ref(label: str, where: str) -> str:
+    from finishes.finish_clear import T_REF_LABELS
+    if label not in T_REF_LABELS:
+        raise ValueError(f"{where}: t 기준이 올바르지 않습니다 ('{label}')")
+    return T_REF_LABELS[label]
+
+
 @dataclass
 class StairDraft:
     """계단 1개 (입력창 문자열 그대로 보관)
@@ -28,6 +35,7 @@ class StairDraft:
     direction: str = UP_PLUS
     sta_start: str = "0"
     t_center: str = "6.5"
+    t_ref: str = "중심"             # t 기준 (finishes.finish_clear.T_REF_LABELS) — 벽 마감면이면 t = 마감면에서의 이격 (≥ 0)
     width: str = "2.5"
     riser_max: str = f"{_SPEC.riser_max:g}"
     tread: str = f"{_SPEC.tread:g}"
@@ -45,7 +53,9 @@ class StairDraft:
             lower_floor=self.lower_floor,
             s_start=_num(self.sta_start, where, "시작 측점") - start_station,
             direction=_DIR[self.direction],
-            t_center=_num(self.t_center, where, "t 위치"),
+            t_center=_num(self.t_center, where, "벽 마감면 이격" if "벽" in self.t_ref else "t 위치",
+                          nonneg="벽" in self.t_ref),
+            t_ref=_t_ref(self.t_ref, where),
             width=num("width", "폭"),
             riser_max=num("riser_max", "단높이 상한"),
             tread=num("tread", "단너비"),
@@ -93,4 +103,14 @@ def preview(it: StairDraft, floor_height: float, start_station: float) -> str:
     end = sta + sp.direction * run
     lo, hi = sorted((sta, end))
     return (f"→ 약 {n}단 (단높이 {r * 1000:.0f}mm), 계단참 {len(counts) - 1}개, 길이 {run:.2f}m\n"
-            f"   STA {lo:.2f} ~ {hi:.2f},  t {sp.t_lo:g} ~ {sp.t_hi:g}  (FL 기준 추정)")
+            f"   STA {lo:.2f} ~ {hi:.2f},  {t_text(sp, sp.width)}  (FL 기준 추정)")
+
+
+def t_text(sp, width: float) -> str:
+    """미리보기용 t 범위 문구 (벽 마감면 기준은 검증 때 실제 t 를 계산)"""
+    ref = getattr(sp, "t_ref", "center")
+    if ref.startswith("wall"):
+        side = "왼쪽" if ref == "wall+t" else "오른쪽"
+        return f"{side} 벽 마감면에서 {sp.t_center:g} 띄움 (폭 {width:g})"
+    c = sp.t_center - width / 2.0 if ref == "+t" else (sp.t_center + width / 2.0 if ref == "-t" else sp.t_center)
+    return f"t {c - width / 2.0:g} ~ {c + width / 2.0:g}"

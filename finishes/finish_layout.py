@@ -200,6 +200,66 @@ def _boundary(rects):
     return out
 
 
+def shaft_walls(cfg, n: int, openings: list, stairs: list, escalators: list) -> list:
+    """층 n 에서 오르는 계단·ESC 의 위 슬래브 오프닝 중 벽 마감 패널까지 넓힌 쪽 (finish_clear.shaft_opening_t —
+    본체 벽 마감 표면 또는 계단실 옆 칸막이벽) → [(s0, s1, 쪽, 윗면, 패널 t0, t1)].
+    패널 = 계단·ESC 변 ~ 오프닝 가장자리, 아래층 바닥 마감면 ~ 위층 바닥 마감면 한 장 (이슈 #32 계단 구간 벽 마감)"""
+    st = cfg.station
+    if n >= st.floors:
+        return []
+    by_name = {x.opening.name: x for x in list(stairs) + list(escalators) if x.lower_floor == n}
+    out = []
+    for o in openings:
+        lay = by_name.get(o.name)
+        if lay is None or n not in o.slabs:
+            continue
+        sc = lay.spec.side_clear
+        lo, hi = lay.t_range[0] - sc, lay.t_range[1] + sc
+        mid = (o.s_start + o.s_end) / 2.0
+        if o.t_hi > hi + 1e-5:
+            up = st.floor_level(n + 1) + floor_ffl_at(cfg, n + 1, mid, o.t_hi + 0.01)
+            out.append((o.s_start, o.s_end, 1, up, hi, o.t_hi))
+        if o.t_lo < lo - 1e-5:
+            up = st.floor_level(n + 1) + floor_ffl_at(cfg, n + 1, mid, o.t_lo - 0.01)
+            out.append((o.s_start, o.s_end, -1, up, o.t_lo, lo))
+    return out
+
+
+def _shaft_panels(cfg, fl, rfs, shafts):
+    """계단 구간 벽 마감 패널: 그 띠(s 구간 × 패널 t) 자리의 다른 벽 마감(실 경계 마감·막이)을 빼고, 계단 시작 쪽 실의
+    벽 마감재로 아래층 바닥 마감면 ~ 위층 바닥 마감면 한 장을 그 실 벽 마감에 더함 (문 자리는 비움)"""
+    for s0, s1, side, top, b0, b1 in shafts:
+        band = (s0, s1, b0, b1)
+        for rf in rfs:                                       # 띠 자리의 기존 벽 마감 제거 (높이 무관)
+            keep = []
+            for p in rf.walls:
+                fp = (p[0], p[1], p[2], p[3])
+                if _inter(fp, band):
+                    keep += [(*r, *p[4:]) for r in _minus([fp], [band])]
+                else:
+                    keep.append(p)
+            rf.walls = keep
+        tm = (b0 + b1) / 2.0
+        owner = None
+        for ds in (0.05, (s1 - s0) / 2.0):
+            for rf, rm in zip(rfs, fl.rooms):
+                if rm.contains(s0 + ds, tm) and rf.finish.wall_t > _EPS:
+                    owner = owner or rf
+        if owner is None:
+            continue
+        holes = [(d.opening[0], d.opening[1], d.opening[4], d.opening[5]) for d in fl.doors
+                 if min(d.opening[3], b1 + 0.5) - max(d.opening[2], b0 - 0.5) > _EPS
+                 and min(d.opening[1], s1) - max(d.opening[0], s0) > _EPS]
+        # 창고 끝 벽 등이 띠를 가로지르면 그 자리는 벽 윗면(계단 하면) 위로만 — 벽 위로 틈이 보이지 않게
+        cross = [q for pw in fl.partitions for q in pw.pieces if _inter(tuple(q[:4]), band)]
+        for r in _minus([band], [q[:4] for q in cross]):
+            owner.walls += _cut_holes((*r, owner.ffl_rel, top), "s", holes)
+        for q in cross:
+            r = _inter(tuple(q[:4]), band)
+            if top - q[5] > _EPS:
+                owner.walls.append((*r, max(owner.ffl_rel, q[5]), top))
+
+
 def _reflex(rects, axis, c, x) -> bool:
     """경계 선(axis, c) 위 점 x 가 실 영역의 반사각 꼭짓점(주변 네 칸 중 세 칸이 실 안)인가 — 실이 벽 모서리를 감쌈"""
     s, t = (x, c) if axis == "s" else (c, x)
@@ -237,6 +297,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         below = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n - 1 in o.slabs]
         # 위 슬래브 오프닝만큼 천장을 뺌. 단 위층 에스컬레이터 하부 피트(슬래브 두께 안에서 트러스가 막음)는 아래층 천장을 뚫지 않음
         above = [(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in openings if n in o.slabs and o.name not in pit_names]
+        shafts = shaft_walls(cfg, n, openings, stairs, escalators)   # 계단 구간 본체 벽 마감 (s0, s1, 쪽, 윗면) — 이슈 #32
         lines = {}                                           # (축, 좌표) → [(접선 lo, hi, 반두께)] 칸막이벽·구획분리 벽
         ptops = {}                                           # (축, 좌표) → [(접선 lo, hi, 벽 윗면)] 벽 마감이 벽 위로 나가지 않게
         for pw in fl.partitions:
@@ -438,6 +499,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
             rf.walls += linings
             out.append(rf)
         _wall_end_caps(cfg, fl, [r for r in out if r.floor == n], zones, L)
+        _shaft_panels(cfg, fl, [r for r in out if r.floor == n], shafts)
     return out
 
 

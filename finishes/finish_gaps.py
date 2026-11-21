@@ -106,12 +106,19 @@ def opening_linings(cfg, floor_n: int, room, ft, ceiling_rel: float, openings: l
         skip_s0 = arrive is not None and abs(arrive - S0) < abs(arrive - S1)
         skip_s1 = arrive is not None and not skip_s0
         # 가장자리 (축, 바깥 막이 사각형, 안쪽 옆면 사각형)
-        edges = [("s", (S0 - f, S1 + f, T0 - f, T0), (S0, S1, T0, T0 + f)),
-                 ("s", (S0 - f, S1 + f, T1, T1 + f), (S0, S1, T1 - f, T1))]
+        # 본체 벽 마감 패널까지 넓힌 가장자리(계단 구간 벽 마감이 위층까지 이어짐)는 막이·옆면 없음 — 이슈 #32
+        from finishes.finish_layout import shaft_walls
+        walled = {x[2] for x in shaft_walls(cfg, floor_n, [o], stairs, escalators)}
+        edges = []
+        if -1 not in walled:
+            edges.append(("s", (S0 - f, S1 + f, T0 - f, T0), (S0, S1, T0, T0 + f)))
+        if 1 not in walled:
+            edges.append(("s", (S0 - f, S1 + f, T1, T1 + f), (S0, S1, T1 - f, T1)))
+        ta, tb = T0, T1                                      # 입구·끝 막이는 패널(오프닝 s 구간 안)과 s 로 맞닿아 겹치지 않음
         if not skip_s0:
-            edges.append(("t", (S0 - f, S0, T0, T1), (S0, S0 + f, T0 + f, T1 - f)))
+            edges.append(("t", (S0 - f, S0, ta, tb), (S0, S0 + f, T0 + f, T1 - f)))
         if not skip_s1:
-            edges.append(("t", (S1, S1 + f, T0, T1), (S1 - f, S1, T0 + f, T1 - f)))
+            edges.append(("t", (S1, S1 + f, ta, tb), (S1 - f, S1, T0 + f, T1 - f)))
         if skip_s0:                                      # 도착 쪽에는 막이도 옆면도 없음: s 방향 가장자리를 그 끝까지만
             edges = [(a, (max(r[0], S0), r[1], r[2], r[3]), (max(q[0], S0), q[1], q[2], q[3])) if a == "s" else (a, r, q)
                      for a, r, q in edges]

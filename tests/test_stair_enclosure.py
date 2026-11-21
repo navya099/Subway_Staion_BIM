@@ -104,7 +104,7 @@ def test_validate_twice_is_stable():
 
 
 def test_wall_side_direction_and_grouping():
-    wall = make(t_center=-8.0)                                     # t −9 ~ −7: −t 쪽은 본체 벽
+    wall = make(t_ref="wall-t", t_center=0.0)                      # 오른쪽(−t) 벽 마감 표면에 붙인 계단: −t 쪽은 본체 벽
     wall.enclosure_settings.door_at = "side"
     StationCADEngine(wall)
     room, store = autos(wall)
@@ -227,3 +227,16 @@ def test_outer_corner_finishes_meet():
     assert not [(a, b) for a, b in itertools.combinations(pieces, 2)
                 if min(a[1], b[1]) - max(a[0], b[0]) > 1e-6 and min(a[3], b[3]) - max(a[2], b[2]) > 1e-6]
     assert fl.doors[0].name == "ST_창고_D1"
+
+
+def test_stair_inside_wall_finish_is_rejected():
+    """이슈 #32: 계단이 본체 벽 마감 표면 안쪽으로 들어가면 오류 (예전엔 조용히 겹친 개체 생성) — 벽 마감면 기준점으로 해결"""
+    bad = make(t_center=-8.0)                                       # t −9 ~ −7, 마감 표면 |t| = 9 − 0.05
+    with pytest.raises(ValueError, match="본체 벽 마감 표면.*0.05m 들어갑니다"):
+        StationCADEngine(bad)
+    ok = make(t_ref="wall-t", t_center=0.1)                         # 벽 마감 표면에서 0.1 띄움
+    StationCADEngine(ok)
+    lay = ok.stair_layouts()[0]
+    face = ok.finish_settings.table["기본"].face
+    assert lay.t_range[0] == pytest.approx(-9.0 + face + 0.1) and lay.t_range[1] - lay.t_range[0] == pytest.approx(2.0)
+    assert ok.stairs[0].t_ref == "center"                           # 검증이 중심 t 로 풀어 둠 (두 번 검증해도 같음)

@@ -199,10 +199,10 @@ def _exposed_sides(cfg, spec, fin, k: int, s_lo: float, s_hi: float) -> tuple:
     """계단 옆면 마감 두께 (t0 쪽, t1 쪽). 내공면(벽)에 붙은 쪽은 0 (벽 마감이 덮음)"""
     if fin is None or fin.side_t <= TOL:
         return 0.0, 0.0
-    from config.widening import inner_min
-    tol = 0.01
-    lo = fin.side_t if spec.t_lo > -inner_min(cfg, k, -1, s_lo, s_hi) + tol else 0.0
-    hi = fin.side_t if spec.t_hi < inner_min(cfg, k, +1, s_lo, s_hi) - tol else 0.0
+    from finishes.finish_clear import wall_surface
+    tol = 0.01                                           # 본체 벽 마감 표면에 붙은 쪽은 노출 아님 (이슈 #32)
+    lo = fin.side_t if spec.t_lo > -wall_surface(cfg, k, -1, s_lo, s_hi) + tol else 0.0
+    hi = fin.side_t if spec.t_hi < wall_surface(cfg, k, +1, s_lo, s_hi) - tol else 0.0
     if spec.width - lo - hi < 0.1:
         raise ValueError(f"계단 옆면 마감 두께({fin.side_t:g})가 계단 폭({spec.width:g})에 비해 너무 큽니다")
     return lo, hi
@@ -270,8 +270,11 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
             if min(elev(ua, z_head), elev(ub, z_head)) - zt < spec.headroom - 1e-9:
                 u_open = min(u_open, ua)
     s_lo, s_hi = sorted((s_at(u_open), s_at(length)))
-    opening = OpeningSpec(kind=OpeningKind.STAIR, s_start=s_lo, length=s_hi - s_lo, t_center=tc,
-                          width=spec.width + 2.0 * spec.side_clear, slabs=[k], name=name)
+    from finishes.finish_clear import shaft_opening_t
+    o_lo, o_hi, _ = shaft_opening_t(cfg, k, s_lo, s_hi, tc - spec.width / 2.0, tc + spec.width / 2.0)
+    o_lo, o_hi = min(o_lo, tc - spec.width / 2.0 - spec.side_clear), max(o_hi, tc + spec.width / 2.0 + spec.side_clear)
+    opening = OpeningSpec(kind=OpeningKind.STAIR, s_start=s_lo, length=s_hi - s_lo, t_center=(o_lo + o_hi) / 2.0,
+                          width=o_hi - o_lo, slabs=[k], name=name)
     return StairLayout(name=name, spec=spec, lower_floor=k, on_platform=on_platform, base_level=z_base, n_risers=n, riser=r,
                        flight_risers=counts, run=run, length=length, s_range=tuple(sorted((s_at(0.0), s_at(length)))),
                        t_range=(t0, t1), parts=parts, opening=opening, finish=finish,

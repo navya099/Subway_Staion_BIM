@@ -190,8 +190,12 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
             if x >= 0.0 and (through or low):
                 u_open = min(u_open, a)
     s_lo, s_hi = sorted((s_at(u_open), s_at(u_hi)))
-    opening = OpeningSpec(kind=OpeningKind.ESCALATOR, s_start=s_lo, length=s_hi - s_lo, t_center=tc,
-                          width=spec.truss_width + 2.0 * spec.side_clear, slabs=[k], name=name)
+    from finishes.finish_clear import shaft_opening_t
+    o_lo, o_hi, _ = shaft_opening_t(cfg, k, s_lo, s_hi, tc - spec.truss_width / 2.0, tc + spec.truss_width / 2.0)
+    o_lo = min(o_lo, tc - spec.truss_width / 2.0 - spec.side_clear)
+    o_hi = max(o_hi, tc + spec.truss_width / 2.0 + spec.side_clear)
+    opening = OpeningSpec(kind=OpeningKind.ESCALATOR, s_start=s_lo, length=s_hi - s_lo, t_center=(o_lo + o_hi) / 2.0,
+                          width=o_hi - o_lo, slabs=[k], name=name)
 
     # 하부 피트: 트러스 하면이 시작면 아래인 구간 (트러스 하단 끝 ~ 하면이 시작면 위로 올라오는 점)
     u_pit = u_lo

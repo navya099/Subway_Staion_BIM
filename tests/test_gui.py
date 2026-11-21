@@ -1716,6 +1716,23 @@ def test_stair_tab_smoke_barrier_edit_and_round_trip(app, monkeypatch, tmp_path)
     assert not TkAdapter.collect_entries(app.entries).smoke_settings.enabled
 
 
+def test_stair_and_escalator_t_ref_combo(app):
+    set_floors(app, 3)
+    app.stair_tab.add_stair(); app.root.update()
+    c = app.stair_tab._combos[(0, "t_ref")]
+    assert c.get() == "중심"
+    c.set("왼쪽 벽 마감면")
+    c.event_generate("<<ComboboxSelected>>")
+    app.stair_tab._vars[(0, "t_center")].set("0.1")
+    sp = TkAdapter.collect_entries(app.entries).stairs[0]
+    assert sp.t_ref == "center" and sp.t_center > 0                 # 검증이 벽 마감면 기준을 중심 t 로 풀어 둠
+    app.escalator_tab.add_escalator(); app.root.update()
+    e = app.escalator_tab._combos[(0, "t_ref")]
+    e.set("오른쪽 변(−t)")
+    e.event_generate("<<ComboboxSelected>>")
+    assert app.escalator_tab.drafts.items[0].t_ref == "오른쪽 변(−t)"
+
+
 def test_generate_with_finishes_end_to_end(app, tmp_path):
     set_floors(app, 3)
     app.room_tab.add_room(); app.root.update()

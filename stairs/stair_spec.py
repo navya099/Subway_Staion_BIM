@@ -17,6 +17,8 @@ class StairSpec:
         s_start: 첫 단(첫 챌판)이 시작되는 진행방향 위치 s (m, 내공 시점 기준)
         direction: 오르는 방향. +1 = 종점 방향(+s), -1 = 시점 방향(−s)
         t_center: 계단 중심의 선형 직교 방향 위치 (m, 선형 중심 0, 진행방향 왼쪽 +. 기둥·오프닝과 같은 좌표)
+            — t_ref 가 중심이 아니면 그 기준점의 값 (변 t 또는 벽 마감면에서의 이격, 검증 전에 중심으로 풀림)
+        t_ref: t 기준점 (finishes.finish_clear.T_REFS: 중심 / 왼쪽·오른쪽 변 / 왼쪽·오른쪽 벽 마감면)
         width: 계단 폭 (m, t 방향)
         riser_max: 단높이 상한 (m). 단수 = 올림(층간 표고차 / riser_max)
         tread: 단너비 (m, 디딤판 수평 길이)
@@ -41,6 +43,7 @@ class StairSpec:
     headroom: float = 2.1
     name: str = ""
     side_clear: float = 0.0
+    t_ref: str = "center"
 
     @property
     def t_lo(self) -> float:

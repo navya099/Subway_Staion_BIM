@@ -57,6 +57,71 @@ def wall_surface(cfg, floor: int, side: int, s0: float, s1: float) -> float:
     return inner - face
 
 
+def wall_panel(cfg, floor: int, side: int, s0: float, s1: float) -> tuple:
+    """본체 측벽 (벽 마감 표면 |t|, 벽 마감재 두께) — 마감재는 표면에서 벽 쪽으로 [표면, 표면 + 두께]"""
+    from config.widening import inner_min
+    L = cfg.station.length
+    a, b = max(0.0, min(s0, s1)), min(L, max(s0, s1))
+    inner = inner_min(cfg, floor, side, a, b)
+    n = max(2, int((b - a) / 1.0) + 1)
+    face = thick = 0.0
+    for k in range(n + 1):
+        ft = room_finish_at(cfg, floor, a + (b - a) * k / n, side * (inner - 0.01))
+        if ft is not None and ft.wall_t > _EPS and ft.face >= face:
+            face, thick = ft.face, ft.wall_t
+    return inner - face, thick
+
+
+def shaft_opening_t(cfg, floor: int, s0: float, s1: float, t_lo: float, t_hi: float) -> tuple:
+    """계단·ESC 자동 오프닝 t 범위: 벽 마감 표면에 붙은 쪽은 벽 마감재 두께만큼 벽 쪽으로 넓힘 → 아래층 벽 마감 패널이
+    오프닝을 지나 위층 바닥까지 한 장으로 이어짐 (이슈 #32 계단 구간 벽 마감). (t_lo, t_hi, 넓힌 쪽 집합)"""
+    sides = set()
+    lo0, hi0 = t_lo, t_hi
+    for side in (1, -1):
+        surf, thick = wall_panel(cfg, floor, side, s0, s1)
+        edge = hi0 if side > 0 else -lo0
+        if not (thick > _EPS and edge >= surf - 1e-3):
+            thick = _partition_panel(cfg, floor, s0, s1, lo0, hi0, side)     # 계단실 옆 칸막이벽 쪽
+            if thick <= _EPS:
+                continue
+            surf = edge
+        sides.add(side)
+        if side > 0:
+            t_hi = max(t_hi, surf + thick)
+        else:
+            t_lo = min(t_lo, -(surf + thick))
+    return t_lo, t_hi, sides
+
+
+def _partition_panel(cfg, floor: int, s0: float, s1: float, t_lo: float, t_hi: float, side: int) -> float:
+    """계단 옆 벽체(stair_enclosure)가 그 쪽에 칸막이벽을 세우면 그 실의 벽 마감재 두께 (아니면 0).
+    같은 층·s 구간이 겹치고 그 쪽 t 간격이 묶음 간격 이하인 다른 계단·ESC 가 있으면 묶음 사이라 벽 없음"""
+    es = getattr(cfg, "enclosure_settings", None)
+    fs = getattr(cfg, "finish_settings", None)
+    if es is None or not es.enabled or fs is None or not fs.enabled:
+        return 0.0
+    from config.widening import has_pockets
+    if has_pockets(cfg, floor):
+        return 0.0
+    members = [(sp, sp.width) for sp in cfg.stairs]
+    if es.escalators:
+        members += [(sp, sp.truss_width) for sp in cfg.escalators]
+    for sp, w in members:
+        if sp.lower_floor != floor:
+            continue
+        lo, hi = sp.t_center - w / 2.0, sp.t_center + w / 2.0
+        if abs(lo - t_lo) < 1e-3 and abs(hi - t_hi) < 1e-3:
+            continue                                         # 자기 자신 (옆 여유 없이)
+        a, b = _s_span(sp)
+        if min(b, max(s0, s1)) - max(a, min(s0, s1)) <= _EPS:
+            continue
+        gap = (lo - t_hi) if side > 0 else (t_lo - hi)
+        if -_EPS <= gap <= es.group_gap + _EPS:
+            return 0.0
+    ft = fs.for_room(cfg.room_settings.default_use(floor))
+    return ft.wall_t if ft.wall_t > _EPS else 0.0
+
+
 def _s_span(spec) -> tuple:
     """t 기준점을 풀 때 쓰는 대략의 s 구간 (계단은 첫 챌판 ~ 진행방향 20m, ESC 는 하부 WP 앞뒤 20m)"""
     s = getattr(spec, "s_start", None)

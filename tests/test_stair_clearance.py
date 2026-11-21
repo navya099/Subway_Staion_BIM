@@ -96,3 +96,78 @@ def test_drafts_t_ref():
     assert e.to_spec("ESC 1", 0.0).t_ref == "wall-t"
     with pytest.raises(ValueError, match="t 기준"):
         StairDraft(t_ref="??").to_spec("계단 1", 0.0)
+
+
+def test_shaft_wall_finish_continues_to_upper_floor():
+    """이슈 #32 계단 구간 벽 마감: 벽 마감면에 붙인 계단은 오프닝을 벽 쪽 패널 두께만큼 넓히고, 그 구간 본체 벽 마감은
+    천장에서 끊지 않고 위층 바닥 마감면까지 한 장 — 그 가장자리 막이·슬래브 옆면 마감은 없음, 계단 부재와 겹침 없음"""
+    import itertools
+    from helper import prism_member as PM
+    from test_stair_enclosure import hits_members
+    cfg = cfg_of([StairSpec(lower_floor=2, s_start=60.0, t_ref="wall+t", t_center=0.0, width=2.0, name="ST")],
+                 table=big_face())
+    eng = StationCADEngine(cfg)
+    st = cfg.station
+    ft = cfg.finish_settings.table["대합실"]
+    op = next(o for o in eng.cfg.all_openings() if o.name == "ST")
+    assert op.t_hi == pytest.approx(8.5 + ft.wall_t) and op.t_lo == pytest.approx(6.5)      # 벽 쪽만 패널 두께만큼
+    hall = next(r for r in eng.finishes.rooms if r.floor == 2 and r.room.endswith("대합실"))
+    panels = [p for p in hall.element("WALL").pieces if PM.t_range(p)[0] == pytest.approx(8.5)]
+    up = st.floor_level(3) + cfg.finish_settings.table["대합실"].ffl
+    inside = [p for p in panels if PM.s_range(p)[0] >= op.s_start - 1e-6 and PM.s_range(p)[1] <= op.s_end + 1e-6]
+    assert inside and all(PM.z_off(eng.cfg, p) + p.shape.height == pytest.approx(up) for p in inside)   # 위층 마감면까지
+    outside = [p for p in panels if PM.s_range(p)[1] <= op.s_start + 1e-6]
+    assert outside and all(PM.z_off(eng.cfg, p) + p.shape.height < up - 1.0 for p in outside)          # 그 밖은 천장까지
+    boxes = []
+    for e in hall.elements:
+        for p in e.pieces:
+            z0 = PM.z_off(eng.cfg, p)
+            b = (*PM.s_range(p), *PM.t_range(p), z0, z0 + p.shape.height)
+            boxes.append((e.name, *b))
+            assert hits_members(eng.cfg, b) is None, e.name
+    near = [b for b in boxes if b[4] > 8.0 and b[1] < op.s_end + 1 and b[2] > op.s_start - 1]
+    assert not [(a[0], b[0]) for a, b in itertools.combinations(near, 2)
+                if all(min(a[i + 1], b[i + 1]) - max(a[i], b[i]) > 1e-6 for i in (1, 3, 5))]
+
+
+def test_shaft_panel_on_partition_side():
+    """계단실 옆 칸막이벽 쪽도 계단 구간 패널 한 장 (예전: 천장 위 콘크리트 노출 — 막이가 '오프닝 중심이 든 실'(창고)에서만
+    만들어져 아예 없었음). 오프닝을 양쪽 패널 두께만큼 넓힘, 패널은 칸막이벽·계단·다른 마감과 겹치지 않음"""
+    import itertools
+    from helper import prism_member as PM
+    from rooms.room_check import layout_rooms
+    from stairs.stair_enclosure import EnclosureSettings
+    from test_stair_enclosure import hits_members
+    cfg = cfg_of([StairSpec(lower_floor=2, s_start=60.0, t_center=-6.0, width=2.0, name="ST")], table=default_finishes())
+    cfg.enclosure_settings = EnclosureSettings(enabled=True)
+    eng = StationCADEngine(cfg)
+    ft = cfg.finish_settings.table["대합실"]
+    op = next(o for o in eng.cfg.all_openings() if o.name == "ST")
+    assert op.t_lo == pytest.approx(-7.0 - ft.wall_t) and op.t_hi == pytest.approx(-5.0 + ft.wall_t)
+    up = cfg.station.floor_level(3) + ft.ffl
+    rooms2 = [r for r in eng.finishes.rooms if r.floor == 2]
+    boxes = []
+    for rf in rooms2:
+        for e in rf.elements:
+            for p in e.pieces:
+                z0 = PM.z_off(eng.cfg, p)
+                boxes.append((e.name, *PM.s_range(p), *PM.t_range(p), z0, z0 + p.shape.height))
+    for t0, t1 in ((op.t_lo, -7.0), (-5.0, op.t_hi)):
+        band = [b for b in boxes if b[3] == pytest.approx(t0) and b[4] == pytest.approx(t1)]
+        assert band and max(b[6] for b in band) == pytest.approx(up)
+        covered = sum(b[2] - b[1] for b in band if b[6] == pytest.approx(up))
+        assert covered == pytest.approx(op.s_end - op.s_start)           # 오프닝 구간 전체 — 창고 끝 벽 자리는 벽 윗면부터
+    walls = [p for pw in layout_rooms(eng.cfg)[1].partitions for p in pw.pieces]
+    end = next(w for w in walls if w[2] < -7.0 < w[3] and w[1] - w[0] < 0.5)    # 창고 끝 벽 (계단 아래)
+    over = [b for b in boxes if b[3] == pytest.approx(op.t_lo) and b[1] == pytest.approx(end[0])]
+    assert over and over[0][5] == pytest.approx(end[5])                     # 끝 벽 위로 틈 없음 (사용자 지적)
+    for b in boxes:
+        assert hits_members(eng.cfg, b[1:]) is None, b[0]
+    near = [b for b in boxes if b[1] < op.s_end + 1 and b[2] > op.s_start - 1 and -8 < b[3] < -4]
+    bad = [(a[0], c[0]) for a, c in itertools.combinations(near, 2)
+           if all(min(a[i + 1], c[i + 1]) - max(a[i], c[i]) > 1e-6 for i in (1, 3, 5))]
+    assert not bad
+    for b in near:                                                         # 칸막이벽 구조체와도 겹치지 않음
+        for w in walls:
+            assert not (min(b[2], w[1]) - max(b[1], w[0]) > 1e-6 and min(b[4], w[3]) - max(b[3], w[2]) > 1e-6
+                        and min(b[6], w[5]) - max(b[5], w[4]) > 1e-6), (b[0], w)

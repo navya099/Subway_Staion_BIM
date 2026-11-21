@@ -3,6 +3,4 @@ __pycache__/
 .idea/
 *.dxf*.ifc
 
-# 텍스처 이미지는 사용자가 준비 (README 만 저장소에)
-assets/image/tile/*
-!assets/image/tile/README.md
+# 텍스처 이미지(assets/image/)는 저장소에 포함 (출처·라이선스는 assets/image/tile/README.md)

@@ -54,6 +54,9 @@ class EscalatorDraft:
     side_clear: str = f"{_SPEC.side_clear:g}"      # 자동 오프닝 옆 여유 (양쪽)
     lower_radius: str = f"{_SPEC.lower_radius:g}"  # 하부 곡선 전이 반경 (0 = 꺾임)
     upper_radius: str = f"{_SPEC.upper_radius:g}"  # 상부 곡선 전이 반경
+    skirt_height: str = f"{_SPEC.skirt_height:g}"  # 코 선 위 스커트 높이 (= 데크 하면)
+    deck_width: str = f"{_SPEC.deck_width:g}"      # 안쪽 데크 폭
+    glass_t: str = f"{_SPEC.glass_t:g}"            # 난간 유리 두께
 
     def to_spec(self, where: str, start_station: float) -> EscalatorSpec:
         if self.direction not in _DIR:
@@ -80,6 +83,9 @@ class EscalatorDraft:
             side_clear=_num(self.side_clear, where, "오프닝 옆 여유", nonneg=True),
             lower_radius=_num(self.lower_radius, where, "하부 전이 반경", nonneg=True),
             upper_radius=_num(self.upper_radius, where, "상부 전이 반경", nonneg=True),
+            skirt_height=num("skirt_height", "스커트 높이"),
+            deck_width=num("deck_width", "데크 폭"),
+            glass_t=num("glass_t", "유리 두께"),
             name=self.name.strip())
 
 

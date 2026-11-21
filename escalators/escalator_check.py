@@ -38,6 +38,18 @@ def check_escalator_spec(station, spec, name: str, widened: bool = False):
     if spec.upper_flat_steps * spec.step_depth > spec.upper_ext + _EPS:
         raise ValueError(f"에스컬레이터 {name}: 상부 평탄 스텝({spec.upper_flat_steps}단 x {spec.step_depth:g}m)이 "
                          f"상부 연장({spec.upper_ext:g}m)보다 깁니다")
+    for nm, v in (("스커트 높이", spec.skirt_height), ("데크 폭", spec.deck_width), ("유리 두께", spec.glass_t)):
+        if not v > 0:
+            raise ValueError(f"에스컬레이터 {name}: {nm}({v:g})는 0 보다 커야 합니다")
+    from escalators.escalator_spec import DECK_T, HANDRAIL_H, SKIRT_T
+    if spec.deck_width <= SKIRT_T + 1e-6:
+        raise ValueError(f"에스컬레이터 {name}: 데크 폭({spec.deck_width:g})이 스커트 두께보다 커야 합니다")
+    g1 = spec.detail_t(1)["GLASS"][1] - spec.t_center
+    if g1 > spec.truss_width / 2.0 - 0.01:
+        raise ValueError(f"에스컬레이터 {name}: 트러스 외폭({spec.truss_width:g}m)이 스텝·스커트·데크·유리에 비해 좁습니다 "
+                         f"(반폭 {g1 + 0.01:.3f}m 이상)")
+    if spec.skirt_height + DECK_T > spec.handrail_height - HANDRAIL_H - 0.1:
+        raise ValueError(f"에스컬레이터 {name}: 스커트 높이가 핸드레일 높이에 비해 큽니다 (유리가 남지 않음)")
     outer = max(abs(t - spec.t_center) for side in (1, -1) for t in (*spec.balustrade_t(side), *spec.handrail_t(side)))
     if outer > spec.truss_width / 2.0 + _EPS:
         raise ValueError(f"에스컬레이터 {name}: 트러스 외폭({spec.truss_width:g}m)이 스텝 폭과 난간·핸드레일"

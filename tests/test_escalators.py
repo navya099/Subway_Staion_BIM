@@ -102,8 +102,8 @@ def test_parts_and_their_vertical_rules():
     cfg = eng.cfg
     for e, lay in zip(eng.escalators.all_escalators(), cfg.escalator_layouts()):
         sp, nose = lay.spec, lay_nose(lay)
-        assert [p.name for p in e.parts] == [f"{e.name}_TRUSS", f"{e.name}_BALUSTRADE_L",
-                                             f"{e.name}_HANDRAIL_L", f"{e.name}_BALUSTRADE_R", f"{e.name}_HANDRAIL_R"]
+        side_parts = ["SKIRT", "INNER_DECK", "BALUSTRADE", "OUTER_DECK", "HANDRAIL"]
+        assert [p.name for p in e.parts] == [f"{e.name}_TRUSS"] + [f"{e.name}_{k}_{x}" for x in "LR" for k in side_parts]
         for st in e.part(K.TRUSS).shape.strips:
             assert st.zb0 == pytest.approx(nose(st.s0) - sp.truss_depth, abs=1e-9)
             assert st.zb1 == pytest.approx(nose(st.s1) - sp.truss_depth, abs=1e-9)
@@ -354,7 +354,8 @@ def test_ifc_transport_element_aggregates_parts(tmp_path):
 # ===================================================== 도면
 def test_3d_dxf_has_six_faces_per_strip(tmp_path):
     eng = eng_with(esc(1), esc(2, s=120.0, d=-1))
-    faces = list(ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace().query('3DFACE[layer=="STRUCT_ESCALATOR"]'))
+    msp = ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace()
+    faces = list(msp.query('3DFACE[layer=="STRUCT_ESCALATOR"]')) + list(msp.query('3DFACE[layer=="STRUCT_ESC_GLASS"]'))
     strips = sum(len(p.shape.strips) for e in eng.escalators.all_escalators() for p in list(e.parts) + list(e.steps))
     assert len(faces) == 6 * strips
 
@@ -377,7 +378,7 @@ def test_section_profile_plan(tmp_path):
     prof = eng.generate_profile_dxf(tmp_path / "f.dxf")
     base = StationCADEngine(make_cfg(user_example())).generate_profile_dxf(tmp_path / "g.dxf")
     step_strips = sum(len(x.shape.strips) for x in e.steps)
-    assert len(_q(prof, "PROF_BEYOND")) == len(_q(base, "PROF_BEYOND")) + 3 + step_strips   # 트러스·한쪽 난간·핸드레일 + 스텝
+    assert len(_q(prof, "PROF_BEYOND")) == len(_q(base, "PROF_BEYOND")) + 6 + step_strips   # 트러스 + 한쪽 5부재 + 스텝
 
     plan = eng.generate_plan_dxf(tmp_path / "n.dxf")
     assert len(_q(plan, "PLAN_ESCALATOR")) == 1 + 1 + 2                          # 외곽 + 스텝 + 난간 2
@@ -462,3 +463,42 @@ def test_step_volumes_mesh_and_ifc(tmp_path, curved):
     for x in e.steps[::7]:
         vol = ifcopenshell.util.shape.get_volume(ifcopenshell.geom.create_shape(s, by[x.name]).geometry)
         assert vol == pytest.approx(x.volume, rel=rel, abs=1e-8)
+
+
+def test_balustrade_detail_cross_section():
+    """상세 2단계 단면: 스텝 가장자리 → 틈 → 스커트 → (안쪽 데크) → 유리 → 바깥 데크(트러스 바깥까지), 높이: 트러스 상면 ~ 스커트 ~
+    데크 하면(코 선 + 스커트 높이) ~ 데크(두께) ~ 유리 ~ 핸드레일. 띠끼리 겹치지 않음, 유리는 반투명 레이어"""
+    import itertools
+    from escalators.escalator_spec import DECK_T, SKIRT_GAP, SKIRT_T
+    eng = eng_with(esc(1, name="A"))
+    lay = eng.cfg.escalator_layouts()[0]
+    e = by_name(eng, "A")
+    sp, nose = lay.spec, lay_nose(lay)
+    c, w = sp.t_center, sp.step_width / 2.0
+    L = {k: e.part(getattr(K, k), 1) for k in ("SKIRT", "INNER_DECK", "BALUSTRADE", "OUTER_DECK", "HANDRAIL")}
+    assert L["SKIRT"].t_range == pytest.approx((c + w + SKIRT_GAP, c + w + SKIRT_GAP + SKIRT_T))
+    assert L["INNER_DECK"].t_range[1] == pytest.approx(L["BALUSTRADE"].t_range[0])
+    assert L["OUTER_DECK"].t_range == pytest.approx((L["BALUSTRADE"].t_range[1], c + sp.truss_width / 2.0))
+    assert L["BALUSTRADE"].t_range[1] - L["BALUSTRADE"].t_range[0] == pytest.approx(sp.glass_t)
+    assert sum(L["HANDRAIL"].t_range) / 2 == pytest.approx(sum(L["BALUSTRADE"].t_range) / 2)          # 유리 위 가운데
+    for x in L["INNER_DECK"].shape.strips:
+        assert x.zb0 == pytest.approx(nose(x.s0) + sp.skirt_height) and x.zt - x.zb0 == pytest.approx(DECK_T)
+    for x in L["BALUSTRADE"].shape.strips:
+        assert x.zb0 == pytest.approx(nose(x.s0) + sp.skirt_height + DECK_T)
+    tops = {round(x.s0, 6): x.zt for x in e.part(K.TRUSS).shape.strips}
+    for x in L["SKIRT"].shape.strips:                                  # 스커트 하면 = 그 자리 트러스 상면
+        if round(x.s0, 6) in tops:
+            assert x.zb0 == pytest.approx(tops[round(x.s0, 6)])
+    boxes = []
+    for part in e.parts:
+        for x in part.shape.strips:
+            boxes.append((part.name, x, part.t_range))
+    for (na, a, ta), (nb, b, tb) in itertools.combinations(boxes, 2):
+        if min(ta[1], tb[1]) - max(ta[0], tb[0]) <= 1e-9 or min(a.s1, b.s1) - max(a.s0, b.s0) <= 1e-9:
+            continue
+        m = (max(a.s0, b.s0) + min(a.s1, b.s1)) / 2
+        assert min(a.zt_at(m), b.zt_at(m)) - max(a.zb_at(m), b.zb_at(m)) <= 1e-9, (na, nb)
+    eng.build_3d_doc()
+    assert {f.dxf.layer for f in e.part(K.BALUSTRADE, 1).source_element} == {"STRUCT_ESC_GLASS"}
+    with pytest.raises(ValueError, match="트러스 외폭"):
+        eng_with(esc(1, name="A", truss_width=1.2))

@@ -61,6 +61,7 @@ LAYER_DEFINITIONS = {
     "STRUCT_RAILING_GLASS": {"color": 131},   # 오프닝 유리난간 유리
     "SEC_RAILING": {"color": 254},       # 횡단·종단면도 유리난간
     "PLAN_RAILING": {"color": 254},      # 평면도 유리난간 (제연경계벽도)
+    "STRUCT_ESC_GLASS": {"color": 131},  # 에스컬레이터 유리 난간 (상세)
     "STRUCT_SMOKE": {"color": 8},        # 제연경계벽 프레임
     "STRUCT_SMOKE_GLASS": {"color": 131},     # 제연경계벽 유리
     "FIN_TACTILE": {"color": 2},         # 점자블록 (점형·선형)

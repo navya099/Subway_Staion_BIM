@@ -10,9 +10,13 @@ from helper.view_item import ViewItem
 from slabs.slab_engine import SlabEngine
 
 _FAMILY = {EscalatorPartKind.TRUSS: "에스컬레이터-트러스", EscalatorPartKind.STEPS: "에스컬레이터-스텝",
-           EscalatorPartKind.BALUSTRADE: "에스컬레이터-난간패널", EscalatorPartKind.HANDRAIL: "에스컬레이터-핸드레일"}
+           EscalatorPartKind.BALUSTRADE: "에스컬레이터-난간패널", EscalatorPartKind.HANDRAIL: "에스컬레이터-핸드레일",
+           EscalatorPartKind.SKIRT: "에스컬레이터-스커트", EscalatorPartKind.INNER_DECK: "에스컬레이터-안쪽데크",
+           EscalatorPartKind.OUTER_DECK: "에스컬레이터-바깥데크"}
 _MATERIAL = {EscalatorPartKind.TRUSS: "Steel_Truss", EscalatorPartKind.STEPS: "Aluminium_Step",
-             EscalatorPartKind.BALUSTRADE: "Glass_Balustrade", EscalatorPartKind.HANDRAIL: "Rubber_Handrail"}
+             EscalatorPartKind.BALUSTRADE: "Glass_Balustrade", EscalatorPartKind.HANDRAIL: "Rubber_Handrail",
+             EscalatorPartKind.SKIRT: "Stainless_Skirt", EscalatorPartKind.INNER_DECK: "Stainless_Deck",
+             EscalatorPartKind.OUTER_DECK: "Stainless_Deck"}
 _SIDE = {0: "", 1: "_L", -1: "_R"}          # L = t 큰 쪽 (진행방향 왼쪽 +)
 
 
@@ -95,7 +99,10 @@ class EscalatorEngine:
         for esc in self.all_escalators():
             for part in list(esc.parts) + list(esc.steps):
                 faces = [f for quads in part_faces(self.cfg, part) for f in quads]
-                part.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_ESCALATOR"}) for f in faces]
+                glass = getattr(part, "kind", None) == EscalatorPartKind.BALUSTRADE and part.material == "Glass_Balustrade" \
+                    and esc.steps                               # 상세 형상의 유리 난간은 반투명 레이어
+                layer = "STRUCT_ESC_GLASS" if glass else "STRUCT_ESCALATOR"
+                part.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
 
     # ---------- 2D 도면 ----------
     def section_items(self, sta):

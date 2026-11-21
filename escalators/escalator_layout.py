@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from escalators.escalator_spec import HANDRAIL_H, STEP_PLATE_T
+from escalators.escalator_spec import DECK_T, HANDRAIL_H, HANDRAIL_W, STEP_PLATE_T
 from escalators.escalator_type import EscalatorPartKind
 from finishes.finish_layout import ceiling_bottom_under
 from helper import prism_member as PM
@@ -88,11 +88,19 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor,
     t_truss = (spec.t_lo, spec.t_hi)
     t_steps = (tc - spec.step_width / 2.0, tc + spec.step_width / 2.0)
     part_defs = [(EscalatorPartKind.TRUSS, 0, t_truss)]
-    if steps_range is None:
+    detail = steps_range is not None                   # 정거장 상세 형상 (출입구는 예전 형상)
+    if not detail:
         part_defs.append((EscalatorPartKind.STEPS, 0, t_steps))
     for side in (1, -1):
-        part_defs += [(EscalatorPartKind.BALUSTRADE, side, spec.balustrade_t(side)),
-                      (EscalatorPartKind.HANDRAIL, side, spec.handrail_t(side))]
+        if detail:
+            dt = spec.detail_t(side)
+            part_defs += [(EscalatorPartKind.SKIRT, side, dt["SKIRT"]), (EscalatorPartKind.INNER_DECK, side, dt["INNER_DECK"]),
+                          (EscalatorPartKind.BALUSTRADE, side, dt["GLASS"]), (EscalatorPartKind.OUTER_DECK, side, dt["OUTER_DECK"])]
+            gc = sum(dt["GLASS"]) / 2.0                    # 핸드레일은 유리 위 가운데
+            part_defs.append((EscalatorPartKind.HANDRAIL, side, (gc - HANDRAIL_W / 2.0, gc + HANDRAIL_W / 2.0)))
+        else:
+            part_defs.append((EscalatorPartKind.BALUSTRADE, side, spec.balustrade_t(side)))
+            part_defs.append((EscalatorPartKind.HANDRAIL, side, spec.handrail_t(side)))
     strips = {(kind, side): [] for kind, side, _ in part_defs}
     t_of = {(kind, side): t for kind, side, t in part_defs}
 
@@ -123,7 +131,15 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor,
             ttop = bot
             for side in (1, -1):
                 rail_bot = (na + hh - HANDRAIL_H, nb + hh - HANDRAIL_H)
-                add((EscalatorPartKind.BALUSTRADE, side), a, b, (na, nb), rail_bot)
+                if detail:                                 # 스커트(트러스 상면 ~ 데크 하면) · 데크 · 유리(데크 위 ~ 핸드레일 아래)
+                    kh, dk = spec.skirt_height, DECK_T
+                    deck_b, deck_t = (na + kh, nb + kh), (na + kh + dk, nb + kh + dk)
+                    add((EscalatorPartKind.SKIRT, side), a, b, bot, deck_b)
+                    add((EscalatorPartKind.INNER_DECK, side), a, b, deck_b, deck_t)
+                    add((EscalatorPartKind.OUTER_DECK, side), a, b, deck_b, deck_t)
+                    add((EscalatorPartKind.BALUSTRADE, side), a, b, deck_t, rail_bot)
+                else:
+                    add((EscalatorPartKind.BALUSTRADE, side), a, b, (na, nb), rail_bot)
                 add((EscalatorPartKind.HANDRAIL, side), a, b, rail_bot, (na + hh, nb + hh))
         else:                                          # 스텝 밖: 트러스 상면 = 바닥면 (덮개판)
             ttop = (na, nb)

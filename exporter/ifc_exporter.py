@@ -383,7 +383,10 @@ class IFCExporter:
     _ESC_ENTITY = {EscalatorPartKind.TRUSS: ("IfcBuildingElementPart", "USERDEFINED"),
                    EscalatorPartKind.STEPS: ("IfcBuildingElementPart", "USERDEFINED"),
                    EscalatorPartKind.BALUSTRADE: ("IfcRailing", "BALUSTRADE"),
-                   EscalatorPartKind.HANDRAIL: ("IfcRailing", "HANDRAIL")}
+                   EscalatorPartKind.HANDRAIL: ("IfcRailing", "HANDRAIL"),
+                   EscalatorPartKind.SKIRT: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.INNER_DECK: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.OUTER_DECK: ("IfcBuildingElementPart", "USERDEFINED")}
 
     def export_escalators(self, escalator_engine: EscalatorEngine):
         """에스컬레이터: IfcTransportElement(ESCALATOR) 가 트러스·스텝(IfcBuildingElementPart), 난간 패널·핸드레일(IfcRailing)을

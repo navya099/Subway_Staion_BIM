@@ -38,6 +38,36 @@ def check_escalator_spec(station, spec, name: str, widened: bool = False):
     if spec.upper_flat_steps * spec.step_depth > spec.upper_ext + _EPS:
         raise ValueError(f"에스컬레이터 {name}: 상부 평탄 스텝({spec.upper_flat_steps}단 x {spec.step_depth:g}m)이 "
                          f"상부 연장({spec.upper_ext:g}m)보다 깁니다")
+    from escalators.escalator_spec import DECK_T, HANDRAIL_H, SKIRT_T
+    if not spec.newel_ext >= 0:
+        raise ValueError(f"에스컬레이터 {name}: 뉴얼 연장은 0 이상이어야 합니다 ({spec.newel_ext:g})")
+    if spec.newel_radius <= HANDRAIL_H + 0.01 or spec.handrail_height - 2 * spec.newel_radius < 0.02:
+        raise ValueError(f"에스컬레이터 {name}: 뉴얼 반경({spec.newel_radius:g})은 핸드레일 단면보다 크고, 반원 아래 끝이 "
+                         "승강구 바닥보다 높아야 합니다 (핸드레일 높이 − 2 × 반경 ≥ 0.02)")
+    if not (isinstance(spec.bollard_count, int) and 0 <= spec.bollard_count <= 10):
+        raise ValueError(f"에스컬레이터 {name}: 볼라드 수는 0 ~ 10 의 정수여야 합니다 ({spec.bollard_count})")
+    if spec.bollard_count:
+        for nm, v in (("볼라드 지름", spec.bollard_d), ("볼라드 높이", spec.bollard_h)):
+            if not v > 0:
+                raise ValueError(f"에스컬레이터 {name}: {nm}({v:g})는 0 보다 커야 합니다")
+        if not spec.bollard_dist >= spec.bollard_d / 2.0:
+            raise ValueError(f"에스컬레이터 {name}: 볼라드 거리({spec.bollard_dist:g})는 볼라드 반지름 이상이어야 합니다")
+        ts = spec.bollard_ts()
+        gap = (ts[1] - ts[0]) if len(ts) > 1 else float("inf")
+        if gap - spec.bollard_d < 0.05:
+            raise ValueError(f"에스컬레이터 {name}: 볼라드 {spec.bollard_count}개가 핸드레일 사이에 너무 촘촘합니다 "
+                             f"(간격 {gap:.3f}m, 지름 {spec.bollard_d:g}m — 수 또는 지름을 줄이세요)")
+    for nm, v in (("스커트 높이", spec.skirt_height), ("데크 폭", spec.deck_width), ("유리 두께", spec.glass_t)):
+        if not v > 0:
+            raise ValueError(f"에스컬레이터 {name}: {nm}({v:g})는 0 보다 커야 합니다")
+    if spec.deck_width <= SKIRT_T + 1e-6:
+        raise ValueError(f"에스컬레이터 {name}: 데크 폭({spec.deck_width:g})이 스커트 두께보다 커야 합니다")
+    g1 = spec.detail_t(1)["GLASS"][1] - spec.t_center
+    if g1 > spec.truss_width / 2.0 - 0.01:
+        raise ValueError(f"에스컬레이터 {name}: 트러스 외폭({spec.truss_width:g}m)이 스텝·스커트·데크·유리에 비해 좁습니다 "
+                         f"(반폭 {g1 + 0.01:.3f}m 이상)")
+    if spec.skirt_height + DECK_T > spec.handrail_height - HANDRAIL_H - 0.1:
+        raise ValueError(f"에스컬레이터 {name}: 스커트 높이가 핸드레일 높이에 비해 큽니다 (유리가 남지 않음)")
     outer = max(abs(t - spec.t_center) for side in (1, -1) for t in (*spec.balustrade_t(side), *spec.handrail_t(side)))
     if outer > spec.truss_width / 2.0 + _EPS:
         raise ValueError(f"에스컬레이터 {name}: 트러스 외폭({spec.truss_width:g}m)이 스텝 폭과 난간·핸드레일"
@@ -68,8 +98,21 @@ def layout_escalators(cfg) -> list:
         if pocket and not clear_contains_rect(cfg, spec.lower_floor, _rect(lay), _EPS):
             raise ValueError(f"에스컬레이터 {name}: 트러스 평면(s {s0:.3f} ~ {s1:.3f}, t {spec.t_lo:.3f} ~ {spec.t_hi:.3f}) 이(가) "
                              f"{st.level_name(spec.lower_floor)} 내공(구조물 확폭 포함)을 벗어납니다")
+        check_bollards(cfg, name, lay)
         out.append(lay)
     return out
+
+
+def check_bollards(cfg, name, lay):
+    """승강구 앞 볼라드가 서는 층 내공(구조물 확폭 포함) 안인지 검사"""
+    from config.widening import inner_min
+    r, L = lay.spec.bollard_d / 2.0, cfg.station.length
+    for b in lay.bollards:
+        s, t = b.s, b.t
+        if s - r < -_EPS or s + r > L + _EPS or t + r > inner_min(cfg, b.floor, 1, s - r, s + r) + _EPS or                 r - t > inner_min(cfg, b.floor, -1, s - r, s + r) + _EPS:
+            where = "아래층" if b.end == "L" else "위층"
+            raise ValueError(f"에스컬레이터 {name}: {where} 승강구 볼라드가 내공 밖입니다 (s {s:.3f}, t {t:.3f}) — "
+                             "볼라드 거리를 줄이거나 볼라드 수를 0 으로 하세요")
 
 
 def _rect(lay):

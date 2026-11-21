@@ -52,6 +52,17 @@ class EscalatorDraft:
     handrail_height: str = f"{_SPEC.handrail_height:g}"
     headroom: str = f"{_SPEC.headroom:g}"
     side_clear: str = f"{_SPEC.side_clear:g}"      # 자동 오프닝 옆 여유 (양쪽)
+    lower_radius: str = f"{_SPEC.lower_radius:g}"  # 하부 곡선 전이 반경 (0 = 꺾임)
+    upper_radius: str = f"{_SPEC.upper_radius:g}"  # 상부 곡선 전이 반경
+    skirt_height: str = f"{_SPEC.skirt_height:g}"  # 코 선 위 스커트 높이 (= 데크 하면)
+    deck_width: str = f"{_SPEC.deck_width:g}"      # 안쪽 데크 폭
+    glass_t: str = f"{_SPEC.glass_t:g}"            # 난간 유리 두께
+    newel_ext: str = f"{_SPEC.newel_ext:g}"        # 스텝 끝 너머 난간 연장
+    newel_radius: str = f"{_SPEC.newel_radius:g}"  # 끝 뉴얼 반경
+    bollard_count: str = f"{_SPEC.bollard_count}"   # 승강구 앞 볼라드 수 (양끝 각각, 0 = 없음)
+    bollard_d: str = f"{_SPEC.bollard_d:g}"         # 볼라드 지름
+    bollard_h: str = f"{_SPEC.bollard_h:g}"         # 볼라드 높이
+    bollard_dist: str = f"{_SPEC.bollard_dist:g}"   # 끝 뉴얼 → 볼라드 중심 거리
 
     def to_spec(self, where: str, start_station: float) -> EscalatorSpec:
         if self.direction not in _DIR:
@@ -76,6 +87,17 @@ class EscalatorDraft:
             handrail_height=num("handrail_height", "핸드레일 높이"),
             headroom=num("headroom", "머리 높이"),
             side_clear=_num(self.side_clear, where, "오프닝 옆 여유", nonneg=True),
+            lower_radius=_num(self.lower_radius, where, "하부 전이 반경", nonneg=True),
+            upper_radius=_num(self.upper_radius, where, "상부 전이 반경", nonneg=True),
+            skirt_height=num("skirt_height", "스커트 높이"),
+            deck_width=num("deck_width", "데크 폭"),
+            glass_t=num("glass_t", "유리 두께"),
+            newel_ext=_num(self.newel_ext, where, "뉴얼 연장", nonneg=True),
+            newel_radius=num("newel_radius", "뉴얼 반경"),
+            bollard_count=_int(self.bollard_count, where, "볼라드 수"),
+            bollard_d=num("bollard_d", "볼라드 지름"),
+            bollard_h=num("bollard_h", "볼라드 높이"),
+            bollard_dist=_num(self.bollard_dist, where, "볼라드 거리", nonneg=True),
             name=self.name.strip())
 
 

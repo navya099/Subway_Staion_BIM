@@ -12,6 +12,12 @@ from openings import decompose
 _EPS = 1e-6
 
 
+
+def room_wall_hole(cfg, op):
+    """본체 측벽 오프닝 → 실 벽 마감에서 비울 (s0, s1, z0, z1) (출구통로 마감이 있으면 통로 마감 개구부 — passage_finish)"""
+    from passages.passage_finish import room_wall_hole as hole
+    return hole(cfg, op)
+
 def _out(p, z0, z1, extra=()):
     s0, s1, ta, tb = T.bbox(p)
     tr = T.trap_of(p)
@@ -163,7 +169,7 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
                                 raise ValueError(f"실 {room.name}: 벽 마감 높이가 0 이하입니다 (바닥 마감 높이·천장 높이 확인)")
                             if item[1] == "side":                    # 측벽: 본체 측벽 오프닝 (출구통로·환기구)
                                 side = item[2]
-                                holes = [(o[3], o[4], o[5], o[6]) for o in wall_ops if o[1] == n and o[2] == side]
+                                holes = [room_wall_hole(cfg, o) for o in wall_ops if o[1] == n and o[2] == side]
                                 pieces += _cut_s_holes(zz, z0, wall_top, holes)
                                 continue
                             _, kind, axis, c = item

@@ -148,6 +148,9 @@ class PassageTab:
         """통로 이름 (비우면 EX + 순번 — PassageSpec 이름 규칙과 같음)"""
         return [it.name.strip() or f"EX{k + 1}" for k, it in enumerate(self.drafts.items)]
 
+    def set_finish(self, idx, name: str):
+        self.drafts.items[idx].finish = name
+
     def set_parent(self, idx, label: str):
         self.drafts.items[idx].parent = "" if label == BODY else label
         self.refresh_info()
@@ -205,6 +208,11 @@ class PassageTab:
             self.refresh_info()
         var.trace_add("write", on_close)
         tk.Checkbutton(top, text="끝 폐합", variable=var, font=FONT).pack(side="left", padx=(8, 0))
+        tk.Label(top, text="마감", font=FONT).pack(side="left", padx=(8, 0))
+        fd = self.entries.get("finish_drafts")
+        fnames = ["(통로)"] + (fd.names() if fd is not None else [])
+        self._combo(top, i, "finish", fnames, it.finish if it.finish in fnames else fnames[0],
+                    lambda c, k=i: self.set_finish(k, c.get()), width=9).pack(side="left", padx=(2, 0))
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_passage(i)).pack(side="right")
 
         grid = tk.Frame(box)

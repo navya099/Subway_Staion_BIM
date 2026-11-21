@@ -48,6 +48,7 @@ class PassageDraft:
     bottom_haunch_h: str = f"{_SPEC.bottom_haunch_h:g}"
     parent: str = ""                       # 분기할 부모 통로 이름 ('' = 본체 측벽)
     close_end: bool = False                # 경로 끝을 끝 벽으로 막음
+    finish: str = "(통로)"                  # 마감 종류 ('(통로)' = 마감표 '통로')
     vertices: list = field(default_factory=list)
 
     def to_spec(self, where: str, start_station: float) -> PassageSpec:
@@ -73,7 +74,8 @@ class PassageDraft:
             wall_t=pos("wall_t", "벽 두께"), floor_t=pos("floor_t", "바닥 슬래브 두께"), roof_t=pos("roof_t", "천장 슬래브 두께"),
             top_haunch_w=nonneg("top_haunch_w", "상부 헌치 폭"), top_haunch_h=nonneg("top_haunch_h", "상부 헌치 높이"),
             bottom_haunch_w=nonneg("bottom_haunch_w", "하부 헌치 폭"), bottom_haunch_h=nonneg("bottom_haunch_h", "하부 헌치 높이"),
-            name=self.name.strip(), parent=self.parent.strip(), close_end=bool(self.close_end))
+            name=self.name.strip(), parent=self.parent.strip(), close_end=bool(self.close_end),
+            finish="" if str(self.finish).strip() in ("", "(통로)") else str(self.finish).strip())
 
 
 def default_draft(floor: int, sta: float, t_face: float) -> PassageDraft:

@@ -710,6 +710,28 @@ class IFCExporter:
             return quads
         return [tri for q in quads for tri in _fan(q)]
 
+    _PASSAGE_FINISH = {"FLOOR": ("IfcCovering", "FLOORING"), "FILL": ("IfcCovering", "FLOORING"),
+                       "WALL": ("IfcCovering", "CLADDING"), "CEILING": ("IfcCovering", "CEILING"), "FRAME": ("IfcMember", "USERDEFINED")}
+
+    def export_passage_finishes(self, engine):
+        """출구통로 마감: 바닥 마감재·채움(IfcCovering FLOORING), 벽(CLADDING), 천장판(CEILING), 천장틀(IfcMember) — 면 집합,
+        통로가 붙는 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for e in engine.elements:
+            entity, predefined = self._PASSAGE_FINISH[e.code]
+            el = f.create_entity(
+                entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                Description=f"출구통로 {e.passage} {e.type_name}", ObjectType=e.type_name, ObjectPlacement=self._placement(),
+                Representation=self._product_shape([self._face_set(p.faces()) for p in e.pieces], "Tessellation"),
+                PredefinedType=predefined)
+            if e.material:
+                self._assign_material(el, e.material)
+            by_level.setdefault(e.level, []).append(el)
+        for level, els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+
     def export_finishes(self, finish_engine: FinishEngine):
         """마감: 실마다 바닥 마감재·채움(IfcCovering FLOORING), 벽·기둥·승강로 마감(CLADDING), 천장판(CEILING),
         천장틀(IfcMember). 마감은 IfcRelCoversSpaces 로 그 실(IfcSpace)에 연결하고, 모든 부재는 층 storey 에 포함.

@@ -44,6 +44,7 @@ class PassageSpec:
         parent: 분기할 부모 통로 이름 (비우면 본체 측벽에 붙음). 분기면 첫 꼭짓점은 부모 통로 측벽 바깥면에 자동으로 붙고
                 (두 번째 꼭짓점에서 부모 구간에 내린 수선의 발 — 첫 구간은 부모에 직각), 층·접합부 바닥은 부모를 따른다.
                 부모 측벽에는 이 통로 내공 크기의 개구부가 뚫린다 (T자 분기, 여러 단계 가능)
+        finish: 통로 마감 종류 (마감표 이름, 비우면 '통로'). 마감을 켜면 바닥·양 측벽·천장판·천장틀 (passages.passage_finish)
         close_end: 경로 끝을 끝 벽(두께 = 벽 두께, 좌우 벽 사이 × 바닥 상면 ~ 내공 높이)으로 막음. 끄면 끝단 개방 (출입구를 붙일 끝)
     """
     floor: int = 1
@@ -60,6 +61,7 @@ class PassageSpec:
     name: str = ""
     parent: str = ""
     close_end: bool = False
+    finish: str = ""               # 마감 종류 (마감표 이름, 비우면 '통로') — 마감을 켜면 바닥·벽·천장 마감 (passage_finish)
 
     @property
     def half_in(self) -> float:

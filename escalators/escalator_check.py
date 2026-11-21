@@ -21,6 +21,18 @@ def check_escalator_spec(station, spec, name: str, widened: bool = False):
         raise ValueError(f"에스컬레이터 {name}: 시작 층 번호 {k!r} 이(가) 범위(1 ~ {floors - 1})를 벗어납니다")
     if spec.direction not in (1, -1):
         raise ValueError(f"에스컬레이터 {name}: 오르는 방향은 +1 (종점 방향) 또는 -1 (시점 방향) 이어야 합니다 ({spec.direction!r})")
+    check_escalator_shape(spec, name)
+    hw = station.width / 2.0
+    if not widened and (spec.t_lo < -hw - _EPS or spec.t_hi > hw + _EPS):
+        raise ValueError(f"에스컬레이터 {name}: 트러스 t 범위 {spec.t_lo:.3f} ~ {spec.t_hi:.3f} 이(가) 내공 폭(±{hw:g}m)을 벗어납니다")
+    if not -_EPS <= spec.s_wp <= station.length + _EPS:
+        raise ValueError(f"에스컬레이터 {name}: 하부 WP s={spec.s_wp:.3f} 이(가) 내공 길이(0 ~ {station.length:g}m)를 벗어납니다")
+
+
+@cached_layout("escalators")
+
+def check_escalator_shape(spec, name: str):
+    """에스컬레이터 자체 치수 검사 (경사각·스텝·트러스·난간·뉴얼·볼라드 — 정거장 위치와 무관, 출입구 에스컬레이터도 씀)"""
     if not 0 < spec.angle_deg < 60:
         raise ValueError(f"에스컬레이터 {name}: 경사각은 0 ~ 60° 사이여야 합니다 ({spec.angle_deg})")
     for label, v in (("스텝 폭", spec.step_width), ("트러스 외폭", spec.truss_width), ("트러스 높이", spec.truss_depth),
@@ -76,14 +88,7 @@ def check_escalator_spec(station, spec, name: str, widened: bool = False):
     if spec.truss_depth <= spec.riser + STEP_PLATE_T + _EPS:
         raise ValueError(f"에스컬레이터 {name}: 트러스 높이({spec.truss_depth:g}m)가 스텝 층"
                          f"({spec.riser + STEP_PLATE_T:.3f}m)보다 낮습니다")
-    hw = station.width / 2.0
-    if not widened and (spec.t_lo < -hw - _EPS or spec.t_hi > hw + _EPS):
-        raise ValueError(f"에스컬레이터 {name}: 트러스 t 범위 {spec.t_lo:.3f} ~ {spec.t_hi:.3f} 이(가) 내공 폭(±{hw:g}m)을 벗어납니다")
-    if not -_EPS <= spec.s_wp <= station.length + _EPS:
-        raise ValueError(f"에스컬레이터 {name}: 하부 WP s={spec.s_wp:.3f} 이(가) 내공 길이(0 ~ {station.length:g}m)를 벗어납니다")
 
-
-@cached_layout("escalators")
 def layout_escalators(cfg) -> list:
     """에스컬레이터마다 EscalatorLayout (이름 확정 + 입력 검사 + 배치 계산). 트러스가 내공 길이를 벗어나면 오류"""
     st = cfg.station

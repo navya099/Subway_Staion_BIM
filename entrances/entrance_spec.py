@@ -35,7 +35,7 @@ class EntranceSpec:
         stair_offset: 계단 첫 챌판 위치 = 하부 피트 끝 + stair_offset (m, 0 이하). None 이면 자동: 피트 끝에서 시작하되
                       계단 슬래브가 바닥 아래로 내려가면 바닥 위에 머물 때까지 하부 수평부 쪽으로 앞당김
         riser_max / tread / flight_rise_max / landing_len / stair_slab_t / stair_headroom: 계단 규칙 (계단 객체와 같은 의미)
-        esc_*: 에스컬레이터 제원 (에스컬레이터 객체와 같은 의미)
+        esc_*: 에스컬레이터 제원 (에스컬레이터 객체와 같은 의미 — 곡선 전이·스커트·데크·유리·뉴얼 상세 포함, 볼라드는 아직 없음)
         name: 비우면 EN + 일련번호
     """
     passage: str = ""
@@ -70,6 +70,14 @@ class EntranceSpec:
     esc_handrail_height: float = 1.0
     esc_headroom: float = 2.3
     name: str = ""
+    # 에스컬레이터 상세 형상 (정거장 에스컬레이터와 같은 의미, 리팩토링 2단계)
+    esc_lower_radius: float = 1.0
+    esc_upper_radius: float = 1.5
+    esc_skirt_height: float = 0.12
+    esc_deck_width: float = 0.12
+    esc_glass_t: float = 0.012
+    esc_newel_ext: float = 0.3
+    esc_newel_radius: float = 0.3
     thickness_zones: list = dataclasses.field(default_factory=list)
     roof_cover: float = 0.0
     lean_t: float = 0.0
@@ -120,7 +128,10 @@ class EntranceSpec:
                              lower_ext=self.esc_lower_ext, upper_ext=self.esc_upper_ext,
                              lower_flat_steps=self.esc_lower_flat_steps, upper_flat_steps=self.esc_upper_flat_steps,
                              step_depth=self.esc_step_depth, handrail_height=self.esc_handrail_height,
-                             headroom=self.esc_headroom)
+                             headroom=self.esc_headroom, lower_radius=self.esc_lower_radius,
+                             upper_radius=self.esc_upper_radius, skirt_height=self.esc_skirt_height,
+                             deck_width=self.esc_deck_width, glass_t=self.esc_glass_t, newel_ext=self.esc_newel_ext,
+                             newel_radius=self.esc_newel_radius, bollard_count=0)
 
 
 def resolve_entrance_names(specs: list) -> list[str]:

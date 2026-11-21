@@ -111,7 +111,9 @@ def element_materials(engine) -> dict:
     for e in (smokes.elements if smokes is not None else []):          # 제연경계벽: 유리 = 설정 색
         put(e, railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material))
     escs = getattr(engine, "escalators", None)
-    for esc in (escs.all_escalators() if escs is not None else []):  # 에스컬레이터: 핸드레일 검정·스텝·승강판 텍스처·볼라드
+    ents = getattr(engine, "entrances", None)
+    ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
+    for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:   # 핸드레일 검정·스텝·승강판 텍스처·볼라드
         for e in list(esc.parts) + list(esc.bollards):
             m = ESC_MATERIALS.get(e.material)
             if m is not None:
@@ -139,7 +141,9 @@ def stair_face_frames(engine) -> dict:
     for fe in (stairs.finish_elements() if stairs is not None else []):
         out.update(getattr(fe, "face_frames", None) or {})
     escs = getattr(engine, "escalators", None)
-    for esc in (escs.all_escalators() if escs is not None else []):
+    ents = getattr(engine, "entrances", None)
+    ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
+    for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:
         for stp in esc.steps:
             out.update(stp.face_frames or {})
     return out

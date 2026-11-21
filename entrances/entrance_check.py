@@ -54,6 +54,9 @@ def check_entrance_spec(spec, name: str):
         raise ValueError(f"출입구 {name}: 계단참 길이({spec.landing_len:g}m)는 단너비({spec.tread:g}m) 이상이어야 합니다")
     if spec.flight_rise_max < 2 * spec.riser_max - _EPS:
         raise ValueError(f"출입구 {name}: 런 높이 상한은 단높이 상한의 2배 이상이어야 합니다")
+    if spec.escalator:
+        from escalators.escalator_check import check_escalator_shape
+        check_escalator_shape(spec.escalator_spec(), f"{name} 에스컬레이터")
     if spec.haunch_w >= spec.inner_width / 2.0 - _EPS:
         raise ValueError(f"출입구 {name}: 헌치 폭이 내공 폭의 절반 이상입니다")
 

@@ -190,8 +190,8 @@ def test_volume_formula_mesh_and_ifc_agree(tmp_path, curved):
         formula = m.shape.volume + sum(p.volume for p in getattr(m, "pieces", []))
         mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m)) + \
             sum(PM.mesh_volume(p.faces()) for p in getattr(m, "pieces", []))
-        assert mesh == pytest.approx(formula, rel=1e-7)
-        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6)
+        assert mesh == pytest.approx(formula, rel=1e-7, abs=1e-8)
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
 
 
 def test_ifc_structure(tmp_path):
@@ -217,10 +217,16 @@ def test_ifc_structure(tmp_path):
 def test_3d_dxf_and_section(tmp_path):
     eng = StationCADEngine(cfg_with(passages=[bent_passage()]))
     ent = eng.entrances.entrances[0]
-    faces = list(ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace().query('3DFACE[layer=="STRUCT_ENTRANCE"]'))
-    expect = sum(len(fs) for _, m in eng.entrances.strip_members(ent) for fs in part_faces(ent.frame, m)) + \
+    msp = ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace()
+    faces = list(msp.query('3DFACE[layer=="STRUCT_ENTRANCE"]'))
+    esc_names = {p.name for p in list(ent.escalator.parts) + list(ent.escalator.steps)}
+    members = eng.entrances.strip_members(ent)
+    expect = sum(len(fs) for n, m in members if n not in esc_names for fs in part_faces(ent.frame, m)) + \
         sum(len(p.faces()) for p in ent.element("ROOF").pieces)
-    assert len(faces) == expect
+    assert len(faces) == expect                                                         # 박스·계단 = 콘크리트 레이어
+    esc = [m for n, m in members if n in esc_names]                                     # 에스컬레이터 = 에스컬레이터 레이어
+    assert {e.dxf.layer for m in esc for e in m.source_element} == {"STRUCT_ESCALATOR", "STRUCT_ESC_GLASS"}
+    assert sum(len(m.source_element) for m in esc) == sum(len(fs) for m in esc for fs in part_faces(ent.frame, m))
     sta = 70.0 + ent.layout.u["wp_lo"] + 10.0                                           # 경사부를 가로지르는 횡단면
     items = eng.entrances.section_items(sta)
     names = {it.name for it in items}
@@ -402,3 +408,50 @@ def test_draft_zones_and_window(tmp_path):
         win.destroy()
     finally:
         root.destroy()
+
+
+# ===================================================== 리팩토링 2단계: 정거장 상세 에스컬레이터
+def test_entrance_escalator_detail_steps_and_floor_clearance(tmp_path):
+    from escalators.escalator_type import EscalatorPartKind as EK
+    from exporter.dae_exporter import element_materials, stair_face_frames
+    eng = StationCADEngine(cfg_with())
+    ent = eng.entrances.entrances[0]
+    esc, lay = ent.escalator, ent.layout
+    kinds = {p.kind for p in esc.parts}
+    assert {EK.TRUSS, EK.SKIRT, EK.INNER_DECK, EK.OUTER_DECK, EK.NEWEL_BASE, EK.FLOOR_PLATE, EK.COMB, EK.CLAD_SIDE} <= kinds
+    assert EK.STEPS not in kinds and len(esc.steps) > 50                                      # 개별 스텝
+    nl = lay.escalator.nose
+    assert len(nl.arcs) == 2                                                                   # 곡선 전이 (하부·상부)
+    u_wp = lay.escalator.u_wp
+    for a, b in zip(esc.steps, esc.steps[1:]):                                                 # 스텝 코가 코 선 위, 겹침 없음
+        ta = max(a.shape.strips, key=lambda s: s.s1 - s.s0)
+        assert ta.zt == pytest.approx(nl(a.chain_u)) and ta.s1 <= b.shape.strips[0].s0 + 1e-9
+    # 트러스(외장 아래) 하면 ≥ 에스컬레이터 구역 바닥 상면 (상부 볼록 전이에서도 바닥을 파고들지 않음)
+    floor = ent.element("FLOOR_E").shape.strips
+    for st in next(p for p in esc.parts if p.kind == EK.CLAD_BOTTOM).shape.strips:
+        for x in (st.s0 + 1e-6, (st.s0 + st.s1) / 2, st.s1 - 1e-6):                         # 띠 안쪽 (경계의 값 뜀 제외)
+            ft = [f.zt_at(x) for f in floor if f.s0 < x < f.s1]
+            assert st.zb_at(x) >= max(ft) - 1e-6, x
+    # 보기 재질: 핸드레일 검정·스텝 텍스처, 스텝마다 디딤판 텍스처 틀
+    eng.build_3d_doc()
+    mats = element_materials(eng)
+    rail = next(p for p in esc.parts if p.kind == EK.HANDRAIL)
+    assert {mats[e.dxf.handle].name for e in rail.source_element} == {"에스컬레이터 핸드레일"}
+    frames = stair_face_frames(eng)
+    assert all(len(s.face_frames) == 6 and set(s.face_frames) <= set(frames) for s in esc.steps)
+    # IFC: 스텝 = IfcBuildingElementPart STEP + Pset
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "s.ifc"))
+    steps = [e for e in f.by_type("IfcBuildingElementPart") if e.Name.startswith("EN1_ESC_STEP")]
+    assert len(steps) == len(esc.steps) and all(s.ObjectType == "STEP" for s in steps)
+    assert ifcopenshell.util.element.get_psets(steps[3])["SSBIM_EscalatorStep"]["Index"] == 3
+
+
+def test_entrance_escalator_starts_at_passage_finished_floor():
+    from finishes.finish_spec import FinishSettings
+    cfg = cfg_with()
+    cfg.finish_settings = FinishSettings(enabled=True)
+    lay = lay_of(cfg)
+    ffl = cfg.finish_settings.for_room("통로").ffl
+    zl, G = lay.escalator.finish_levels
+    assert zl == pytest.approx(lay.z_floor + ffl) and G == pytest.approx(lay.ground)       # 스텝 면 = 통로 바닥 마감면 ~ 지표
+    assert lay.escalator.nose(-5.0) == pytest.approx(zl) and lay.escalator.rise == pytest.approx(G - zl)

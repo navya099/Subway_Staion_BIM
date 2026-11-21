@@ -218,22 +218,30 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         raise ValueError(f"출입구 {name}: 에스컬레이터 구역 폭({spec.escalator_zone:g}m)이 트러스 외폭보다 좁습니다")
 
     # ---------- 에스컬레이터 (없으면 같은 규칙의 가상 경사선으로 박스 형상만 정함)
+    # 스텝 코 선 = 정거장 에스컬레이터와 같은 곡선 전이 NoseLine. 아래 = 통로 끝 바닥 마감면(통로 마감이 있으면 그 마감 높이), 위 = 지표
+    from escalators.escalator_geom import NoseLine, layout_steps, step_range
+    from passages.passage_finish import passage_finish_type
+    pft = passage_finish_type(cfg, pl.spec)
+    zl = zp + (pft.ffl if pft is not None else 0.0)    # 하부 승강구 바닥 마감면 (스텝 면 기준)
     esp = spec.escalator_spec() if spec.escalator else None
     tan = math.tan(math.radians(spec.esc_angle_deg))
     D = spec.esc_truss_depth
     truss_lo = T + spec.lower_margin
     u_wp = truss_lo + spec.esc_lower_ext
-    run_e = (G - zp) / tan
+    run_e = (G - zl) / tan
     u_up = u_wp + run_e
     truss_hi = u_up + spec.esc_upper_ext
-    u_cross = u_wp + D / tan                          # 트러스 하면이 하부 바닥(Zp)을 다시 지나는 점 = 하부 피트 끝
+    u_cross = u_wp + (D - (zl - zp)) / tan            # 트러스 하면이 하부 구조 바닥(Zp)을 다시 지나는 점 = 하부 피트 끝
+    nl = NoseLine(zl, run_e, tan, lambda x: zl, lambda x: G, spec.esc_lower_radius, spec.esc_upper_radius)
+    nose_bps = [u_wp + x for x in nl.breakpoints()]
 
     def nose(u):
-        if u <= u_wp:
-            return zp
-        if u >= u_up:
-            return G
-        return zp + (u - u_wp) * tan
+        return nl(u - u_wp)
+
+    def nose_pl(lo, hi, dz):
+        """lo ~ hi 의 코 선 + dz (전이부 표본점에서 꺾인 PL)"""
+        xs = sorted({lo, hi, *(x for x in nose_bps if lo < x < hi)})
+        return [(a, b, nose(a) + dz, nose(b) + dz) for a, b in zip(xs, xs[1:])]
 
     # ---------- 바닥 상면 (계단 구역 S / 에스컬레이터 구역 E), 하면은 공통 — 끝은 상단 끝벽이 정해진 뒤 맞춤
     def s_top_for(end_u):
@@ -301,10 +309,10 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         return PL(segs)
 
     # ---------- 바닥 (계단 구역 S / 에스컬레이터 구역 E), 하면은 공통 (구조 상면선을 구간 두께만큼 내림)
-    struct_top = PL([_const(0.0, truss_lo - T, zp), _const(truss_lo - T, u_wp, zp - D), (u_wp, u_up, zp - D, G - D),
+    struct_top = PL([_const(0.0, truss_lo - T, zp), _const(truss_lo - T, u_wp, zl - D), (u_wp, u_up, zl - D, G - D),
                      _const(u_up, far, G - D)])
-    e_top = PL([_const(0.0, truss_lo, zp), _const(truss_lo, u_wp, zp - D), (u_wp, u_up, zp - D, G - D),
-                _const(u_up, truss_hi, G - D), _const(truss_hi, end, G)]) if spec.escalator else None
+    e_top = PL([_const(0.0, truss_lo, zp)] + nose_pl(truss_lo, truss_hi, -D) +           # 트러스 하면 (곡선 전이 따라)
+               [_const(truss_hi, end, G)]) if spec.escalator else None
     s_top = s_top_for(end)
     bottom = offset_zoned(struct_top, -1)
 
@@ -315,7 +323,7 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
     surfaces = sorted((u_s0 + ua, u_s0 + ub, zt) for p in stair_parts for ua, ub, zt in p.surfaces)
     eh, sh = spec.esc_headroom, spec.stair_headroom
     flat_pl = PL([_const(0.0, far, zp + hp)])
-    esc_pl = PL([_const(0.0, u_wp, zp + eh), (u_wp, u_up, zp + eh, G + eh), _const(u_up, far, G + eh)])
+    esc_pl = PL(nose_pl(0.0, far, eh))
     pitch = pitch_points(surfaces, ssp.tread, r)
     stair_pl = PL([(p[0], q[0], p[1] + sh, q[1] + sh) for p, q in zip(pitch, pitch[1:])])
     roof_bot = envelope([(flat_pl, 0.0, far), (esc_pl, 0.0, far), (stair_pl, pitch[0][0], pitch[-1][0])])
@@ -399,9 +407,16 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
     # ---------- 계단·에스컬레이터 부재 (출입구 좌표의 띠)
     stair = SimpleNamespace(parts=stair_parts, n_risers=n, riser=r, flight_risers=counts, run=run_s, start=u_s0)
     escalator = None
-    if spec.escalator:
-        eparts, _, _ = escalator_part_strips(esp, lambda x: nose(u_wp + x), zp, run_e, lambda x: u_wp + x, lambda *_: 1.0)
-        escalator = SimpleNamespace(parts=eparts, run=run_e, rise=G - zp, spec=esp)
+    if spec.escalator:                                # 정거장 에스컬레이터와 같은 상세 형상 + 개별 스텝 (출입구 좌표 s = u_wp + u)
+        s_lo, s_hi, _ = step_range(esp, nl)
+        reach = esp.newel_ext + esp.newel_radius
+        if s_lo - reach < -esp.lower_ext - 1e-6 or s_hi + reach > run_e + esp.upper_ext + 1e-6:
+            raise ValueError(f"출입구 {name}: 에스컬레이터 스텝(평탄 스텝 + 곡선 전이부)과 끝 뉴얼이 트러스보다 깁니다 "
+                             "(하부/상부 연장을 늘리거나 평탄 스텝 수·반경을 줄이세요)")
+        eparts, _, _ = escalator_part_strips(esp, nl, zl, run_e, lambda x: u_wp + x, lambda *_: 1.0,
+                                             extra_us=nl.breakpoints(), steps_range=(s_lo, s_hi))
+        escalator = SimpleNamespace(parts=eparts, run=run_e, rise=G - zl, spec=esp, steps=layout_steps(esp, nl), nose=nl,
+                                    u_wp=u_wp, finish_levels=(zl, G))
 
     return EntranceLayout(
         name=name, spec=spec, passage=spec.passage, frame=frame, z_floor=zp, ground=G,

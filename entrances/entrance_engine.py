@@ -2,7 +2,9 @@ import math
 
 from config.master_config import StationProjectConfig
 from entrances.entrance_data import EntranceData, EntranceElementData
-from escalators.escalator_data import EscalatorData, EscalatorPartData
+from escalators.escalator_data import EscalatorData, EscalatorPartData, EscalatorStepData
+from escalators.escalator_type import EscalatorPartKind
+from helper.strip_member import Strip
 from escalators.escalator_engine import _FAMILY as ESC_FAMILY, _MATERIAL as ESC_MATERIAL, _SIDE as ESC_SIDE
 from helper.box_piece import cut_faces_by_plane
 from helper.strip_member import StripShape, part_faces, strip_faces
@@ -86,12 +88,22 @@ class EntranceEngine:
                 type_name=f"S{int(round(esp.step_width * 1000))} {esp.angle_deg:g}°", level=level,
                 pos_z=min(min(s.zb0, s.zb1) for s in p.strips), material=ESC_MATERIAL[p.kind], kind=p.kind,
                 side=p.side, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0)))
+        st0, st1 = esp.t_center - esp.step_width / 2.0, esp.t_center + esp.step_width / 2.0
+        steps = []
+        for stp in getattr(lay.escalator, "steps", []):             # 개별 스텝 (위 운행로) — 출입구 좌표 s = u_wp + u
+            strips = sorted((Strip(lay.escalator.u_wp + ua, lay.escalator.u_wp + ub, zb, zb, zt) for ua, ub, zb, zt in stp.pieces),
+                            key=lambda x: x.s0)
+            steps.append(EscalatorStepData(
+                name=f"{lay.name}_ESC_STEP{stp.index + 1:03d}", family_name="에스컬레이터-스텝",
+                type_name=f"S{int(round(esp.step_width * 1000))} 스텝", level=level, pos_z=stp.z,
+                material=ESC_MATERIAL[EscalatorPartKind.STEPS], index=stp.index, chain_u=stp.u, t_range=(st0, st1),
+                shape=StripShape(strips=strips, width=st1 - st0)))
         u = lay.u
         return EscalatorData(name=f"{lay.name}_ESC", family_name="에스컬레이터",
                              type_name=f"S{int(round(esp.step_width * 1000))} {esp.angle_deg:g}°", level=level,
                              pos_z=lay.z_floor, lower_floor=0, direction=1, angle_deg=esp.angle_deg,
                              rise=lay.escalator.rise, run=lay.escalator.run, s_wp=(u["wp_lo"], u["wp_hi"]),
-                             s_range=(u["truss_lo"], u["truss_hi"]), t_range=(esp.t_lo, esp.t_hi), parts=parts)
+                             s_range=(u["truss_lo"], u["truss_hi"]), t_range=(esp.t_lo, esp.t_hi), parts=parts, steps=steps)
 
     # ---------- 부재 모음 ----------
     def strip_members(self, ent: EntranceData) -> list:
@@ -99,7 +111,7 @@ class EntranceEngine:
         out = [(e.name, e) for e in ent.elements]
         out += [(p.name, p) for p in ent.stair.parts]
         if ent.escalator:
-            out += [(p.name, p) for p in ent.escalator.parts]
+            out += [(p.name, p) for p in ent.escalator.parts] + [(s.name, s) for s in ent.escalator.steps]
         return out
 
     # ---------- 작도 ----------
@@ -109,7 +121,30 @@ class EntranceEngine:
             for _, m in self.strip_members(ent):
                 faces = [f for quads in part_faces(ent.frame, m) for f in quads]
                 faces += [f for p in getattr(m, "pieces", []) for f in p.faces()]
-                m.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_ENTRANCE"}) for f in faces]
+                layer = "STRUCT_ENTRANCE"                              # 박스·계단 = 콘크리트, 에스컬레이터 = 정거장 에스컬레이터와 같은 레이어
+                if isinstance(m, (EscalatorPartData, EscalatorStepData)):
+                    glass = getattr(m, "kind", None) == EscalatorPartKind.BALUSTRADE and m.material == "Glass_Balustrade"
+                    layer = "STRUCT_ESC_GLASS" if glass else "STRUCT_ESCALATOR"
+                m.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
+            if ent.escalator:
+                self._step_frames(ent)
+
+    @staticmethod
+    def _step_frames(ent):
+        """스텝마다 디딤판 윗면 텍스처 틀 (정거장 EscalatorEngine._step_frames 와 같은 규약, 출입구 좌표)"""
+        fr_ = ent.frame
+        u_wp = ent.layout.escalator.u_wp
+        dep = ent.layout.escalator.spec.step_depth
+        uv = (fr_.ux, fr_.uy, 0.0)
+        tv = (-fr_.uy, fr_.ux, 0.0)                                   # +t (왼쪽)
+        for stp in ent.escalator.steps:
+            t0, t1 = stp.t_range
+            o = fr_.to_world(u_wp + stp.chain_u, t0)
+            frame = ((o[0], o[1], 0.0), tv, uv, t1 - t0, dep)
+            n_faces = [len(q) for q in part_faces(fr_, stp)]
+            tread = max(range(len(stp.shape.strips)), key=lambda i: stp.shape.strips[i].s1 - stp.shape.strips[i].s0)
+            a = sum(n_faces[:tread])
+            stp.face_frames = {e.dxf.handle: frame for e in stp.source_element[a:a + n_faces[tread]]}
 
     def section_items(self, sta):
         """횡단면도: 측점 sta 의 연직면으로 자른 출입구 부재 단면 (콘크리트는 해치, 설비는 윤곽만)"""
@@ -120,7 +155,7 @@ class EntranceEngine:
         for ent in self.entrances:
             labeled = False
             for name, m in self.strip_members(ent):
-                concrete = not isinstance(m, EscalatorPartData)
+                concrete = not isinstance(m, (EscalatorPartData, EscalatorStepData))
                 t0, t1 = m.t_range
                 polys = [cut_faces_by_plane(strip_faces(ent.frame, st, t0, t1), cx, cy, nx, ny) for st in m.shape.strips]
                 polys += [p.cut_by_plane(cx, cy, nx, ny) for p in getattr(m, "pieces", [])]

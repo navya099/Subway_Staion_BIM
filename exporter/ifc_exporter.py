@@ -386,7 +386,15 @@ class IFCExporter:
                    EscalatorPartKind.HANDRAIL: ("IfcRailing", "HANDRAIL"),
                    EscalatorPartKind.SKIRT: ("IfcBuildingElementPart", "USERDEFINED"),
                    EscalatorPartKind.INNER_DECK: ("IfcBuildingElementPart", "USERDEFINED"),
-                   EscalatorPartKind.OUTER_DECK: ("IfcBuildingElementPart", "USERDEFINED")}
+                   EscalatorPartKind.OUTER_DECK: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.FLOOR_PLATE: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.COMB: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.OUTER_PLATE: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.NEWEL_BASE: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.NEWEL_END_IN: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.NEWEL_END_OUT: ("IfcBuildingElementPart", "USERDEFINED"),
+                   EscalatorPartKind.CLAD_SIDE: ("IfcCovering", "CLADDING"),
+                   EscalatorPartKind.CLAD_BOTTOM: ("IfcCovering", "CLADDING")}
 
     def export_escalators(self, escalator_engine: EscalatorEngine):
         """에스컬레이터: IfcTransportElement(ESCALATOR) 가 트러스·스텝(IfcBuildingElementPart), 난간 패널·핸드레일(IfcRailing)을
@@ -405,7 +413,9 @@ class IFCExporter:
                 parts = []
                 for part in esc.parts:
                     entity, predefined = self._ESC_ENTITY[part.kind]
-                    if part.kind == EscalatorPartKind.HANDRAIL and esc.steps:      # 상세: 뉴얼 띠가 위·아래로 겹침 → 면 집합
+                    ss = part.shape.strips
+                    gapped = any(abs(b.s0 - a.s1) > 1e-9 for a, b in zip(ss, ss[1:]))    # 승강구 부재처럼 양끝에 떨어진 띠
+                    if (part.kind == EscalatorPartKind.HANDRAIL and esc.steps) or gapped:  # 겹치거나 떨어진 띠 → 면 집합
                         placement = self._placement()
                         representation = self._product_shape([self._face_set(q) for q in part_faces(self.config, part)],
                                                              "Tessellation")

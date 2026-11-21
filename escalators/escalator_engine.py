@@ -12,11 +12,19 @@ from slabs.slab_engine import SlabEngine
 _FAMILY = {EscalatorPartKind.TRUSS: "에스컬레이터-트러스", EscalatorPartKind.STEPS: "에스컬레이터-스텝",
            EscalatorPartKind.BALUSTRADE: "에스컬레이터-난간패널", EscalatorPartKind.HANDRAIL: "에스컬레이터-핸드레일",
            EscalatorPartKind.SKIRT: "에스컬레이터-스커트", EscalatorPartKind.INNER_DECK: "에스컬레이터-안쪽데크",
-           EscalatorPartKind.OUTER_DECK: "에스컬레이터-바깥데크"}
+           EscalatorPartKind.OUTER_DECK: "에스컬레이터-바깥데크", EscalatorPartKind.FLOOR_PLATE: "에스컬레이터-승강구바닥판",
+           EscalatorPartKind.COMB: "에스컬레이터-콤플레이트", EscalatorPartKind.OUTER_PLATE: "에스컬레이터-바깥덮개판",
+           EscalatorPartKind.NEWEL_BASE: "에스컬레이터-뉴얼받침", EscalatorPartKind.CLAD_SIDE: "에스컬레이터-옆외장",
+           EscalatorPartKind.CLAD_BOTTOM: "에스컬레이터-아래외장", EscalatorPartKind.NEWEL_END_IN: "에스컬레이터-데크끝",
+           EscalatorPartKind.NEWEL_END_OUT: "에스컬레이터-데크끝"}
 _MATERIAL = {EscalatorPartKind.TRUSS: "Steel_Truss", EscalatorPartKind.STEPS: "Aluminium_Step",
              EscalatorPartKind.BALUSTRADE: "Glass_Balustrade", EscalatorPartKind.HANDRAIL: "Rubber_Handrail",
              EscalatorPartKind.SKIRT: "Stainless_Skirt", EscalatorPartKind.INNER_DECK: "Stainless_Deck",
-             EscalatorPartKind.OUTER_DECK: "Stainless_Deck"}
+             EscalatorPartKind.OUTER_DECK: "Stainless_Deck", EscalatorPartKind.FLOOR_PLATE: "Aluminium_FloorPlate",
+             EscalatorPartKind.COMB: "Aluminium_Comb", EscalatorPartKind.OUTER_PLATE: "Aluminium_FloorPlate",
+             EscalatorPartKind.NEWEL_BASE: "Steel_NewelBase", EscalatorPartKind.CLAD_SIDE: "Stainless_Cladding",
+             EscalatorPartKind.CLAD_BOTTOM: "Stainless_Cladding", EscalatorPartKind.NEWEL_END_IN: "Stainless_Deck",
+             EscalatorPartKind.NEWEL_END_OUT: "Stainless_Deck"}
 _SIDE = {0: "", 1: "_L", -1: "_R"}          # L = t 큰 쪽 (진행방향 왼쪽 +)
 
 
@@ -127,7 +135,9 @@ class EscalatorEngine:
                 cut = CommonHelper.cut_by_t(*part.t_range, t_cut)
                 if part.side < 0 and not cut:                    # 측면에서 보면 좌/우가 겹침 → 보이는 것은 한쪽만
                     continue
-                if part.kind == EscalatorPartKind.HANDRAIL and esc.steps:     # 뉴얼 띠가 겹쳐 한 다각형이 안 됨 → 띠마다
+                ss = part.shape.strips
+                gapped = any(abs(b.s0 - a.s1) > 1e-9 for a, b in zip(ss, ss[1:]))
+                if (part.kind == EscalatorPartKind.HANDRAIL and esc.steps) or gapped:   # 겹치거나 떨어진 띠 → 띠마다
                     for x in part.shape.strips:
                         q = [(x.s0, x.zb0), (x.s1, x.zb1), (x.s1, x.zt_end), (x.s0, x.zt)]
                         items.append(ViewItem(part.name, "PROF_ESCALATOR" if cut else "PROF_BEYOND", u0=x.s0, u1=x.s1, pts=q))

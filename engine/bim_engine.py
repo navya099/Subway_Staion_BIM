@@ -17,6 +17,8 @@ class BIMEngine:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
         engine = StationCADEngine(cfg)
+        if notes is not None:
+            notes.extend(f"경고: {w}" for w in engine.warnings)
         paths = []
         if opt.dxf3d:
             paths.append(engine.generate_3d_dxf(out / "정거장3d모델.dxf"))

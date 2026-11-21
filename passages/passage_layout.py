@@ -10,7 +10,7 @@
 """
 import math
 from config.widening import outer_at, widened
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from helper.box_piece import BoxPiece
 from passages.passage_spec import STATION, WORLD
@@ -39,6 +39,22 @@ class PassageElementLayout:
 
 
 @dataclass
+class PassageSegment:
+    """경로 구간 1개의 틀: 시작 꼭짓점 (x, y, z), 축 단위벡터 (ux, uy), 평면 길이 L, 구배, 시작·끝 연귀 (ks = tp, ke = −tn)"""
+    index: int
+    run: int
+    x: float
+    y: float
+    z: float
+    ux: float
+    uy: float
+    length: float
+    slope: float
+    tp: float
+    tn: float
+
+
+@dataclass
 class PassageLayout:
     name: str
     spec: object                 # PassageSpec
@@ -52,6 +68,7 @@ class PassageLayout:
     parent: str = ""             # 분기한 부모 통로 이름 ('' = 본체)
     branch_seg: int = -1         # 분기면 부모 구간 번호 (0 부터)
     branch_a: float = 0.0        # 분기면 부모 구간 축 위 접합 위치 (구간 시작 꼭짓점에서의 거리)
+    segments: list = field(default_factory=list)   # PassageSegment — 구간마다 축·구배·연귀 (마감 배치가 같은 틀을 씀)
 
     def pieces(self) -> list:
         return [p for e in self.elements for p in e.pieces]
@@ -283,6 +300,7 @@ def layout_passage(cfg, spec, name: str, parent=None) -> PassageLayout:
     if ledge > 0 and segs[0][2] <= ledge + b * abs(math.tan(turns[1] / 2.0)) + 1e-6:
         raise ValueError(f"출구통로 {name}: 첫 구간({segs[0][2]:.3f}m)이 아래층 외벽 턱({ledge:g}m)에 비해 너무 짧습니다")
     elements: dict = {}
+    seg_frames = []
     run = 1
     for i, (ux, uy, L) in enumerate(segs):
         if i in corners:
@@ -293,6 +311,7 @@ def layout_passage(cfg, spec, name: str, parent=None) -> PassageLayout:
             raise ValueError(f"출구통로 {name}: 꼭짓점 {i + 1}→{i + 2} 구간({L:.3f}m)이 꺾임부 연귀 접합에 비해 너무 짧습니다")
         p, q = vs[i], vs[i + 1]
         slope = (q.z - p.z) / L
+        seg_frames.append(PassageSegment(i, run, p.x, p.y, p.z, ux, uy, L, slope, tp, tn))
         for kind, code, sect in sections:
             lo = ledge if (i == 0 and kind == PassagePartKind.FLOOR and sect[0][1] < 0.0) else 0.0   # 바닥 슬래브만 (헌치는 FL 위)
             piece = BoxPiece(ox=p.x, oy=p.y, ux=ux, uy=uy, a0=lo, a1=L, sect=sect, z0=p.z + slope * lo, slope=slope,
@@ -320,12 +339,12 @@ def layout_passage(cfg, spec, name: str, parent=None) -> PassageLayout:
     if parent is not None:
         return PassageLayout(name=name, spec=spec, floor=k, side=side, vertices=vs, z_floor=e0,
                              elements=list(elements.values()), wall_opening=None, corners=corners,
-                             parent=parent.name, branch_seg=bseg, branch_a=ba)
+                             parent=parent.name, branch_seg=bseg, branch_a=ba, segments=seg_frames)
     s0 = vs[0].s
     fl = st.floor_level(k)
     opening = (name, k, side, s0 - a, s0 + a, fl, fl + H)
     return PassageLayout(name=name, spec=spec, floor=k, side=side, vertices=vs, z_floor=e0,
-                         elements=list(elements.values()), wall_opening=opening, corners=corners)
+                         elements=list(elements.values()), wall_opening=opening, corners=corners, segments=seg_frames)
 
 
 def cut_branch_opening(parent: PassageLayout, child: PassageLayout):

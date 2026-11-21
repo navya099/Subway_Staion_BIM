@@ -235,7 +235,12 @@ class PreviewWindow:
         self.top.lift()
 
     def _say(self, text, error=False):
-        self.status.config(text=text, fg="#C62828" if error else "#263238")
+        """상태줄. 모델 경고(engine.warnings — 예: 출구통로 확대 필요)가 있으면 오류가 아닌 문구 뒤에 붙여 주황색으로"""
+        warns = getattr(self, "model_warnings", None) or []
+        if warns and not error:
+            more = f" (외 {len(warns) - 1}건)" if len(warns) > 1 else ""
+            text = f"{text}   ⚠ 경고: {warns[0]}{more}"
+        self.status.config(text=text, fg="#C62828" if error else ("#E65100" if warns else "#263238"))
 
     def _fail(self, where, e):
         traceback.print_exc()
@@ -264,6 +269,7 @@ class PreviewWindow:
         for v in self.views:
             v.stale = True
         self.top.config(cursor="")
+        self.model_warnings = engine.warnings                # 모델은 만들었지만 알릴 것 (상태줄 문구 뒤에 계속 표시)
         self._say("모델 생성 완료")
         self.draw_current()
         if live_viewer.shared().running:                    # 브라우저 3D 를 열어 두었으면 백그라운드로 갱신

@@ -49,6 +49,12 @@ class RoomFinishLayout:
 
 
 # ---------------------------------------------------------------- 사각형 도우미
+
+def room_wall_hole(cfg, op):
+    """본체 측벽 오프닝 → 실 벽 마감에서 비울 (s0, s1, z0, z1) (출구통로 마감이 있으면 통로 마감 개구부 — passage_finish)"""
+    from passages.passage_finish import room_wall_hole as hole
+    return hole(cfg, op)
+
 def _inter(a, b):
     r = (max(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), min(a[3], b[3]))
     return r if r[1] - r[0] > _EPS and r[3] - r[2] > _EPS else None
@@ -432,7 +438,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                                         holes.append(((o[0], o[1]) if axis == "s" else (o[2], o[3])) + (o[4], o[5]))
                                 if kind == "station" and axis == "s":    # 본체 측벽 오프닝 (출구통로·환기구)
                                     side = 1 if c > 0 else -1
-                                    holes += [(o[3], o[4], o[5], o[6]) for o in wall_ops if o[1] == n and o[2] == side]
+                                    holes += [room_wall_hole(cfg, o) for o in wall_ops if o[1] == n and o[2] == side]
                                 lo_, hi_ = (zz[0], zz[1]) if axis == "s" else (zz[2], zz[3])
                                 top = part_top(axis, c, lo_, hi_, wall_top) if kind == "wall" else wall_top
                                 if top - z0 > _EPS:

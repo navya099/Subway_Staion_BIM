@@ -101,7 +101,8 @@ def element_materials(engine) -> dict:
             mat_of[ent.dxf.handle] = m
     tactile = getattr(engine, "tactiles", None)
     stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
-    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin:
+    pfin = getattr(engine, "passage_finishes", None)
+    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin +             (pfin.elements if pfin is not None else []):
         put(e, finish_material(e.material))
     rails = getattr(engine, "railings", None)
     for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색

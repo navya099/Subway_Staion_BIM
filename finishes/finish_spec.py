@@ -88,12 +88,71 @@ def default_finishes() -> dict:
     return {f.name: f for f in table}
 
 
+STEP_PLATE = "plate"             # 판석 계단석: 디딤판·챌판 판석 + 아래 채움(몰탈)
+STEP_SOLID = "solid"             # 통석 계단석: 한 단 전체가 돌 + 아래 깔 몰탈
+STEP_CONCRETE = "concrete"       # 콘크리트 계단: 스텝 전체가 채움 콘크리트 (판석 없음)
+STEP_METHODS = (STEP_PLATE, STEP_SOLID, STEP_CONCRETE)
+
+
+@dataclasses.dataclass
+class StairFinish:
+    """계단 마감 (마감을 켜고 enabled 일 때). 구조 = 매끈한 경사 슬래브, 그 위에 스텝(계단석)을 올린다 — 지하철 계단 일반 구조.
+    디딤판 높이는 아래층 바닥 마감면 ~ 위층 바닥 마감면을 같은 단높이로 나눈다 (각 층 실의 마감 높이 ffl).
+    method: STEP_PLATE | STEP_SOLID | STEP_CONCRETE
+    depth: 마감 디딤판 안쪽 모서리 선(계단참은 마감면) → 구조 슬래브 상면 연직 거리 (스텝 받침 두께)
+    tread_t / riser_t: 디딤판·챌판 판석 두께 (판석), 계단참 판석도 tread_t (통석도 계단참은 판석)
+    bed: 통석 아래 깔 몰탈 두께 (통석)
+    nosing: 논슬립 (디딤판·계단참 앞 코에서 nosing_w 폭, 상면에서 nosing_t 깊이로 박음, 양 끝 nosing_end 띄움)
+    side_t: 노출된 계단 옆면 마감 두께 (0 = 없음, 벽에 붙은 쪽은 없음). 계단 폭 안쪽에 두고 구조·스텝은 그만큼 좁아짐"""
+    enabled: bool = True
+    method: str = STEP_PLATE
+    material: str = "화강석"
+    fill_material: str = "몰탈"
+    depth: float = 0.1
+    tread_t: float = 0.03
+    riser_t: float = 0.02
+    bed: float = 0.03
+    nosing: bool = True
+    nosing_w: float = 0.05
+    nosing_t: float = 0.005
+    nosing_end: float = 0.05
+    nosing_material: str = "논슬립"
+    side_t: float = 0.02
+    side_material: str = "화강석"
+
+    def check(self, riser: float = None) -> None:
+        """입력 검사 (riser = 실제 단높이, 주면 판석 두께와 비교)"""
+        if self.method not in STEP_METHODS:
+            raise ValueError(f"계단 마감 방식 '{self.method}' 은(는) {', '.join(STEP_METHODS)} 중 하나여야 합니다")
+        for nm, v in (("받침 두께", self.depth), ("디딤판 두께", self.tread_t), ("챌판 두께", self.riser_t),
+                      ("깔 몰탈 두께", self.bed), ("논슬립 폭", self.nosing_w), ("논슬립 깊이", self.nosing_t),
+                      ("논슬립 끝 여유", self.nosing_end), ("옆면 마감 두께", self.side_t)):
+            if v < 0:
+                raise ValueError(f"계단 마감 {nm}({v:g})는 0 이상이어야 합니다")
+        if self.depth <= 0:
+            raise ValueError("계단 마감 받침 두께는 0 보다 커야 합니다")
+        if self.method == STEP_PLATE and self.depth < self.tread_t + 1e-6:
+            raise ValueError(f"계단 마감 받침 두께({self.depth:g})가 디딤판 두께({self.tread_t:g})보다 커야 합니다")
+        if self.method == STEP_SOLID and self.depth < self.bed + 1e-6:
+            raise ValueError(f"계단 마감 받침 두께({self.depth:g})가 깔 몰탈 두께({self.bed:g})보다 커야 합니다")
+        if self.nosing and self.nosing_t >= (self.tread_t if self.method == STEP_PLATE else self.depth):
+            raise ValueError("논슬립 깊이가 디딤판 두께 이상입니다")
+        if riser is not None and self.method == STEP_PLATE and self.tread_t >= riser:
+            raise ValueError(f"디딤판 두께({self.tread_t:g})가 단높이({riser:.3f})보다 작아야 합니다")
+
+
 @dataclasses.dataclass
 class FinishSettings:
     """마감 공통 설정. enabled: 마감 생성 여부 (모델 기본은 끔 — 기존 출력 유지, GUI 는 켬)
-    table: 마감 종류 이름 → FinishType (용도 이름과 같은 종류를 그 용도에 씀, 없으면 '기본')"""
+    table: 마감 종류 이름 → FinishType (용도 이름과 같은 종류를 그 용도에 씀, 없으면 '기본')
+    stair: 계단 마감 (StairFinish)"""
     enabled: bool = False
     table: dict = dataclasses.field(default_factory=default_finishes)
+    stair: StairFinish = dataclasses.field(default_factory=StairFinish)
+
+    def stair_finish(self):
+        """계단 마감을 쓰면 StairFinish, 아니면 None"""
+        return self.stair if self.enabled and self.stair is not None and self.stair.enabled else None
 
     def for_room(self, use: str, override: str = "") -> FinishType:
         key = (override or "").strip() or use.strip()

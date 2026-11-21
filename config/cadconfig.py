@@ -48,6 +48,7 @@ LAYER_DEFINITIONS = {
     "FIN_WALL": {"color": 43},           # 벽·기둥·승강로 마감
     "FIN_CEILING": {"color": 151},       # 천장판
     "FIN_FRAME": {"color": 8},           # 천장틀 (M/T바, 캐링 채널)
+    "FIN_STAIR": {"color": 34},          # 계단 마감 (계단석 판석·통석·채움·논슬립·옆면)
     "STRUCT_SIGN": {"color": 8},         # 사인 본체 (역명판·매달림 사인)
     "STRUCT_SIGN_FACE": {"color": 5},    # 사인 이미지 면
     "SEC_SIGN": {"color": 5},            # 횡단·종단면도 사인

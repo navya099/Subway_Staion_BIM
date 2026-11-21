@@ -3,7 +3,8 @@ from helper.strip_member import part_faces, section_spans
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
 from slabs.slab_engine import SlabEngine
-from stairs.stair_data import StairData, StairPartData
+from stairs.stair_data import StairData, StairFinishData, StairPartData
+from stairs.stair_finish import CODES as FINISH_CODES
 from stairs.stair_package import StairPackage
 from stairs.stair_shape import StairPartShape
 from stairs.stair_type import StairPartKind
@@ -12,6 +13,10 @@ from stairs.stair_type import StairPartKind
 def part_quads(cfg, part: StairPartData) -> list[list[tuple]]:
     """부재(런/계단참)의 띠마다 닫힌 면 집합 (helper.strip_member.part_faces)"""
     return part_faces(cfg, part)
+
+
+def spec_fin_t(cfg, attr: str) -> float:
+    return getattr(cfg.finish_settings.stair, attr)
 
 
 class StairEngine:
@@ -35,13 +40,13 @@ class StairEngine:
             spec = lay.spec
             level = self.sp.level_name(lay.lower_floor)
             package = by_level.setdefault(level, StairPackage(level=level, package_id=f"PKG_{level}_STAIRS"))
-            t0, t1 = lay.t_range
             parts, count = [], {StairPartKind.FLIGHT: 0, StairPartKind.LANDING: 0}
             for p in lay.parts:
                 count[p.kind] += 1
                 flight = p.kind == StairPartKind.FLIGHT
                 surfaces = sorted(tuple(sorted((lay.s_at(ua), lay.s_at(ub)))) + (zt,) for ua, ub, zt in p.surfaces)
                 s_lo, s_hi = p.strips[0].s0, p.strips[-1].s1
+                t0, t1 = p.t_range or lay.t_range
                 parts.append(StairPartData(
                     name=f"{lay.name}_{p.kind.value}{count[p.kind]}",
                     family_name="콘크리트-계단" if flight else "콘크리트-계단참",
@@ -51,6 +56,18 @@ class StairEngine:
                     kind=p.kind, n_risers=p.n_risers, n_treads=len(surfaces) if flight else 0,
                     t_range=(t0, t1), surfaces=surfaces,
                     shape=StairPartShape(strips=p.strips, width=t1 - t0)))
+            finishes = []
+            for k, f in enumerate(lay.finish, start=1):
+                fa, fb = f.t_range
+                thick = {"TREAD": spec_fin_t(self.cfg, "tread_t"), "RISER": spec_fin_t(self.cfg, "riser_t"),
+                         "SIDE": fb - fa}.get(f.code)
+                finishes.append(StairFinishData(
+                    name=f"{lay.name}_FIN_{f.code}_{k}", family_name=f"계단 {FINISH_CODES[f.code][0]}",
+                    type_name=f"{f.material} {int(round(thick * 1000))}mm" if thick else f.material, level=level,
+                    pos_x=(f.strips[0].s0 + f.strips[-1].s1) / 2.0, pos_y=(fa + fb) / 2.0,
+                    pos_z=min(min(st.zb0, st.zb1) for st in f.strips), material=f.material, code=f.code, t_range=f.t_range,
+                    shape=StairPartShape(strips=f.strips, width=fb - fa)))
+            t0, t1 = lay.t_range
             s0, s1 = lay.s_range
             package.add_stair(StairData(
                 name=lay.name, family_name="콘크리트-직선계단",
@@ -59,12 +76,16 @@ class StairEngine:
                 pos_z=self.cfg.lv(lay.s_at(0.0)) - self.sp.offset + lay.base_level,     # 첫 챌판 아래 시작면 표고
                 material="Concrete_C24", lower_floor=lay.lower_floor, direction=spec.direction,
                 on_platform=lay.on_platform, n_risers=lay.n_risers, riser=lay.riser, tread=spec.tread,
-                s_range=lay.s_range, t_range=lay.t_range, opening_name=lay.opening.name, parts=parts))
+                s_range=lay.s_range, t_range=lay.t_range, opening_name=lay.opening.name, parts=parts, finishes=finishes))
         floor_no = {self.sp.level_name(n): n for n in range(1, self.sp.floors + 1)}
         self.stair_packages = sorted(by_level.values(), key=lambda pk: floor_no[pk.level])     # 최하층부터
 
     def all_stairs(self) -> list[StairData]:
         return [s for pk in self.stair_packages for s in pk.stairs]
+
+    def finish_elements(self) -> list[StairFinishData]:
+        """모든 계단의 마감 부재 (DAE·웹 뷰어 재질 연결)"""
+        return [f for s in self.all_stairs() for f in s.finishes]
 
     # ---------- 검사 ----------
     def check_columns(self, column_engine):
@@ -86,6 +107,9 @@ class StairEngine:
             for part in stair.parts:
                 faces = [f for quads in part_quads(self.cfg, part) for f in quads]
                 part.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_STAIR"}) for f in faces]
+            for fe in stair.finishes:
+                faces = [f for quads in part_quads(self.cfg, fe) for f in quads]
+                fe.source_element = [msp.add_3dface(f, dxfattribs={"layer": "FIN_STAIR"}) for f in faces]
 
     # ---------- 2D 도면 (BIM 객체에서 직접 생성) ----------
     def section_items(self, sta):
@@ -99,6 +123,10 @@ class StairEngine:
                     labeled = True
                     items.append(ViewItem.rect(part.name, "SEC_CONCRETE", t0, t1, zb, zt,
                                                hatch_layer="SEC_HATCH", label=label))
+            for fe in stair.finishes:
+                for t0, t1, zb, zt in section_spans(fe, sta):
+                    if zt - zb > 1e-9:
+                        items.append(ViewItem.rect(fe.name, "SEC_FINISH", t0, t1, zb, zt))
         return items
 
     def profile_items(self, t_cut=0.0):
@@ -115,6 +143,12 @@ class StairEngine:
                 items.append(ViewItem(part.name, "PROF_CONCRETE" if cut else "PROF_BEYOND",
                                       u0=min(p[0] for p in pts), u1=max(p[0] for p in pts), pts=pts,
                                       hatch_layer="PROF_HATCH" if cut else None, label=label))
+            for fe in stair.finishes:                     # 마감: 절단면을 지나는 것만 띠마다 윤곽
+                if not CommonHelper.cut_by_t(*fe.t_range, t_cut):
+                    continue
+                for st in fe.shape.strips:
+                    pts = [(st.s0, st.zb0), (st.s1, st.zb1), (st.s1, st.zt_end), (st.s0, st.zt)]
+                    items.append(ViewItem(fe.name, "PROF_FINISH", u0=st.s0, u1=st.s1, pts=pts))
         return items
 
     def plan_items(self, cut_h, floor=1):

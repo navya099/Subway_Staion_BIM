@@ -105,7 +105,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     doc = engine.build_3d_doc()
     mat_of = {}
     tactile = getattr(engine, "tactiles", None)
-    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []):
+    stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
+    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin:
         m = finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m

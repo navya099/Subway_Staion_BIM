@@ -87,6 +87,32 @@ def ceiling_bottom_under(cfg, floor: int, rect) -> float:
     return low
 
 
+def floor_ffl_at(cfg, floor: int, s: float, t: float) -> float:
+    """층 floor 의 점 (s, t) 가 든 실의 바닥 마감 높이 ffl (기준 바닥 → 마감면). 마감을 끄거나 실을 못 찾으면 0.
+    계단 마감이 디딤판 높이를 아래층·위층 바닥 마감면에 맞출 때 쓴다"""
+    fs = getattr(cfg, "finish_settings", None)
+    if fs is None or not fs.enabled:
+        return 0.0
+    from rooms.room_check import layout_rooms
+    from rooms.room_layout import resolve_room_names
+    try:
+        floors = layout_rooms(cfg)
+        specs = dict(zip(resolve_room_names(cfg, cfg.rooms), cfg.rooms))
+    except ValueError:
+        return 0.0
+    if not 1 <= floor <= len(floors):
+        return 0.0
+    for room in floors[floor - 1].rooms:
+        if not room.contains(s, t):
+            continue
+        sp = specs.get(room.name)
+        try:
+            return fs.for_room(room.use, getattr(sp, "finish", "") if sp else "").ffl
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
 def _minus(rects, holes):
     out = []
     for r in rects:

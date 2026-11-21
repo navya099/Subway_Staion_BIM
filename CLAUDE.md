@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 999개 통과** (GUI 130개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1015개 통과** (GUI 131개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -52,13 +52,13 @@ config/                     모델·선형
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
-finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
+finishes/                   건축 마감: spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 psds/                       스크린도어: spec(PsdSettings), layout(열차 문마다 유닛·POST·구동부·채움 패널 조각 + 검증), engine
 trains/                     열차: spec(CarDoor·Car·Train·TrainStop·TrainSettings), layout(선로별 차량·문 위치 + 검증)
 tactiles/                   점자블록: spec(TactileSettings·TactilePathSpec), layout(자동 점형·유도 경로 → 층별 겹치지 않는 평면 사각형 + 검증), engine
 openings/                   슬래브 오프닝: kind, spec(입력), data(BIM), decompose(분해), opening_check(검증)
-stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), check(검증), data/shape/package/engine
+stairs/                     직선 계단: spec(입력), layout(단수·런/계단참·띠·자동 오프닝 계산), finish(계단 마감: 경사 슬래브 + 계단석), check(검증), data/shape/package/engine
 escalators/                 에스컬레이터: spec(입력·형상 상수), layout(WP·부재 띠·위층 오프닝·하부 피트), check(검증·간섭), data/package/engine
 elevators/                  엘리베이터: spec(승강로·카·문 입력), layout(정지 바닥·피트/천장 채움·출입구·슬래브 오프닝), check(검증·간섭), data/engine
 passages/                   출구통로: spec(경로 꼭짓점 입력), layout(경로 해석·연귀·부재 조각·측벽 오프닝), check(검증·간섭), data/package/engine
@@ -73,7 +73,7 @@ exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·Polished Concrete New .jpg/.png, 사용자가 준비, 저장소 제외) + README
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -119,7 +119,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - **건축 마감(1단계)**: `FinishSettings(enabled, table)` = 용도별 마감표(`FinishType`: 바닥 `ffl`(구조 바닥 → 마감면)·`floor_t`(마감재)·`floor_fill`(mortar 채움 | void 빈 공간=액세스 플로어)·재질, 벽 `wall_t`(마감재 두께, 0 = 면처리, 형상 없음)·`wall_face`(구조체 면 → 마감 표면 거리, None/빈칸 = wall_t 즉 이격 없음, 이격 = face − wall_t 빈 공간·하지재 미모델링)·재질, 천장 `ceiling`·`ceiling_h`(마감면 → 천장판 하면)·`board_t`·재질·`frame`(M/T)·`bar_spacing`·`carrier_spacing`·바/캐링 단면). 실은 용도 이름의 종류를 쓰고(없으면 '기본') `RoomSpec.finish` 로 덮어씀. 기본 마감표(`default_finishes`)는 예시값 — 기계·전기·공조실 콘크리트 면처리 + 천장 없음, 통신실 액세스 플로어 FL+0.45, 대합실·승강장층·복도·역무실·통로·기타·기본은 **금속패널 T1.6 + 구조면→표면 0.15**(실무 상세 WB-14), 화장실 타일은 이격 없음. **모델 기본은 끔(`enabled=False`, 기존 출력·golden 유지), GUI 는 켬.**
   - 배치(`layout_room_finishes`, 정거장 로컬 사각 조각 → 선형 각기둥 `RoomPiece`): 기준 바닥 = 층 FL, 최하층은 승강장 슬래브 위(t 범위)만 + 기준 = 승강장 상면(선로부 바닥·벽 마감 없음, 천장 높이 기준도 승강장 상면).
     - 바닥: 실 영역 ∩ 기준 바닥 − (칸막이벽·사각 기둥·승강로·그 층 계단/에스컬레이터 **접지 구간**·아래 슬래브 오프닝). 마감재 + (mortar 면) 채움. 접지 구간(`finish_gaps.contact_rects`) = 부재 띠의 하면이 그 자리 바닥 마감면(선형 표고 + 시작면 + ffl)보다 낮은 s 구간 × 부재 t 범위 — 계단 경사부·ESC 트러스가 떠 있는 곳 아래 바닥은 마감(예전엔 평면 전체를 빼서 콘크리트가 보였음, 사용자 지적).
-    - **오프닝 둘레(`finish_gaps.opening_linings`, 천장 있는 실, 위 슬래브 오프닝)**: 천장판이 오프닝 가장자리에서 끝나 천장 속이 보이던 문제 → 가장자리 바깥에 벽 마감 두께의 막이(천장판 하면 ~ 위 슬래브 하면, 그 자리는 천장판에서 뺌) + 오프닝 안쪽 슬래브 옆면 마감(슬래브 하면 ~ 상면). 계단·ESC 가 도착하는 쪽 가장자리는 없음, 옆면 마감은 부재 상면이 슬래브 하면보다 높은 s 구간에서 뺌(겹침 없음). 승강로(`_SHAFT`)·피트 오프닝 제외. 조각은 그 실의 WALL 마감(재질·레이어 FIN_WALL)에 더함. 계단 자체 마감(디딤판·챌판·옆면·하부)은 아직 없음.
+    - **오프닝 둘레(`finish_gaps.opening_linings`, 천장 있는 실, 위 슬래브 오프닝)**: 천장판이 오프닝 가장자리에서 끝나 천장 속이 보이던 문제 → 가장자리 바깥에 벽 마감 두께의 막이(천장판 하면 ~ 위 슬래브 하면, 그 자리는 천장판에서 뺌) + 오프닝 안쪽 슬래브 옆면 마감(슬래브 하면 ~ 상면). 계단·ESC 가 도착하는 쪽 가장자리는 없음, 옆면 마감은 부재 상면이 슬래브 하면보다 높은 s 구간에서 뺌(겹침 없음). 승강로(`_SHAFT`)·피트 오프닝 제외. 조각은 그 실의 WALL 마감(재질·레이어 FIN_WALL)에 더함. 계단 마감은 아래 '계단 마감' 참고(하부 마감은 아직 없음).
     - 벽: 실 경계(같은 실 조각 사이 제외) 중 본체 벽 내공면·칸막이벽/구획분리 벽 면에만 (가상선 없음), 마감재는 구조체 면에서 [face − wall_t, face] (직각 벽 마감은 서로의 이격 공간(`gap_rects`)에 들어가지 않아 모서리에서 마감 표면끼리 만남), 높이 = 마감면 ~ 천장판 하면(천장 없으면 위 슬래브 하면). 문·본체 측벽 오프닝(통로·환기구) 자리 비움. 모서리는 t 방향 조각에서 s 방향 조각을 뺌, 벽·기둥·승강로 평면과 겹침 제거.
     - 기둥 둘레(실 안, 사각 = 4조각, 원 = 외접 16각형 BoxPiece 연귀 고리), 승강로 바깥면(그 층을 지나는 엘리베이터, 출입구 자리 비움). 같은 이격(사각은 키운 사각형, 원은 반지름 + 이격).
     - 천장: 실 영역 ∩ 기준 바닥(**최하층은 승강장 위만 — 선로 구간 천장 마감 없음**, 사용자 확인) − (칸막이벽·사각 기둥·승강로·위 슬래브 오프닝 — **위층 에스컬레이터 하부 피트는 제외**, 트러스가 슬래브 두께 안에서 막으므로 아래층 천장은 그대로) − 벽·사각 기둥·승강로 **마감 표면까지**(`face_rects`; 바닥은 구조체 면까지 — 실무 상세). 천장판 + 천장틀(t 방향 바를 s 의 bar_spacing 원점 격자에, s 방향 캐링 채널을 t 의 carrier_spacing 격자에, 판 위로 바 → 캐링). 천장판 + 틀이 위 슬래브 하면을 넘으면 오류.
@@ -167,7 +167,16 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 형상 = s 방향 띠(`StairStrip`: 상면 수평, 하면 직선)의 연속. 곡선에서 경사 하면(비틀린 사각형)은 중심점 4분할 삼각형으로 작도해 체적 편차 제거.
   - 구조(일체형, 실무 도면 기준): 구조 상면선(디딤판 안쪽 모서리 선 / 계단참 상면)에서 **연직 두께 일정**(= 허리 두께 / cos)한 띠가 하면. 경사부·계단참의 상·하면이 같은 s 에서 꺾임 — 계단참 시작 쪽은 마지막 챌판 + 단너비, 끝 쪽은 다음 런 첫 챌판. 계단참 길이 ≥ 단너비.
   - 위층 도착: 마지막 챌판 위 **위층 바닥 높이 디딤판 1개까지 계단에 포함**(길이 = run + 단너비), 그 끝에서 위층 슬래브 상면과 같은 높이로 맞닿고 자동 오프닝도 그 점까지. 단높이는 그 맞닿는 점의 바닥 표고 기준.
-  - 실무 도면은 구조 슬래브 위 계단연석(마감) 구조 — 현재는 일체형, 연석 분리는 이후 단계.
+  - 실무 도면은 구조 슬래브 위 계단연석(마감) 구조 — 마감을 끄면 일체형, 켜면 아래 '계단 마감'(분리 구조).
+  - **계단 마감(`stairs/stair_finish.py`, `FinishSettings.stair = StairFinish`, 마감 탭 '계단 마감' 묶음)**: 마감을 켜고 계단 마감을 쓰면(`stair_finish()`, 기본 사용 — 옛 프로젝트도) 계단을 **구조 + 계단석으로 분리**. 마감을 끄면 예전 일체형 그대로(golden 유지).
+    - 디딤판 높이 = **아래층 바닥 마감면 ~ 위층 바닥 마감면**을 같은 단높이로 (`finishes.finish_layout.floor_ffl_at`: 첫 챌판 앞·도착 지점이 든 실의 `ffl`, 위층은 런 길이가 바뀌므로 반복). `StairLayout.base_level` 은 구조 시작면 그대로(접지·바닥 마감 계산), `finish_base` = 아래층 마감면. 오프닝 머리 높이 기준 슬래브 하면은 구조 FL 기준.
+    - 구조 = **매끈한 경사 슬래브**: 상면 T(u) = min(마감 안쪽 모서리 선, 다음 면 높이) − `depth`(받침 두께), 하면 = T − 허리 두께/cos, 첫 런은 시작면 아래 잘라냄(상·하면 모두 max(바닥, …)). 꺾임 위치는 일체형과 같음(마지막 챌판 + 단너비). 상면이 기운 띠 = `Strip.zt1`.
+    - 스텝(칸 = 디딤판·계단참·위층 도착 디딤판, 앞에 챌판): `plate` 판석(디딤판 `tread_t` 칸 전체 + 앞 챌판 `riser_t` [아래 디딤판 높이 ~ 디딤판 하면] + 나머지 채움 `fill_material`), `solid` 통석(칸 전체 돌 + 깔 몰탈 `bed`, 계단참은 판석), `concrete` 칸 전체 채움(재질 콘크리트). 첫 챌판 아래(아래층 마감면 아래)는 채움.
+    - 논슬립: 칸마다 앞 코에서 `nosing_w` × (폭 − 2·`nosing_end`) × 상면에서 `nosing_t` — 맨 위 재료에서 그 자리를 빼고 끝 쪽은 따로 조각. 옆면: **노출된 쪽만**(`config.widening.inner_min` 내공면에 붙은 쪽 제외) 계단 폭 안쪽 `side_t`, **스텝(계단석·채움) 부분만** — 구조 상면 ~ 마감면(계단 모양), 스텝은 그만큼 좁아짐. **구조 슬래브 옆면은 콘크리트 노출**(사용자 지정, 실무 — 실제 지하철은 계단 옆 칸막이벽이 가림), 구조는 계단 폭 전체(`PartLayout.t_range` = 계단 폭).
+    - 부재: `FinishPart(code TREAD/RISER/STONE/FILL/NOSING/SIDE, 재질, t 범위, 띠)` → `StairFinishData`(이름 `{계단}_FIN_{코드}_{k}`, `StairData.finishes`, `StairEngine.finish_elements()`). 3D DXF `FIN_STAIR`(미리보기 '바닥·벽 마감' 묶음), 횡단 SEC_FINISH·종단 PROF_FINISH(절단면 지나는 것만), IFC `IfcCovering`(디딤판·통석·채움 FLOORING, 챌판·옆면 CLADDING, 논슬립 USERDEFINED, 면 집합) → `IfcRelCoversBldgElements`(IfcStair), 층 storey. DAE·웹 뷰어 재질 = 부재 재질(논슬립·콘크리트 보기 재질 추가).
+    - 바닥 마감 접지 구간(`contact_rects`)·오프닝 옆면 마감은 계단 마감 부재도 포함(계단당 s 구간을 합쳐 계단 폭 사각형 하나). 검증: `StairFinish.check`(방식·0 이상·받침 > 디딤판/깔 몰탈·논슬립 깊이·디딤판 < 단높이), 옆면이 폭에 비해 큼.
+    - 검증된 성질(테스트): 세 방식 모두 무작위 점에서 부재끼리 겹침·연직 빈틈 없음 + 맨 위 = 걷는 면, 체적 띠 공식 = 메쉬 = IFC(곡선 rel 1e-4).
+    - 다음 후보: **계단·ESC 옆 칸막이벽으로 구조 옆면 가리기**(사용자 예정 — 실무 사진: 계단·ESC 옆을 벽체로 막음), 계단 하부 마감(천장판·도장), 계단 난간·핸드레일, 계단석 줄눈·분할, 에스컬레이터 마감(트러스 옆·하부 패널), 출입구 계단 마감.
   - IFC: `IfcStair`(STRAIGHT_RUN_STAIR) ⊃ `IfcStairFlight` + `IfcSlab`(LANDING), IfcStair 만 시작 층 storey 에 포함. 평면도는 최하층 계단만 표시.
   - 검증: 층 범위·치수·내공 범위, 같은 층 계단끼리 비겹침, 서 있는 슬래브(k−1)의 오프닝 위 금지, 시작 층 기둥 비관통(자동 오프닝은 k·k+1층 기둥 검사).
 - **에스컬레이터(1단계)**: `EscalatorSpec`(시작 층 k → k+1, **하부 WP** STA + 오르는 방향, t 중심, 경사각 30°, 스텝 폭 1.0(S1000), 트러스 외폭 1.6·연직 높이 1.15(=피트 깊이), 하부/상부 연장 2.4/2.8, 평탄 스텝 2/3단, 스텝 깊이 0.4, 핸드레일 높이 1.0, 머리 높이 2.3 — 모두 입력 가능).
@@ -275,7 +284,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
 - 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
-- 마감 다음 후보: 벽 마감 하지재(각파이프·앵글·패널 클립 — 이격 공간), 걸레받이(실무 상세의 화강석 물갈기 T24/T30), 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 걸레받이·몰딩, 계단·에스컬레이터 마감, 마감 물량표.
+- 마감 다음 후보: 벽 마감 하지재(각파이프·앵글·패널 클립 — 이격 공간), 걸레받이(실무 상세의 화강석 물갈기 T24/T30), 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 걸레받이·몰딩, 계단 하부·에스컬레이터 마감, 마감 물량표.
 - 실 다음 후보: 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 - 미리보기 다음 후보: UI 고도화 때 메인 창 안에 내장, 3D 를 OpenGL(pyvista 등)로 바꿔 깊이 정확·빠른 회전, 입력 중인 부재 강조, 횡단·종단에서도 위치 선택(높이), 평면에서 부재를 클릭해 해당 탭 항목 열기, 끌어서 옮기기(그립 편집).

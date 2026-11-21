@@ -21,7 +21,7 @@ from gui.column_draft import FloorDraft, PatternDraft, RowDraft
 from gui.elevator_draft import ElevatorDraft, ElevatorDrafts
 from gui.entrance_draft import EntranceDraft, EntranceDrafts
 from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
-from gui.finish_draft import FinishTypeDraft, default_drafts
+from gui.finish_draft import FinishTypeDraft, StairFinishDraft, default_drafts
 from gui.opening_draft import OpeningDraft, OpeningDrafts
 from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
@@ -211,6 +211,7 @@ class ProjectState:
     room_settings: RoomSettingsDraft = field(default_factory=RoomSettingsDraft)   # 칸막이벽 두께·층별 기본 실
     finish_enabled: bool = True                                                   # 마감 생성
     finish_drafts: list = field(default_factory=default_drafts)                  # 마감표 (FinishTypeDraft)
+    stair_finish_draft: StairFinishDraft = field(default_factory=StairFinishDraft)   # 계단 마감 (마감 탭)
     sign_draft: SignDraft = field(default_factory=SignDraft)                      # 역명판·안내사인 (사인 탭)
     psd_draft: PsdDraft = field(default_factory=PsdDraft)                         # 스크린도어 (승강장 탭)
     train_draft: TrainDraft = field(default_factory=TrainDraft)                   # 열차 편성·정차 (승강장 탭)
@@ -228,6 +229,7 @@ class ProjectState:
         d["room_settings"] = _plain(self.room_settings)
         d["finish_enabled"] = bool(self.finish_enabled)
         d["finish_drafts"] = _plain(self.finish_drafts)
+        d["stair_finish_draft"] = _plain(self.stair_finish_draft)
         d["tactile_settings"] = _plain(self.tactile_settings)
         d["train_draft"] = _plain(self.train_draft)
         d["psd_draft"] = _plain(self.psd_draft)
@@ -260,6 +262,8 @@ class ProjectState:
             st.finish_enabled = bool(d["finish_enabled"])
         if isinstance(d.get("finish_drafts"), list):                 # 옛 파일에는 없음 → 기본 마감표
             st.finish_drafts = [_build(FinishTypeDraft, x, f"마감 {i + 1}") for i, x in enumerate(d["finish_drafts"])]
+        if d.get("stair_finish_draft") is not None:                # 옛 파일에는 없음 → 기본 (사용)
+            st.stair_finish_draft = _build(StairFinishDraft, d["stair_finish_draft"], "계단 마감")
         if d.get("room_settings") is not None:
             st.room_settings = _build(RoomSettingsDraft, d["room_settings"], "실 설정")
             st.room_settings.default_uses = {str(k): str(v) for k, v in (st.room_settings.default_uses or {}).items()}

@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.finish_draft import FACE_FIELD, FILL_LABELS, FRAME_LABELS, NUM_FIELDS, TEXT_FIELDS, FinishDrafts, FinishTypeDraft, preview
+from gui.finish_draft import (FACE_FIELD, FILL_LABELS, FRAME_LABELS, NUM_FIELDS, STAIR_NUM_FIELDS, STAIR_TEXT_FIELDS,
+                              STEP_LABELS, TEXT_FIELDS, FinishDrafts, FinishTypeDraft, preview, stair_preview)
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -94,6 +95,7 @@ class FinishTab:
             del self._vars[k]
         self._info_vars.clear()
         self._combos.clear()
+        self._build_stair(self.drafts.stair)
         for i, it in enumerate(self.drafts.items):
             self._build_type(i, it)
         self.refresh_info()
@@ -148,6 +150,35 @@ class FinishTab:
         tk.Label(box, textvariable=info, font=("Malgun Gothic", 8), fg="#1565C0", anchor="w", justify="left",
                  wraplength=500).pack(fill="x", pady=(2, 0))
 
+    def _build_stair(self, d):
+        """계단 마감 (모든 계단 공통): 구조 슬래브 위 계단석 방식·두께·논슬립·옆면"""
+        box = tk.LabelFrame(self.body, text=" 계단 마감 (모든 계단) ", font=FONT_B, fg="#4E342E", padx=6, pady=3)
+        box.pack(fill="x", padx=(5, 8), pady=3)
+        top = tk.Frame(box)
+        top.pack(fill="x")
+        for attr, text in (("enabled", "계단 마감"), ("nosing", "논슬립")):
+            var = tk.BooleanVar(value=getattr(d, attr))
+            self._vars[("stair", attr)] = var
+
+            def on_chk(*_, a=attr, v=var):
+                setattr(d, a, bool(v.get()))
+                self.refresh_info()
+            var.trace_add("write", on_chk)
+            tk.Checkbutton(top, text=text, variable=var, font=FONT).pack(side="left", padx=(0, 6))
+        tk.Label(top, text="방식", font=FONT).pack(side="left")
+        self._combo(top, "stair", "method", list(STEP_LABELS), d.method, d, 16).pack(side="left", padx=(2, 0))
+        grid = tk.Frame(box)
+        grid.pack(fill="x", pady=(3, 0))
+        cells = [(a, lb, ENTRY_W) for a, lb in STAIR_NUM_FIELDS] + [(a, lb, 10) for a, lb in STAIR_TEXT_FIELDS]
+        for n, (attr, label, w) in enumerate(cells):
+            r, col = divmod(n, 3)
+            tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
+            self._entry(grid, d, attr, ("stair", attr), w).grid(row=r, column=col * 2 + 1, padx=(2, 8), pady=1, sticky="w")
+        info = tk.StringVar(value="")
+        self._info_vars.append((info, d))
+        tk.Label(box, textvariable=info, font=("Malgun Gothic", 8), fg="#1565C0", anchor="w", justify="left",
+                 wraplength=500).pack(fill="x", pady=(2, 0))
+
     def _combo(self, parent, i, key, values, current, obj, width):
         var = tk.StringVar(value=current if current in values else values[0])
         self._vars[(i, key)] = var
@@ -172,4 +203,4 @@ class FinishTab:
 
     def refresh_info(self):
         for var, it in self._info_vars:
-            var.set(preview(it))
+            var.set(preview(it) if isinstance(it, FinishTypeDraft) else stair_preview(it))

@@ -54,8 +54,9 @@ def _below(strip, f, cfg, off, ref, above=False):
 
 
 def _parts(lay):
-    """계단·에스컬레이터 배치 → [(띠 목록, t 범위)]"""
-    return [(p.strips, getattr(p, "t_range", None) or lay.t_range) for p in lay.parts]
+    """계단·에스컬레이터 배치 → [(띠 목록, t 범위)] (계단 마감 부재 포함)"""
+    out = [(p.strips, getattr(p, "t_range", None) or lay.t_range) for p in lay.parts]
+    return out + [(f.strips, f.t_range) for f in getattr(lay, "finish", None) or []]
 
 
 def contact_rects(cfg, items, floor_n: int, ffl: float) -> list:
@@ -66,9 +67,9 @@ def contact_rects(cfg, items, floor_n: int, ffl: float) -> list:
         if lay.lower_floor != floor_n:
             continue
         ref = lay.base_level + ffl
-        for strips, (t0, t1) in _parts(lay):
-            iv = _merge([x for st in strips for x in _below(st, -1e-9, cfg, off, ref)])
-            out += [(a, b, t0, t1) for a, b in iv if b - a > _EPS]
+        t0, t1 = lay.t_range                             # 부재(구조·계단 마감)마다 구간을 모아 계단 폭 전체로 합침
+        iv = _merge([x for strips, _ in _parts(lay) for st in strips for x in _below(st, -1e-9, cfg, off, ref)])
+        out += [(a, b, t0, t1) for a, b in iv if b - a > _EPS]
     return out
 
 

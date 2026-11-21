@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from exporter.dae_exporter import frame_uv, texture_axes
+from exporter.dae_exporter import frame_uv, stair_face_frames, texture_axes, tread_uv
 from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material
 from preview.preview_render import LAYER_GROUPS, station_of
 from rooms.room_layout import ceiling_rel
@@ -105,7 +105,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     doc = engine.build_3d_doc()
     mat_of = {}
     tactile = getattr(engine, "tactiles", None)
-    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []):
+    stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
+    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin:
         m = finish_material(e.material)
         for ent in e.source_element or []:
             mat_of[ent.dxf.handle] = m
@@ -117,6 +118,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         for ent in e.face_entities:
             mat_of[ent.dxf.handle] = m
     elem_of = _element_index(engine)
+    tread_frames = stair_face_frames(engine)
     skip = set() if frames else SKIP_LAYERS
 
     chunks = {}                                          # (레이어, 재질 이름) → [꼭짓점 목록, 부재 번호]
@@ -140,7 +142,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
             elem_id[key_e] = len(elems)
             elems.append({"name": key_e[0], "layer": d.layer, "group": _group_of(d.layer), "level": info[1],
                           "material": info[2] or m.name, "type": info[3]})
-        chunks.setdefault((d.layer, m.name), []).append((v, elem_id[key_e]))
+        chunks.setdefault((d.layer, m.name), []).append((v, elem_id[key_e], d.handle))
     origin = np.floor(np.array(first if first is not None else (0.0, 0.0, 0.0), dtype=float))
 
     a, base = cfg.align, st.start_station
@@ -179,11 +181,11 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         return off
 
     for (layer, mname), faces in chunks.items():
-        pts = np.array([p for f, _ in faces for p in f], dtype=float)
+        pts = np.array([p for f, *_ in faces for p in f], dtype=float)
         s = station_of(cfg, pts[:, :2], lo, hi)
         h = pts[:, 2] - np.interp(s, sq, flq)
         idx, tri_e, k = [], [], 0
-        for f, eid in faces:
+        for f, eid, _ in faces:
             idx += [k, k + 1, k + 2]
             tri_e.append(eid)
             if len(f) == 4:
@@ -204,9 +206,9 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
             if m.frame:                                  # 사인: 이미지 한 장을 면에 맞춤
                 uv = frame_uv(m.frame, rel64[None, :, :], origin)[0]
             else:                                        # 타일: 면마다 평면 투영 (DAE 와 같은 방향·크기)
-                starts = np.cumsum([0] + [len(f) for f, _ in faces[:-1]])
+                starts = np.cumsum([0] + [len(f) for f, *_ in faces[:-1]])
                 tris = []                                # 면마다 넓은 쪽 삼각형으로 방향을 정함 (한쪽이 넓이 0 인 사다리꼴 끝 등)
-                for a, (f, _) in zip(starts, faces):
+                for a, (f, *_) in zip(starts, faces):
                     t1 = (pts[a], pts[a + 1], pts[a + 2])
                     if len(f) == 4:
                         t2 = (pts[a], pts[a + 2], pts[a + 3])
@@ -215,9 +217,17 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
                     tris.append(t1)
                 tris = np.array(tris)
                 hu, hv = texture_axes(cfg, tris)
-                per = np.repeat(np.arange(len(faces)), [len(f) for f, _ in faces])
+                per = np.repeat(np.arange(len(faces)), [len(f) for f, *_ in faces])
                 uv = np.stack([np.einsum("nj,nj->n", rel64, hu[per]) / m.size_u,
                                np.einsum("nj,nj->n", rel64, hv[per]) / m.size_v], axis=1)
+                if tread_frames:                         # 계단석: 디딤판 윗면은 이미지 한 장씩 (DAE 와 같음)
+                    for a, (f, _, hd), t1 in zip(starts, faces, tris):
+                        fr = tread_frames.get(hd)
+                        if fr is None:
+                            continue
+                        nz = np.cross(t1[1] - t1[0], t1[2] - t1[0])
+                        if abs(nz[2]) >= 0.7 * max(np.linalg.norm(nz), 1e-12):
+                            uv[a:a + len(f)] = tread_uv(fr, pts[a:a + len(f)])
             item["tex"] = key
             item["uv"] = put(uv.astype(np.float32))
         meta.append(item)

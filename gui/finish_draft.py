@@ -1,7 +1,8 @@
 """마감표 입력의 화면 비의존 모델 (문자열 초안 → FinishSettings 변환 + 검증)"""
 from dataclasses import dataclass
 
-from finishes.finish_spec import FILL_MORTAR, FILL_VOID, FinishSettings, FinishType, default_finishes
+from finishes.finish_spec import (FILL_MORTAR, FILL_VOID, STEP_CONCRETE, STEP_PLATE, STEP_SOLID, FinishSettings, FinishType,
+                                  StairFinish, default_finishes)
 from gui.column_draft import _num
 
 FILL_LABELS = {"몰탈 채움": FILL_MORTAR, "빈 공간(액세스 플로어)": FILL_VOID}
@@ -70,6 +71,68 @@ class FinishTypeDraft:
                           frame=FRAME_LABELS[self.frame], wall_face=face, **vals, **texts)
 
 
+STEP_LABELS = {"판석 + 몰탈 채움": STEP_PLATE, "통석 + 깔 몰탈": STEP_SOLID, "콘크리트 계단": STEP_CONCRETE}
+STEP_OF = {v: k for k, v in STEP_LABELS.items()}
+# 계단 마감 숫자 칸 (속성, 라벨)
+STAIR_NUM_FIELDS = [("depth", "받침 두께"), ("tread_t", "디딤판 두께"), ("riser_t", "챌판 두께"), ("bed", "깔 몰탈"),
+                    ("side_t", "옆면 두께"), ("nosing_w", "논슬립 폭"), ("nosing_t", "논슬립 깊이"), ("nosing_end", "논슬립 끝 여유"),
+                    ("stone_len", "계단석 한 장 길이")]
+STAIR_TEXT_FIELDS = [("material", "계단석 재질"), ("fill_material", "채움 재질"), ("side_material", "옆면 재질"),
+                     ("nosing_material", "논슬립 재질")]
+
+
+@dataclass
+class StairFinishDraft:
+    """계단 마감 입력 (문자열). 마감을 켜고 enabled 일 때 계단 = 매끈한 경사 슬래브 + 계단석"""
+    enabled: bool = True
+    method: str = "판석 + 몰탈 채움"
+    material: str = "계단석"
+    fill_material: str = "몰탈"
+    depth: str = "0.1"
+    tread_t: str = "0.03"
+    riser_t: str = "0.02"
+    bed: str = "0.03"
+    nosing: bool = True
+    nosing_w: str = "0.05"
+    nosing_t: str = "0.005"
+    nosing_end: str = "0.05"
+    nosing_material: str = "논슬립"
+    side_t: str = "0.02"
+    side_material: str = "화강석"
+    stone_len: str = "1.2"
+
+    def to_finish(self) -> StairFinish:
+        where = "계단 마감"
+        if not self.enabled:                             # 끈 계단 마감은 입력을 검사하지 않음
+            return StairFinish(enabled=False)
+        if self.method not in STEP_LABELS:
+            raise ValueError(f"{where}: 방식이 올바르지 않습니다 ('{self.method}')")
+        vals = {a: _num(getattr(self, a), where, lb, nonneg=True) for a, lb in STAIR_NUM_FIELDS}
+        texts = {a: str(getattr(self, a)).strip() for a, _ in STAIR_TEXT_FIELDS}
+        fin = StairFinish(enabled=bool(self.enabled), method=STEP_LABELS[self.method], nosing=bool(self.nosing),
+                          **vals, **texts)
+        if fin.enabled:
+            try:
+                fin.check()
+            except ValueError as e:
+                raise ValueError(f"{where}: {e}") from None
+        return fin
+
+
+def stair_preview(d: StairFinishDraft) -> str:
+    if not d.enabled:
+        return "→ 계단 마감 없음 (일체형 콘크리트 계단)"
+    try:
+        f = d.to_finish()
+    except ValueError:
+        return "→ 입력값을 확인하세요"
+    body = {STEP_PLATE: f"{f.material} 디딤판 {f.tread_t:g}·챌판 {f.riser_t:g} + {f.fill_material} 채움",
+            STEP_SOLID: f"{f.material} 통석 + {f.fill_material} {f.bed:g}",
+            STEP_CONCRETE: "콘크리트 스텝"}[f.method]
+    extra = (f" · 논슬립 {f.nosing_w:g}×{f.nosing_t:g}" if f.nosing else "") +         (f" · 노출 옆면 {f.side_material} {f.side_t:g}" if f.side_t > 0 else "")
+    return f"→ 구조 슬래브 + {body} (받침 {f.depth:g}){extra}. 디딤판 높이 = 아래·위층 바닥 마감면 기준"
+
+
 def default_drafts() -> list:
     return [FinishTypeDraft.from_type(ft) for ft in default_finishes().values()]
 
@@ -80,6 +143,7 @@ class FinishDrafts:
     def __init__(self):
         self.enabled = True                 # GUI 는 기본으로 마감을 생성
         self.items: list[FinishTypeDraft] = default_drafts()
+        self.stair = StairFinishDraft()
 
     def names(self) -> list[str]:
         return [str(it.name).strip() for it in self.items if str(it.name).strip()]
@@ -91,7 +155,7 @@ class FinishDrafts:
             if ft.name in table:
                 raise ValueError(f"마감 종류 이름이 중복됩니다: {ft.name}")
             table[ft.name] = ft
-        return FinishSettings(enabled=bool(self.enabled), table=table)
+        return FinishSettings(enabled=bool(self.enabled), table=table, stair=self.stair.to_finish())
 
 
 def preview(it: FinishTypeDraft) -> str:

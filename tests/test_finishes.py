@@ -408,7 +408,9 @@ def test_stair_opening_uses_lower_floor_ceiling_for_headroom():
 def test_no_ceiling_room_keeps_slab_basis_and_side_clear():
     sp = StairSpec(lower_floor=2, s_start=60.0, direction=1, t_center=-6.0, width=2.0, name="ST", side_clear=0.3)
     mech = RoomSpec(2, "기계실", 50, 100, -9, -3, name="MECH")                  # 천장 없는 실 → 슬래브 하면 기준
-    on = StationCADEngine(cfg_with(mech, no_cols=True, stairs=[sp], table=flush_table()))
+    on_cfg = cfg_with(mech, no_cols=True, stairs=[sp], table=flush_table())
+    on_cfg.finish_settings.stair.enabled = False                   # 계단 마감은 디딤판 높이를 바꾸므로 끄고 천장 기준만 비교
+    on = StationCADEngine(on_cfg)
     off_cfg = cfg_with(mech, no_cols=True, stairs=[sp])
     off_cfg.finish_settings.enabled = False
     off = StationCADEngine(off_cfg)

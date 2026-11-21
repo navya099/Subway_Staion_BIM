@@ -28,12 +28,15 @@ class RenderMaterial:
 FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("금속패널", (0.78, 0.79, 0.80), "metal_panel", 1.2, 0.6),
     RenderMaterial("화강석", (0.62, 0.60, 0.58), "granite", 0.6, 0.6),
+    RenderMaterial("계단석", (0.74, 0.74, 0.73), "stair_stone", 0.6, 0.6),   # 디딤판 윗면은 한 장씩 맞춤 (face_frames)
     RenderMaterial("알루미늄 천장판", (0.93, 0.93, 0.92), "ceiling_panel", 0.6, 0.6),
     RenderMaterial("석재", (0.66, 0.64, 0.60)),
     RenderMaterial("타일", (0.90, 0.90, 0.88)),
     RenderMaterial("방수 천장판", (0.95, 0.95, 0.95)),
     RenderMaterial("액세스 플로어", (0.55, 0.57, 0.60)),
     RenderMaterial("몰탈", (0.70, 0.70, 0.68)),
+    RenderMaterial("콘크리트", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
+    RenderMaterial("논슬립", (0.22, 0.22, 0.24)),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
     RenderMaterial("점자블록 점형", (0.96, 0.80, 0.10), "tactile_warning", 0.3, 0.3),

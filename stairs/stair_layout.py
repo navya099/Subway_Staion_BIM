@@ -28,6 +28,7 @@ class PartLayout:
     strips: list                     # StairStrip, s 오름차순
     n_risers: int = 0
     surfaces: list = field(default_factory=list)   # 걷는 면 [(u0, u1, 상면 표고)] (디딤판 / 계단참)
+    t_range: tuple = None                          # 구조 t 범위 (None = 계단 폭 전체, 계단 옆면 마감이 있으면 그만큼 좁음)
 
 
 @dataclass
@@ -46,6 +47,8 @@ class StairLayout:
     t_range: tuple
     parts: list                      # PartLayout (아래 → 위)
     opening: OpeningSpec
+    finish: list = field(default_factory=list)     # 계단 마감 FinishPart (stairs.stair_finish, 마감을 켜고 계단 마감을 쓸 때)
+    finish_base: float = None        # 마감을 쓰면 아래층 바닥 마감면 높이 (base_level 기준 FL 상대, 디딤판 높이 기준)
 
     @property
     def landings(self) -> int:
@@ -192,12 +195,28 @@ def stair_part_strips(spec, counts: list, r: float, e_base: float, floor_fn, s_a
     return parts
 
 
+def _exposed_sides(cfg, spec, fin, k: int, s_lo: float, s_hi: float) -> tuple:
+    """계단 옆면 마감 두께 (t0 쪽, t1 쪽). 내공면(벽)에 붙은 쪽은 0 (벽 마감이 덮음)"""
+    if fin is None or fin.side_t <= TOL:
+        return 0.0, 0.0
+    from config.widening import inner_min
+    tol = 0.01
+    lo = fin.side_t if spec.t_lo > -inner_min(cfg, k, -1, s_lo, s_hi) + tol else 0.0
+    hi = fin.side_t if spec.t_hi < inner_min(cfg, k, +1, s_lo, s_hi) - tol else 0.0
+    if spec.width - lo - hi < 0.1:
+        raise ValueError(f"계단 옆면 마감 두께({fin.side_t:g})가 계단 폭({spec.width:g})에 비해 너무 큽니다")
+    return lo, hi
+
+
 def layout_stair(cfg, spec, name: str) -> StairLayout:
-    """계단 1개의 배치 (spec 의 기본 범위 검사는 stair_check.check_stair_spec 이 먼저 한다)"""
+    """계단 1개의 배치 (spec 의 기본 범위 검사는 stair_check.check_stair_spec 이 먼저 한다).
+    마감을 켜고 계단 마감을 쓰면(FinishSettings.stair_finish) 디딤판 높이 = 아래층 ~ 위층 바닥 마감면을 같은 단높이로 나눈 값,
+    구조 = 매끈한 경사 슬래브 + 그 위 계단석(stairs.stair_finish). 아니면 예전 일체형 계단"""
     st = cfg.station
     k, d, g = spec.lower_floor, spec.direction, spec.tread
     z_base, on_platform = base_level(cfg, spec, name)
-    z_top = st.floor_level(k + 1)
+    fs = getattr(cfg, "finish_settings", None)
+    fin = fs.stair_finish() if fs is not None else None
 
     def s_at(u):
         return spec.s_start + d * u
@@ -205,19 +224,41 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
     def elev(u, z_rel):
         return cfg.lv(s_at(u)) - st.offset + z_rel
 
-    e_base = elev(0.0, z_base)
-    # 위층 도착: 마지막 챌판(u = run) 위 디딤판 1개(u = run ~ run + g)가 위층 바닥 높이이고, 그 끝에서 슬래브와 맞닿는다.
-    # 맞닿는 점(run + g)의 슬래브 상면과 같은 높이가 되도록 표고차를 그 점에서 잰다
-    n, r, counts, run = plan_risers(z_top - z_base, spec, lambda run: elev(run + g, z_top) - e_base)
+    ffl_lo = ffl_hi = 0.0
+    if fin is not None:
+        fin.check()
+        from finishes.finish_layout import floor_ffl_at
+        ffl_lo = floor_ffl_at(cfg, k, s_at(-0.01), spec.t_center)
+    z_fin = z_base + ffl_lo                              # 아래층 바닥 마감면 (마감 없으면 구조 시작면)
+    e_base = elev(0.0, z_fin)
+    # 위층 도착: 마지막 챌판(u = run) 위 디딤판 1개(u = run ~ run + g)가 위층 바닥(마감면) 높이이고, 그 끝에서 슬래브와 맞닿는다.
+    # 맞닿는 점(run + g)의 바닥 높이와 같아지도록 표고차를 그 점에서 잰다. 마감을 쓰면 위층 마감 높이는 도착 지점의 실에서 찾음
+    for _ in range(4):
+        z_top = st.floor_level(k + 1) + ffl_hi
+        n, r, counts, run = plan_risers(z_top - z_fin, spec, lambda run: elev(run + g, z_top) - e_base)
+        if fin is None:
+            break
+        new = floor_ffl_at(cfg, k + 1, s_at(run + g + 0.01), spec.t_center)
+        if abs(new - ffl_hi) < 1e-9:
+            break
+        ffl_hi = new
     tc = spec.t_center
     t0, t1 = spec.t_lo, spec.t_hi
-    parts = stair_part_strips(spec, counts, r, e_base, lambda x: elev(x, z_base), s_at,
-                              lambda sa, sb, t: PM.curve_factor(cfg, sa, sb, t))
+    finish = []
+    if fin is None:
+        parts = stair_part_strips(spec, counts, r, e_base, lambda x: elev(x, z_base), s_at,
+                                  lambda sa, sb, t: PM.curve_factor(cfg, sa, sb, t))
+    else:
+        from stairs.stair_finish import finished_stair
+        fin.check(r)
+        sides = _exposed_sides(cfg, spec, fin, k, *sorted((s_at(0.0), s_at(run + g))))
+        parts, finish = finished_stair(spec, fin, counts, r, e_base, lambda x: elev(x, z_base), s_at,
+                                       lambda sa, sb, t: PM.curve_factor(cfg, sa, sb, t), sides)
     length = run + g                                     # 첫 챌판 ~ 위층 슬래브와 맞닿는 점
 
     # 자동 오프닝: 위층 슬래브(번호 k) 하면까지의 유효 높이가 headroom 보다 낮아지는 첫 걷는 면부터 슬래브와 맞닿는 점까지.
     # 아래층(k) 천장 마감이 슬래브 하면보다 낮으면 천장판 하면을 기준으로 (오프닝이 그만큼 길어짐)
-    z_slab_bot = z_top - st.mid_t
+    z_slab_bot = st.floor_level(k + 1) - st.mid_t
     foot = (*sorted((s_at(0.0), s_at(length))), t0, t1)
     ceil = ceiling_bottom_under(cfg, k, foot)
     z_head = z_slab_bot if ceil is None else min(z_slab_bot, ceil)
@@ -231,4 +272,5 @@ def layout_stair(cfg, spec, name: str) -> StairLayout:
                           width=spec.width + 2.0 * spec.side_clear, slabs=[k], name=name)
     return StairLayout(name=name, spec=spec, lower_floor=k, on_platform=on_platform, base_level=z_base, n_risers=n, riser=r,
                        flight_risers=counts, run=run, length=length, s_range=tuple(sorted((s_at(0.0), s_at(length)))),
-                       t_range=(t0, t1), parts=parts, opening=opening)
+                       t_range=(t0, t1), parts=parts, opening=opening, finish=finish,
+                       finish_base=z_fin if fin is not None else None)

@@ -28,6 +28,7 @@ from elevators.elevator_type import ElevatorPartKind
 from ventilations.vent_engine import VentEngine
 from ventilations.vent_type import VentPartKind
 from stairs.stair_engine import StairEngine
+from stairs.stair_finish import CODES as STAIR_FINISH_CODES
 from stairs.stair_type import StairPartKind
 from walls.wall_engine import WallEngine
 
@@ -359,6 +360,22 @@ class IFCExporter:
                 self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(),
                                         RelatingObject=ifc_stair, RelatedObjects=parts)
                 elements.append(ifc_stair)
+                covers = []
+                for fe in stair.finishes:                  # 계단 마감: IfcCovering → IfcRelCoversBldgElements (계단), 층 storey
+                    label, predefined = STAIR_FINISH_CODES[fe.code]
+                    el = self.file.create_entity(
+                        "IfcCovering", GlobalId=ifcopenshell.guid.compress(uuid.UUID(fe.guid).hex), Name=fe.name,
+                        Description=f"{stair.name} {label}", ObjectType=fe.type_name, ObjectPlacement=self._placement(),
+                        Representation=self._product_shape([self._face_set(q) for q in part_faces(self.config, fe)],
+                                                           "Tessellation"),
+                        PredefinedType=predefined)
+                    if fe.material:
+                        self._assign_material(el, fe.material)
+                    covers.append(el)
+                if covers:
+                    self.file.create_entity("IfcRelCoversBldgElements", GlobalId=ifcopenshell.guid.new(),
+                                            RelatingBuildingElement=ifc_stair, RelatedCoverings=covers)
+                    elements.extend(covers)
             if elements:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=storey, RelatedElements=elements)

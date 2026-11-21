@@ -26,6 +26,24 @@ class StairPartData(CommonBIMData):
 
 
 @dataclass
+class StairFinishData(CommonBIMData):
+    """계단 마감 부재 1종 (계단석 판석·통석·채움·논슬립·옆면, IFC: IfcCovering → IfcRelCoversBldgElements 로 IfcStair).
+    shape.strips 는 서로 떨어져 있을 수 있음 (디딤판마다 조각) — 면 집합으로만 내보냄
+    Attributes:
+        code: stairs.stair_finish.CODES 키 (TREAD / RISER / STONE / FILL / NOSING / SIDE)
+        t_range: (t0, t1)
+    """
+    code: str = ""
+    t_range: tuple = (0.0, 0.0)
+    shape: Optional[StairPartShape] = None
+    columns: list = field(default_factory=list)      # 칸 [(s0, s1, 앞 코 s, 스텝 t0, t1, 계단참 여부)] (디딤판마다 텍스처 한 장)
+
+    @property
+    def volume(self) -> float:
+        return self.shape.volume if self.shape else 0.0
+
+
+@dataclass
 class StairData(CommonBIMData):
     """직선 계단 1개 (IFC: IfcStair 가 런·계단참을 묶음). level = 계단이 시작되는 층 이름
     Attributes:
@@ -36,6 +54,7 @@ class StairData(CommonBIMData):
         s_range / t_range: 계단 평면 범위 (첫 챌판 ~ 위층 도착 지점)
         opening_name: 자동으로 뚫은 슬래브 오프닝 이름 (OpeningSpec.name)
         parts: 런·계단참 (아래에서 위 순서)
+        finishes: 계단 마감 부재 (StairFinishData, 마감을 켜고 계단 마감을 쓸 때)
     """
     lower_floor: int = 1
     direction: int = 1
@@ -47,6 +66,7 @@ class StairData(CommonBIMData):
     t_range: tuple = (0.0, 0.0)
     opening_name: str = ""
     parts: list = field(default_factory=list)
+    finishes: list = field(default_factory=list)
 
     @property
     def flights(self) -> list:

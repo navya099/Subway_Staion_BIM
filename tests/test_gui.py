@@ -1618,6 +1618,29 @@ def test_finish_bad_input_and_project_round_trip(app, monkeypatch, tmp_path):
     assert tab._vars[(0, "wall_t")].get() == "0.08" and "기본" not in tab.drafts.names() and not app.is_dirty()
 
 
+def test_finish_tab_stair_finish_edit_and_round_trip(app, monkeypatch, tmp_path):
+    tab = app.finish_tab
+    assert TkAdapter.collect_entries(app.entries).finish_settings.stair_finish().method == "plate"
+    tab._vars[("stair", "method")].set("통석 + 깔 몰탈")
+    tab._vars[("stair", "depth")].set("0.12")
+    tab._vars[("stair", "nosing")].set(False)
+    sf = TkAdapter.collect_entries(app.entries).finish_settings.stair
+    assert (sf.method, sf.depth, sf.nosing) == ("solid", 0.12, False)
+    tab._vars[("stair", "depth")].set("x")
+    with pytest.raises(ValueError, match="계단 마감: 받침 두께"):
+        TkAdapter.collect_entries(app.entries)
+    tab._vars[("stair", "depth")].set("0.12")
+    path = str(tmp_path / "s.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save(); app.on_new()
+    assert tab._vars[("stair", "depth")].get() == "0.1" and tab._vars[("stair", "nosing")].get()
+    app.on_open(path)
+    assert tab._vars[("stair", "depth")].get() == "0.12" and tab._vars[("stair", "method")].get() == "통석 + 깔 몰탈"
+    assert not tab._vars[("stair", "nosing")].get() and not app.is_dirty()
+    tab._vars[("stair", "enabled")].set(False)
+    assert TkAdapter.collect_entries(app.entries).finish_settings.stair_finish() is None
+
+
 def test_generate_with_finishes_end_to_end(app, tmp_path):
     set_floors(app, 3)
     app.room_tab.add_room(); app.root.update()

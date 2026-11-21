@@ -41,6 +41,7 @@ class EscalatorSpec:
         lower_radius / upper_radius: 하부(오목)·상부(볼록) 곡선 전이 반경 (m, 일반값 1.0 / 1.5, 0 = 꺾임)
         skirt_height: 스텝 코 선 위 스커트 높이 = 데크 하면 (m, 상세 2단계 — 그 위 데크 두께, 그 위 유리)
         deck_width: 안쪽 데크 폭 (스커트 안쪽 면 ~ 유리, m), glass_t: 난간 유리 두께 (m).
+        newel_ext: 난간·핸드레일이 스텝 구간 양끝 너머로 나가는 수평 길이 (m, 상세 3단계), newel_radius: 끝 뉴얼 반원 바깥 반경 (m)
         단면(스텝 가장자리 → 바깥): 틈 SKIRT_GAP · 스커트 SKIRT_T · (데크 폭 안에서) · 유리 · 바깥 데크(트러스 바깥까지)
         name: 비우면 ES + 일련번호
     """
@@ -67,6 +68,8 @@ class EscalatorSpec:
     skirt_height: float = 0.12
     deck_width: float = 0.12
     glass_t: float = 0.012
+    newel_ext: float = 0.3
+    newel_radius: float = 0.3
 
     @property
     def tan(self) -> float:

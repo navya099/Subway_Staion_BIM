@@ -18,7 +18,8 @@ _FIELDS = [("하부 WP STA", "sta_wp", "t 값", "t_center"),     # t 값 = t 기
            ("머리 높이", "headroom", "오프닝 옆 여유", "side_clear"),
            ("하부 전이 반경", "lower_radius", "상부 전이 반경", "upper_radius"),
            ("스커트 높이", "skirt_height", "데크 폭", "deck_width"),
-           ("난간 유리 두께", "glass_t", None, None)]
+           ("난간 유리 두께", "glass_t", "뉴얼 반경", "newel_radius"),
+           ("뉴얼 연장", "newel_ext", None, None)]
 
 
 class EscalatorTab:

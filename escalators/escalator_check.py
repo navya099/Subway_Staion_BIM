@@ -38,10 +38,15 @@ def check_escalator_spec(station, spec, name: str, widened: bool = False):
     if spec.upper_flat_steps * spec.step_depth > spec.upper_ext + _EPS:
         raise ValueError(f"에스컬레이터 {name}: 상부 평탄 스텝({spec.upper_flat_steps}단 x {spec.step_depth:g}m)이 "
                          f"상부 연장({spec.upper_ext:g}m)보다 깁니다")
+    from escalators.escalator_spec import DECK_T, HANDRAIL_H, SKIRT_T
+    if not spec.newel_ext >= 0:
+        raise ValueError(f"에스컬레이터 {name}: 뉴얼 연장은 0 이상이어야 합니다 ({spec.newel_ext:g})")
+    if spec.newel_radius <= HANDRAIL_H + 0.01 or spec.handrail_height - 2 * spec.newel_radius < 0.02:
+        raise ValueError(f"에스컬레이터 {name}: 뉴얼 반경({spec.newel_radius:g})은 핸드레일 단면보다 크고, 반원 아래 끝이 "
+                         "승강구 바닥보다 높아야 합니다 (핸드레일 높이 − 2 × 반경 ≥ 0.02)")
     for nm, v in (("스커트 높이", spec.skirt_height), ("데크 폭", spec.deck_width), ("유리 두께", spec.glass_t)):
         if not v > 0:
             raise ValueError(f"에스컬레이터 {name}: {nm}({v:g})는 0 보다 커야 합니다")
-    from escalators.escalator_spec import DECK_T, HANDRAIL_H, SKIRT_T
     if spec.deck_width <= SKIRT_T + 1e-6:
         raise ValueError(f"에스컬레이터 {name}: 데크 폭({spec.deck_width:g})이 스커트 두께보다 커야 합니다")
     g1 = spec.detail_t(1)["GLASS"][1] - spec.t_center

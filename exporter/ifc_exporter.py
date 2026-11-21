@@ -405,7 +405,12 @@ class IFCExporter:
                 parts = []
                 for part in esc.parts:
                     entity, predefined = self._ESC_ENTITY[part.kind]
-                    placement, representation = self._strip_part_geometry(part, f"Escalator{part.kind.value.title()}Profile")
+                    if part.kind == EscalatorPartKind.HANDRAIL and esc.steps:      # 상세: 뉴얼 띠가 위·아래로 겹침 → 면 집합
+                        placement = self._placement()
+                        representation = self._product_shape([self._face_set(q) for q in part_faces(self.config, part)],
+                                                             "Tessellation")
+                    else:
+                        placement, representation = self._strip_part_geometry(part, f"Escalator{part.kind.value.title()}Profile")
                     el = self.file.create_entity(
                         entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(part.guid).hex), Name=part.name,
                         ObjectType=part.kind.value, ObjectPlacement=placement, Representation=representation,

@@ -57,6 +57,8 @@ class EscalatorDraft:
     skirt_height: str = f"{_SPEC.skirt_height:g}"  # 코 선 위 스커트 높이 (= 데크 하면)
     deck_width: str = f"{_SPEC.deck_width:g}"      # 안쪽 데크 폭
     glass_t: str = f"{_SPEC.glass_t:g}"            # 난간 유리 두께
+    newel_ext: str = f"{_SPEC.newel_ext:g}"        # 스텝 끝 너머 난간 연장
+    newel_radius: str = f"{_SPEC.newel_radius:g}"  # 끝 뉴얼 반경
 
     def to_spec(self, where: str, start_station: float) -> EscalatorSpec:
         if self.direction not in _DIR:
@@ -86,6 +88,8 @@ class EscalatorDraft:
             skirt_height=num("skirt_height", "스커트 높이"),
             deck_width=num("deck_width", "데크 폭"),
             glass_t=num("glass_t", "유리 두께"),
+            newel_ext=_num(self.newel_ext, where, "뉴얼 연장", nonneg=True),
+            newel_radius=num("newel_radius", "뉴얼 반경"),
             name=self.name.strip())
 
 

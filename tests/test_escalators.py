@@ -180,6 +180,8 @@ def test_truss_ends_flush_with_floors_and_strips_contiguous():
     cfg = eng.cfg
     for e, lay in zip(eng.escalators.all_escalators(), cfg.escalator_layouts()):
         for p in e.parts:
+            if p.kind == K.HANDRAIL:                                  # 끝 뉴얼 띠는 위·아래로 겹침 (별도 테스트)
+                continue
             ss = p.shape.strips
             for a, b in zip(ss, ss[1:]):
                 assert b.s0 == pytest.approx(a.s1)
@@ -356,8 +358,12 @@ def test_3d_dxf_has_six_faces_per_strip(tmp_path):
     eng = eng_with(esc(1), esc(2, s=120.0, d=-1))
     msp = ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace()
     faces = list(msp.query('3DFACE[layer=="STRUCT_ESCALATOR"]')) + list(msp.query('3DFACE[layer=="STRUCT_ESC_GLASS"]'))
-    strips = sum(len(p.shape.strips) for e in eng.escalators.all_escalators() for p in list(e.parts) + list(e.steps))
-    assert len(faces) == 6 * strips
+    from helper.strip_member import part_faces
+    want = sum(len(q) for e in eng.escalators.all_escalators() for p in list(e.parts) + list(e.steps)
+               for q in part_faces(eng.cfg, p))
+    assert len(faces) == want
+    plain = [p for e in eng.escalators.all_escalators() for p in e.parts if p.kind not in (K.HANDRAIL, K.BALUSTRADE)]
+    assert all(len(q) == 6 for p in plain for q in part_faces(eng.cfg, p))     # 직선: 띠마다 6면
 
 
 def test_section_profile_plan(tmp_path):
@@ -378,7 +384,8 @@ def test_section_profile_plan(tmp_path):
     prof = eng.generate_profile_dxf(tmp_path / "f.dxf")
     base = StationCADEngine(make_cfg(user_example())).generate_profile_dxf(tmp_path / "g.dxf")
     step_strips = sum(len(x.shape.strips) for x in e.steps)
-    assert len(_q(prof, "PROF_BEYOND")) == len(_q(base, "PROF_BEYOND")) + 6 + step_strips   # 트러스 + 한쪽 5부재 + 스텝
+    rail_strips = len(e.part(K.HANDRAIL, 1).shape.strips)
+    assert len(_q(prof, "PROF_BEYOND")) == len(_q(base, "PROF_BEYOND")) + 5 + rail_strips + step_strips   # 트러스·한쪽 4부재 + 핸드레일 띠 + 스텝
 
     plan = eng.generate_plan_dxf(tmp_path / "n.dxf")
     assert len(_q(plan, "PLAN_ESCALATOR")) == 1 + 1 + 2                          # 외곽 + 스텝 + 난간 2
@@ -483,8 +490,10 @@ def test_balustrade_detail_cross_section():
     assert sum(L["HANDRAIL"].t_range) / 2 == pytest.approx(sum(L["BALUSTRADE"].t_range) / 2)          # 유리 위 가운데
     for x in L["INNER_DECK"].shape.strips:
         assert x.zb0 == pytest.approx(nose(x.s0) + sp.skirt_height) and x.zt - x.zb0 == pytest.approx(DECK_T)
+    d0, d1 = L["INNER_DECK"].shape.strips[0].s0, L["INNER_DECK"].shape.strips[-1].s1
     for x in L["BALUSTRADE"].shape.strips:
-        assert x.zb0 == pytest.approx(nose(x.s0) + sp.skirt_height + DECK_T)
+        if d0 - 1e-9 <= x.s0 and x.s1 <= d1 + 1e-9:                    # 데크 위 (뉴얼 반원 유리 제외)
+            assert x.zb0 == pytest.approx(nose(x.s0) + sp.skirt_height + DECK_T)
     tops = {round(x.s0, 6): x.zt for x in e.part(K.TRUSS).shape.strips}
     for x in L["SKIRT"].shape.strips:                                  # 스커트 하면 = 그 자리 트러스 상면
         if round(x.s0, 6) in tops:
@@ -502,3 +511,49 @@ def test_balustrade_detail_cross_section():
     assert {f.dxf.layer for f in e.part(K.BALUSTRADE, 1).source_element} == {"STRUCT_ESC_GLASS"}
     with pytest.raises(ValueError, match="트러스 외폭"):
         eng_with(esc(1, name="A", truss_width=1.2))
+
+
+def test_newel_handrail_loop_and_extension():
+    """3단계: 난간·데크·스커트·핸드레일이 스텝 구간 양끝 너머 newel_ext, 끝에서 핸드레일이 바깥 반원(뉴얼)으로 돌아 내려감 —
+    반원 띠 끝점은 반경 위, 위 띠 윗면 = 반원 바깥, 핸드레일 체적 = 직선 구간 + 반원 고리(근사), 유리와 겹치지 않음"""
+    import math
+    from escalators.escalator_spec import HANDRAIL_H
+    eng = eng_with(esc(1, name="A"))
+    lay = eng.cfg.escalator_layouts()[0]
+    e = by_name(eng, "A")
+    sp = lay.spec
+    steps_s = (min(x.s0 for st in e.steps for x in st.shape.strips), max(x.s1 for st in e.steps for x in st.shape.strips))
+    deck = e.part(K.INNER_DECK, 1).shape.strips
+    assert deck[0].s0 == pytest.approx(steps_s[0] - sp.newel_ext) and deck[-1].s1 == pytest.approx(steps_s[1] + sp.newel_ext)
+    rail = e.part(K.HANDRAIL, 1).shape.strips
+    lo, hi = min(x.s0 for x in rail), max(x.s1 for x in rail)
+    assert lo == pytest.approx(deck[0].s0 - sp.newel_radius) and hi == pytest.approx(deck[-1].s1 + sp.newel_radius)
+    glass_all = e.part(K.BALUSTRADE, 1).shape.strips                    # 뉴얼 안쪽 반원 유리까지
+    r_in = sp.newel_radius - HANDRAIL_H
+    assert min(x.s0 for x in glass_all) == pytest.approx(deck[0].s0 - r_in)
+    assert max(x.s1 for x in glass_all) == pytest.approx(deck[-1].s1 + r_in)
+    # 위쪽 끝 반원: 띠 끝점이 중심에서 바깥/안쪽 반경 위
+    s_end = deck[-1].s1
+    z_top = lay.nose((s_end - sp.s_wp) * sp.direction) + sp.handrail_height
+    zc, ro, ri = z_top - sp.newel_radius, sp.newel_radius, sp.newel_radius - HANDRAIL_H
+    beyond = [x for x in rail if x.s0 >= s_end - 1e-9]
+    assert len(beyond) > 12
+    for x in beyond:
+        for sv, zv in ((x.s0, x.zt), (x.s1, x.zt_end), (x.s0, x.zb0), (x.s1, x.zb1)):
+            d = math.hypot(sv - s_end, zv - zc)
+            assert ri - 1e-6 <= d <= ro + 1e-6
+    # 반원 체적 ≈ 반 고리 넓이 × 폭 (세로 띠 근사, 3% 안)
+    width = e.part(K.HANDRAIL, 1).t_range[1] - e.part(K.HANDRAIL, 1).t_range[0]
+    ring = sum(x.area for x in beyond) * width
+    assert ring == pytest.approx(math.pi / 2 * (ro ** 2 - ri ** 2) * width, rel=0.03)
+    # 뉴얼 반원 유리는 핸드레일 고리 안쪽 반경 안 (겹침 없음)
+    for x in glass_all:
+        if x.s0 >= s_end - 1e-9:
+            for sv, zb_, zt_ in ((x.s0, x.zb0, x.zt), (x.s1, x.zb1, x.zt_end)):
+                assert math.hypot(sv - s_end, zt_ - zc) <= ri + 1e-6 and math.hypot(sv - s_end, zb_ - zc) <= ri + 1e-6
+    big = eng_with(esc(1, name="A", newel_radius=0.47))                 # 반원이 바닥 가까이까지 (데크보다 낮아도 됨)
+    assert by_name(big, "A").part(K.HANDRAIL, 1).shape.strips
+    with pytest.raises(ValueError, match="뉴얼 반경"):
+        eng_with(esc(1, name="A", newel_radius=0.05))
+    with pytest.raises(ValueError, match="뉴얼 반경"):
+        eng_with(esc(1, name="A", newel_radius=0.495))                 # 반원 아래 끝이 바닥에 닿음

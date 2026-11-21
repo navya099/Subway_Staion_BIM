@@ -74,7 +74,10 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor,
     r, dep, depth = spec.riser, spec.step_depth, spec.truss_depth
     u_lo, u_hi = -spec.lower_ext, run + spec.upper_ext
     step_lo, step_hi = steps_range or (-spec.lower_flat_steps * dep, run + spec.upper_flat_steps * dep)
-    pts = {u_lo, u_hi, step_lo, step_hi, 0.0, run, *(x for x in extra_us if u_lo < x < u_hi)}
+    detail = steps_range is not None                   # 정거장 상세 형상 (출입구는 예전 형상)
+    # 난간·데크·스커트·핸드레일 구간: 상세면 스텝 구간 양끝 너머 newel_ext (끝은 뉴얼 반원), 아니면 스텝 구간
+    rail_lo, rail_hi = (step_lo - spec.newel_ext, step_hi + spec.newel_ext) if detail else (step_lo, step_hi)
+    pts = {u_lo, u_hi, step_lo, step_hi, rail_lo, rail_hi, 0.0, run, *(x for x in extra_us if u_lo < x < u_hi)}
     j = 1
     while j * dep < run - TOL:                         # 경사 스텝 경계
         pts.add(j * dep)
@@ -88,7 +91,6 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor,
     t_truss = (spec.t_lo, spec.t_hi)
     t_steps = (tc - spec.step_width / 2.0, tc + spec.step_width / 2.0)
     part_defs = [(EscalatorPartKind.TRUSS, 0, t_truss)]
-    detail = steps_range is not None                   # 정거장 상세 형상 (출입구는 예전 형상)
     if not detail:
         part_defs.append((EscalatorPartKind.STEPS, 0, t_steps))
     for side in (1, -1):
@@ -129,6 +131,9 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor,
                     top = (na, nb)
                 add((EscalatorPartKind.STEPS, 0), a, b, bot, top)
             ttop = bot
+        else:                                          # 스텝 밖: 트러스 상면 = 바닥면 (덮개판)
+            ttop = bot = (na, nb)
+        if rail_lo < m < rail_hi:
             for side in (1, -1):
                 rail_bot = (na + hh - HANDRAIL_H, nb + hh - HANDRAIL_H)
                 if detail:                                 # 스커트(트러스 상면 ~ 데크 하면) · 데크 · 유리(데크 위 ~ 핸드레일 아래)
@@ -141,14 +146,71 @@ def escalator_part_strips(spec, nose, e0: float, run: float, s_at, curve_factor,
                 else:
                     add((EscalatorPartKind.BALUSTRADE, side), a, b, (na, nb), rail_bot)
                 add((EscalatorPartKind.HANDRAIL, side), a, b, rail_bot, (na + hh, nb + hh))
-        else:                                          # 스텝 밖: 트러스 상면 = 바닥면 (덮개판)
-            ttop = (na, nb)
         add((EscalatorPartKind.TRUSS, 0), a, b, (na - depth, nb - depth), ttop)
         truss_top[(a, b)] = ttop
 
+    if detail:                                         # 끝 뉴얼: 핸드레일이 바깥쪽 반원으로 돌아 내려감 (세로 띠로 근사)
+        for side in (1, -1):
+            for u_end, sgn in ((rail_lo, -1), (rail_hi, 1)):
+                for ua, ub, zb, zt in newel_slices(u_end, sgn, nose(u_end) + hh, spec.newel_radius):
+                    add((EscalatorPartKind.HANDRAIL, side), ua, ub, zb, zt)
+                for ua, ub, zb, zt in newel_glass(u_end, sgn, nose(u_end) + hh, spec.newel_radius):
+                    add((EscalatorPartKind.BALUSTRADE, side), ua, ub, zb, zt)    # 뉴얼 안쪽 반원 유리
     parts = [EscPartLayout(kind, side, t_of[(kind, side)], sorted(strips[(kind, side)], key=lambda s: s.s0))
              for kind, side, _ in part_defs]
     return parts, truss_top, us
+
+
+NEWEL_SLICES = 12          # 뉴얼 반원을 나누는 세로 띠 수
+
+
+def _newel_ds(r_out: float) -> list:
+    """뉴얼 반원 세로 띠 분할점 (중심에서 거리): 바깥 반경 기준 cos 간격 + 안쪽 반경 — 핸드레일·유리가 함께 씀"""
+    r_in = r_out - HANDRAIL_H
+    cuts = {r_out * math.sin(math.pi / 2.0 * i / NEWEL_SLICES) for i in range(NEWEL_SLICES + 1)} | {r_in}
+    return sorted(d for d in cuts if 0.0 <= d <= r_out)
+
+
+def newel_slices(u_end: float, sgn: int, z_top: float, r_out: float) -> list:
+    """끝 뉴얼 핸드레일: 핸드레일 끝(u_end, 윗면 z_top)에서 바깥쪽(sgn) 반원으로 돌아 내려가는 고리 (단면 = 핸드레일 높이).
+    중심 (u_end, z_top − r_out), 바깥 반경 r_out, 안쪽 반경 r_out − HANDRAIL_H. 세로 띠 [(ua, ub, (zb_a, zb_b), (zt_a, zt_b))] —
+    안쪽 반경 안은 위·아래 두 띠, 밖은 한 띠 (띠 끝 높이는 반원 위의 점, 사이는 직선)"""
+    r_in = r_out - HANDRAIL_H
+    zc = z_top - r_out
+    f = lambda r, d: math.sqrt(max(r * r - d * d, 0.0))
+    ds = _newel_ds(r_out)
+    out = []
+    for d0, d1 in zip(ds, ds[1:]):
+        if d1 - d0 < 1e-9:
+            continue
+        if d1 <= r_in + 1e-12:
+            bands = [((zc + f(r_in, d0), zc + f(r_in, d1)), (zc + f(r_out, d0), zc + f(r_out, d1))),
+                     ((zc - f(r_out, d0), zc - f(r_out, d1)), (zc - f(r_in, d0), zc - f(r_in, d1)))]
+        else:
+            bands = [((zc - f(r_out, d0), zc - f(r_out, d1)), (zc + f(r_out, d0), zc + f(r_out, d1)))]
+        ua, ub = u_end + sgn * d0, u_end + sgn * d1
+        for zb, zt in bands:
+            if sgn > 0:
+                out.append((ua, ub, zb, zt))
+            else:                                       # u 가 줄어드는 쪽: 띠 끝 순서 맞춤
+                out.append((ub, ua, (zb[1], zb[0]), (zt[1], zt[0])))
+    return out
+
+
+def newel_glass(u_end: float, sgn: int, z_top: float, r_out: float) -> list:
+    """뉴얼 안쪽 반원 유리 (핸드레일 고리 안쪽 반경 안을 채움, 실무 사진처럼 유리가 뉴얼을 따라 둥글게) — 세로 띠"""
+    r_in = r_out - HANDRAIL_H
+    zc = z_top - r_out
+    f = lambda d: math.sqrt(max(r_in * r_in - d * d, 0.0))
+    ds = [d for d in _newel_ds(r_out) if d <= r_in + 1e-12]      # 핸드레일 고리와 같은 분할점 (원호 근사가 서로 맞음)
+    out = []
+    for d0, d1 in zip(ds, ds[1:]):
+        if d1 - d0 < 1e-9:
+            continue
+        zb, zt = (zc - f(d0), zc - f(d1)), (zc + f(d0), zc + f(d1))
+        ua, ub = u_end + sgn * d0, u_end + sgn * d1
+        out.append((ua, ub, zb, zt) if sgn > 0 else (ub, ua, (zb[1], zb[0]), (zt[1], zt[0])))
+    return out
 
 
 def _crossing(a, b, fa, fb):
@@ -189,8 +251,9 @@ def layout_escalator(cfg, spec, name: str) -> EscalatorLayout:
                     spec.lower_radius, spec.upper_radius)          # 스텝 코 선 (곡선 전이부)
     u_lo, u_hi = -spec.lower_ext, run + spec.upper_ext
     s_lo_st, s_hi_st, _ = step_range(spec, nose)
-    if s_lo_st < u_lo - 1e-6 or s_hi_st > u_hi + 1e-6:
-        raise ValueError(f"에스컬레이터 {name}: 스텝(평탄 스텝 + 곡선 전이부)이 트러스보다 깁니다 "
+    reach = spec.newel_ext + spec.newel_radius                        # 뉴얼까지 트러스 안
+    if s_lo_st - reach < u_lo - 1e-6 or s_hi_st + reach > u_hi + 1e-6:
+        raise ValueError(f"에스컬레이터 {name}: 스텝(평탄 스텝 + 곡선 전이부)과 끝 뉴얼이 트러스보다 깁니다 "
                          f"(하부/상부 연장 {spec.lower_ext:g}/{spec.upper_ext:g} 을 늘리거나 평탄 스텝 수·반경을 줄이세요)")
     steps = layout_steps(spec, nose)
     parts, truss_top, us = escalator_part_strips(

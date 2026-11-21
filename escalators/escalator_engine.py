@@ -127,6 +127,11 @@ class EscalatorEngine:
                 cut = CommonHelper.cut_by_t(*part.t_range, t_cut)
                 if part.side < 0 and not cut:                    # 측면에서 보면 좌/우가 겹침 → 보이는 것은 한쪽만
                     continue
+                if part.kind == EscalatorPartKind.HANDRAIL and esc.steps:     # 뉴얼 띠가 겹쳐 한 다각형이 안 됨 → 띠마다
+                    for x in part.shape.strips:
+                        q = [(x.s0, x.zb0), (x.s1, x.zb1), (x.s1, x.zt_end), (x.s0, x.zt)]
+                        items.append(ViewItem(part.name, "PROF_ESCALATOR" if cut else "PROF_BEYOND", u0=x.s0, u1=x.s1, pts=q))
+                    continue
                 pts = part.shape.profile_points()
                 label = None
                 if part.kind == EscalatorPartKind.TRUSS:

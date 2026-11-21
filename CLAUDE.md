@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1073개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1074개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -212,7 +212,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **상세 형상 1단계(`escalators/escalator_geom.py`, 사용자: ESC 를 개략형상에서 완전 개조 — 4단계 중 1)**: 스텝 코 선 `NoseLine` = 아래층 바닥 → **하부 곡선 전이**(오목, `lower_radius` 1.0) → 경사선 → **상부 곡선 전이**(볼록, `upper_radius` 1.5) → 위층 바닥. 전이부 = WP 에서 만나는 두 직선(바닥은 WP 기울기로 근사 — 종단구배)에 접하는 원호(필렛), 0 이면 예전 꺾임. 띠 부재(트러스·난간·핸드레일)는 전이부를 `ARC_STEP` 0.05 로 따라 자름(`escalator_part_strips(extra_us, steps_range)`).
     - **스텝 개별 객체**(애니메이션 대비, 위 운행로만 — 사용자 선택): 스텝 k 코 u_k = 첫 스텝 + k·스텝 깊이(수평), 코가 N 위·디딤판 수평(`step_pose(nose, u, dep)` → (디딤판 윗면, 아래 스텝과 높이차)), 형상 `step_pieces` = 디딤판 판(`STEP_PLATE_T`) + 앞 챌판 판(`STEP_RISER_T` 0.03, 아래 스텝 디딤판 높이 ~ 디딤판 하면) — 이웃 스텝과 겹침 없음, u 를 옮겨도 같음. 스텝 범위 = 평탄부 끝(전이 시작/끝) ± 평탄 스텝 수, 트러스보다 길면 오류. `EscalatorLayout.steps`(StepLayout)·`nose`, BIM `EscalatorStepData`(이름 `{ESC}_STEP001…`, `chain_u`), 예전 `STEPS` 띠 부재는 없어짐(출입구 에스컬레이터는 예전 형상 그대로). IFC 스텝마다 `IfcBuildingElementPart`(USERDEFINED, ObjectType STEP, Pset `SSBIM_EscalatorStep` Index·ChainU, 면 집합) ⊂ IfcTransportElement. 3D DXF STRUCT_ESCALATOR, 종단 스텝마다 윤곽, 평면 스텝 범위 사각형. ESC 탭 '하부/상부 전이 반경'.
     - **2단계 난간·데크·스커트**(정거장 상세 형상만 — 출입구 ESC 는 예전 난간 패널): 단면(스텝 가장자리 → 바깥) 틈 `SKIRT_GAP` · 스커트 `SKIRT_T`(트러스 상면 ~ 코 선 + `skirt_height`) · 안쪽 데크(스커트 안쪽 면 ~ 유리, 폭 `deck_width`, 두께 `DECK_T`) · 유리 난간(`glass_t`, 데크 위 ~ 핸드레일 아래) · 바깥 데크(유리 ~ 트러스 바깥, 데크와 같은 높이), 핸드레일은 유리 위 가운데(`spec.detail_t`). 부재 종류 SKIRT / INNER_DECK / OUTER_DECK(좌·우), 유리는 레이어 `STRUCT_ESC_GLASS`(반투명 '에스컬레이터 유리'), IFC IfcBuildingElementPart(USERDEFINED, ObjectType 종류)·유리는 IfcRailing BALUSTRADE. 검사: 트러스 외폭 ≥ 스텝·스커트·데크·유리 + 0.01, 스커트 높이가 핸드레일에 비해 큼. ESC 탭 '스커트 높이·데크 폭·난간 유리 두께'. 난간·데크는 아직 스텝 구간만(끝 뉴얼·승강구 쪽 마감은 3·4단계).
-    - 다음 단계: 3 핸드레일 고리·뉴얼, 4 승강구(바닥판·콤) + 트러스 외장 마감.
+    - **3단계 끝 뉴얼**: 난간·데크·스커트·핸드레일을 스텝 구간 양끝 너머 `newel_ext`(0.3)까지 늘리고, 그 끝에서 핸드레일이 바깥쪽 반원(`newel_radius` 0.3, 단면 = 핸드레일)으로 돌아 내려감(`escalator_layout.newel_slices`: 반원을 `NEWEL_SLICES` 12 세로 띠로 근사 — 안쪽 반경 안은 위·아래 두 띠, 밖은 한 띠, cos 간격). **뉴얼 안쪽은 반원 유리**(`newel_glass`, 실무 사진처럼 유리가 뉴얼을 따라 둥글게 — 핸드레일 고리 안쪽 반경 안), 고리·유리는 같은 분할점(`_newel_ds`: 바깥 반경 sin 간격 + 안쪽 반경 — 따로 나누면 원호 근사끼리 겹쳤음). 핸드레일·유리 띠가 겹치거나 퇴화하므로 IFC 핸드레일은 면 집합, 종단면은 띠마다 윤곽. 트러스는 뉴얼까지 담아야 함(스텝 범위 ± (연장 + 반경), 아니면 오류). 검사: 반경 > 핸드레일 단면, 반원 아래 끝 ≥ 승강구 바닥 + 0.02(사용자: 반경 0.42 에서 막혀 더 내려가지 않음 → 데크 기준 제한을 바닥 기준으로 완화, 데크보다 낮아도 됨). ESC 탭 '뉴얼 반경·뉴얼 연장'. 안으로 돌아가는 귀환 구간·뉴얼 아래 받침(실무 사진의 검은 뉴얼 베이스)은 생략 — 4단계 승강구와 함께 후보.
+    - 다음 단계: 4 승강구(바닥판·콤) + 트러스 외장 마감.
   - 자동 오프닝: 위층 슬래브(번호 k) = 트러스가 슬래브를 지나는 구간 ∪ 머리 높이 부족 구간 ~ 트러스 상단 끝. 머리 높이 기준은 계단과 같이 아래층 천장판 하면(마감 켬, 더 낮을 때), 폭 = 트러스 외폭 + 2 × `side_clear`. 하부 피트 = 트러스 하면이 시작면 아래인 구간 → 아래 슬래브(k−1) 오프닝, **피트가 슬래브보다 깊으면 오류**(바닥 내린 피트는 이후 단계). 승강장 위면 승강장 슬래브에 구멍(`cfg.platform_holes()`, `PlatformData.pieces/openings`), 지지벽체와 겹치면 오류.
   - IFC: `IfcTransportElement`(ESCALATOR) ⊃ 트러스·스텝 `IfcBuildingElementPart`, 난간 `IfcRailing`(BALUSTRADE), 핸드레일 `IfcRailing`(HANDRAIL). 승강장 IfcSlab 에도 IfcOpeningElement.
   - 검증: 치수·층·내공 범위, 트러스 폭 ≥ 스텝+난간, 같은 층 에스컬레이터·계단끼리 비겹침, 서 있는 슬래브의 다른 오프닝 위 금지(계단도 피트 위 금지), 시작 층 기둥 비관통.

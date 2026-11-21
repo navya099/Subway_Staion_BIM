@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1076개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1078개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -79,6 +79,8 @@ gui/                        station_tab / platform_tab / column_tab / room_tab /
 tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
+
+**배치 캐시(`config/layout_cache.py`, 성능)**: `layout_rooms`·`layout_stairs`·`layout_escalators`·`layout_elevators`·`layout_passages`·`layout_vents`·`layout_railings`·`railing_footprints`·`layout_smoke_barriers`·`layout_trains`·`layout_psds` 는 `@cached_layout` — 결과를 `cfg._layout_cache` 에 둠. `validate` 가 처음에 끄고 실 붙임 뒤 켬, 실패하면 끔. 설정 필드를 **바꿔 끼우면** 자동으로 비움(필드 객체 identity), **제자리 수정**(append, spec.x = …) 뒤에는 validate 를 다시 부를 것. 캐시 결과는 공유 객체이니 고치지 말 것. 실무 샘플: 실 배치가 한 번 갱신에 약 1.5만 번 반복되던 것 → 엔진 23s → 1.4s, 검증 3.3s → 0.6s. `preview_render.station_of` 는 성긴(16m) → 둘레(±24) 표본 탐색(웹 뷰어 20s → 11s, 남은 것은 ezdxf 3DFACE 생성 약 4.5s 등).
 
 2D 도면: 각 엔진이 `section_items(sta)`, `profile_items(t_cut=0)`, `plan_items(cut_h, floor=1)` 로 `ViewItem` 을 돌려주고 `cad_engine` 이 모아서 그린다.
 `plan_items` 의 cut_h 는 **본체 FL(z=0) 기준 절대 높이**(= `floor_level(n)` + 층 FL 기준 절단 높이) — 벽·기둥은 높이로, 계단·에스컬레이터·통로·출입구는 `floor` 로 층을 고르고 승강장은 최하층만. `profile_items(t_cut)` 은 선형 중심에서 t_cut 떨어진 연직면 절단(잘리면 해치, 아니면 측면 윤곽).

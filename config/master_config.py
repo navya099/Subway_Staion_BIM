@@ -65,7 +65,18 @@ class StationProjectConfig:
             self.column.floors = ColumnParameters.uniform(self.station.floors).floors
 
     def validate(self):
-        """모든 제원 검사 (GUI 입력 변환 직후, 엔진 생성 직전에 호출)"""
+        """모든 제원 검사 (GUI 입력 변환 직후, 엔진 생성 직전에 호출). 배치 캐시(config.layout_cache)는 처음에 끄고,
+        입력 정규화(실 붙임) 뒤에 켜서 입력이 바뀔 때마다(계단 t 기준점, 자동 실) 비움 — 끝나면 최종 입력의 배치가 남아
+        이후 엔진들이 다시 계산하지 않음. 오류로 끝나면 캐시는 꺼진 채"""
+        from config.layout_cache import ATTR
+        setattr(self, ATTR, None)
+        try:
+            self._validate()
+        except Exception:
+            setattr(self, ATTR, None)                  # 검증 실패 → 반쯤 채운 캐시를 쓰지 않음
+            raise
+
+    def _validate(self):
         self.station.validate()
         self.platform.validate()
         self.align.validate()
@@ -87,14 +98,18 @@ class StationProjectConfig:
         check_widenings(self)
         self.rooms = [r for r in self.rooms if not getattr(r, "auto", "")]      # 자동 실(계단 옆 벽체)은 아래에서 다시 만듦
         self.rooms = snap_rooms_to_clear(self.rooms, self.station, self.room_settings, self)
+        from config.layout_cache import ATTR
+        setattr(self, ATTR, {})                                                 # 배치 캐시 켬 (입력이 바뀌면 비움)
         # 계단·ESC t 기준점(변·벽 마감면) → 중심 t (이슈 #32: 벽 쪽에 놓는 계단은 벽 마감면 기준으로)
         from finishes.finish_clear import normalize_t_refs
         self.stairs = normalize_t_refs(self, self.stairs, lambda sp: sp.width)
         self.escalators = normalize_t_refs(self, self.escalators, lambda sp: sp.truss_width)
+        setattr(self, ATTR, {})
         # 계단·에스컬레이터·오프닝은 선형 표고를 쓰므로 정거장 구간 검사 뒤에 (자동 오프닝도 함께 검사)
         stairs, escs, evs = layout_stairs(self), layout_escalators(self), layout_elevators(self)
         # 계단·ESC 옆 벽체 + 하부 창고 = 자동 실 (계단 시작 앞·도착 지점의 실과 천장은 바뀌지 않아 배치는 그대로)
         self.rooms = self.rooms + enclosure_rooms(self, stairs, escs, evs)
+        setattr(self, ATTR, {})
         all_ops = self.openings + self._auto_openings(stairs, escs, evs)
         check_openings(self.station, all_ops, self)
         check_stair_layouts(self, stairs)

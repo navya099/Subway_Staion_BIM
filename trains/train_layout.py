@@ -3,6 +3,7 @@
 선두 정지 위치 front_s 에서 진행방향 반대쪽으로 차량을 이어 놓는다 (direction = +1 이면 차량 k 의 앞끝 s = front − 앞 차량 길이 합).
 문 중심 s = 차량 앞끝 − direction × offset. 번호: 차량 = 선두부터 1, 문 = 차량 앞끝부터 1 → 표시 '차량-문' (예: 9-1).
 """
+from config.layout_cache import cached_layout
 import math
 from dataclasses import dataclass
 
@@ -47,6 +48,7 @@ def front_of(cfg, stop, train) -> float:
     return cfg.station.length / 2.0 + stop.direction * train.length / 2.0
 
 
+@cached_layout("trains")
 def layout_trains(cfg) -> list:
     """정차하는 선로마다 TrainPlacement (열차를 쓰지 않으면 빈 목록)"""
     ts = getattr(cfg, "train_settings", None)

@@ -1,3 +1,4 @@
+from config.layout_cache import cached_layout
 import math
 
 from helper.box_piece import footprints_overlap
@@ -66,6 +67,7 @@ def pieces_overlap(p, q) -> bool:
     return min(a1, b1) - max(a0, b0) > 1e-6 and footprints_overlap(p.footprint(), q.footprint())
 
 
+@cached_layout("vents")
 def layout_vents(cfg) -> list:
     """환기구마다 VentLayout (이름 확정 + 입력 검사 + 배치 계산 + 측벽 오프닝 범위 + 경로 자기 겹침)"""
     st = cfg.station

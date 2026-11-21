@@ -1,3 +1,4 @@
+from config.layout_cache import cached_layout
 import math
 
 from helper.box_piece import footprints_overlap
@@ -88,6 +89,7 @@ def _branch_order(names: list, specs: list) -> list:
     return order
 
 
+@cached_layout("passages")
 def layout_passages(cfg) -> list:
     """통로마다 PassageLayout (이름 확정 + 입력 검사 + 배치 계산 + 측벽 오프닝 범위 + 경로 자기 겹침).
     분기 통로는 부모 다음에 배치하고 부모 측벽에 개구부를 뚫는다. 결과는 입력 순서"""

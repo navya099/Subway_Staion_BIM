@@ -1,3 +1,4 @@
+from config.layout_cache import cached_layout
 from config.widening import clear_contains_rect, has_pockets
 from escalators.escalator_layout import layout_escalator
 from escalators.escalator_spec import STEP_PLATE_T, EscalatorSpec, resolve_escalator_names
@@ -82,6 +83,7 @@ def check_escalator_spec(station, spec, name: str, widened: bool = False):
         raise ValueError(f"에스컬레이터 {name}: 하부 WP s={spec.s_wp:.3f} 이(가) 내공 길이(0 ~ {station.length:g}m)를 벗어납니다")
 
 
+@cached_layout("escalators")
 def layout_escalators(cfg) -> list:
     """에스컬레이터마다 EscalatorLayout (이름 확정 + 입력 검사 + 배치 계산). 트러스가 내공 길이를 벗어나면 오류"""
     st = cfg.station

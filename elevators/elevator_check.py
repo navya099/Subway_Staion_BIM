@@ -1,3 +1,4 @@
+from config.layout_cache import cached_layout
 from elevators.elevator_layout import layout_elevator
 from elevators.elevator_spec import DOOR_SIDES, ElevatorSpec, resolve_elevator_names
 from openings.decompose import overlap_area
@@ -45,6 +46,7 @@ def check_elevator_spec(station, spec, name: str):
                          "보다 작습니다")
 
 
+@cached_layout("elevators")
 def layout_elevators(cfg) -> list:
     """엘리베이터마다 ElevatorLayout (이름 확정 + 입력 검사 + 배치 계산)"""
     names = resolve_elevator_names(cfg.elevators)

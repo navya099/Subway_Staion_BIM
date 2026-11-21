@@ -482,7 +482,7 @@ class IFCExporter:
                 if e.kind == "WALL":
                     el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL")
                 else:
-                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType="FLOOR" if e.kind == "FLOOR" else "ROOF")
+                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"))
                 members.append(el)
             st = ent.stair
             ifc_stair = self.file.create_entity(

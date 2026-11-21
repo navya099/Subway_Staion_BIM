@@ -10,7 +10,8 @@ from helper.view_item import ViewItem
 from stairs.stair_data import StairData, StairPartData
 from stairs.stair_type import StairPartKind
 
-_FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리트-출입구천장슬래브", "WALL": "콘크리트-출입구벽체"}
+_FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리트-출입구천장슬래브", "WALL": "콘크리트-출입구벽체",
+           "LEAN": "콘크리트-버림"}
 
 
 class EntranceEngine:
@@ -37,10 +38,12 @@ class EntranceEngine:
             for p in lay.box_parts:
                 t0, t1 = p.t_range
                 elements.append(EntranceElementData(
-                    name=f"{lay.name}_{p.code}", family_name=_FAMILY[p.kind], type_name=f"{int(round(spec.wall_t * 1000))}mm",
-                    level=level, pos_z=min(min(s.zb0, s.zb1) for s in p.strips), material="Concrete_C24",
+                    name=f"{lay.name}_{p.code}", family_name=_FAMILY[p.kind],
+                    type_name=f"{int(round((p.thick if p.thick is not None else spec.wall_t) * 1000))}mm",
+                    level=level, pos_z=min(min(s.zb0, s.zb1) for s in p.strips),
+                    material="Lean_Concrete" if p.kind == "LEAN" else "Concrete_C24",
                     kind=p.kind, code=p.code, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0),
-                    pieces=list(lay.haunches) if p.kind == "ROOF" else []))
+                    pieces=list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []))
             stair = self._stair(lay, level)
             escalator = self._escalator(lay, level) if lay.escalator else None
             self.entrances.append(EntranceData(

@@ -290,3 +290,115 @@ def test_draft_preview():
     assert "내공 폭 5.26m" in preview(EntranceDraft())
     assert "내공 폭 1.75m" in preview(EntranceDraft(escalator=False))
     assert "확인" in preview(EntranceDraft(stair_width="a"))
+
+
+# ===================================================== 리팩토링 1단계: 두께 구간 · 계단참 따라 꺾이는 천장 · 흙 덮개 · 버림 콘크리트
+ZONES = [(0.0, 0.9), (14.0, 0.8), (24.0, 0.7)]          # 실무 도면처럼 깊은(이음면 쪽) 구간이 두꺼움
+
+
+def test_thickness_zones_step_outer_faces():
+    lay = lay_of(cfg_with({"thickness_zones": ZONES, "wall_t": 0.7}))
+    sp = lay.spec
+    a = sp.inner_width / 2
+    part = {p.code: p for p in lay.box_parts}
+    for k, (u0, th) in enumerate(ZONES, start=1):
+        w = part[f"WALL_L_Z{k}"]
+        assert w.t_range == pytest.approx((a, a + th)) and w.thick == pytest.approx(th)             # 내공면 고정, 바깥면만
+        assert w.strips[0].s0 == pytest.approx(u0)
+        assert part[f"ROOF_Z{k}"].t_range == pytest.approx((-(a + th), a + th)) if f"ROOF_Z{k}" in part else True
+        tan = math.tan(math.radians(30.0))
+        par = [st for st in part[f"FLOOR_S_Z{k}"].strips                                     # 경사부(상·하면 나란함)
+               if abs((st.zb1 - st.zb0) / (st.s1 - st.s0) - tan) < 1e-9 and abs((st.zt_end - st.zt) / (st.s1 - st.s0) - tan) < 1e-9]
+        assert par and all(st.zt - st.zb0 == pytest.approx(th * math.sqrt(1 + tan * tan)) for st in par)   # 직각 두께 = 구간 두께
+    assert part["END_WALL_S"].thick == pytest.approx(0.7) and lay.u["end"] - lay.u["top"] == pytest.approx(0.7)
+    assert part["JOINT_WALL_L"].thick == pytest.approx(0.9) and lay.u["truss_lo"] == pytest.approx(0.9 + sp.lower_margin)
+    plain = lay_of(cfg_with())
+    assert "WALL_L" in {p.code for p in plain.box_parts}                                     # 구간 없으면 예전 이름
+
+
+def test_roof_follows_stair_landings_and_cover():
+    lay = lay_of(cfg_with())
+    roof = sorted((s for p in lay.box_parts if p.code.startswith("ROOF") for s in p.strips), key=lambda s: s.s0)
+    u_re = lay.u["roof_end"]
+    bottom = lambda x: next(s for s in roof if s.s0 - 1e-9 <= x <= s.s1 + 1e-9).zb_at(x)
+    nose = nose_fn(lay)
+    u0 = lay.u["stair0"]
+    noses = [(u0 + ua, zt) for p in lay.stair.parts for ua, ub, zt in p.surfaces if u0 + ua < u_re]
+    gaps = [bottom(x) - z for x, z in noses]
+    assert min(gaps) == pytest.approx(lay.spec.stair_headroom, abs=1e-6)                     # 디딤판 코 위 계단 머리 높이
+    assert all(bottom(x) >= nose(x) + lay.spec.esc_headroom - 1e-6 for x in (s.s0 for s in roof) if x > lay.u["wp_lo"])
+    landings = [(u0 + ua, u0 + ub) for p in lay.stair.parts if p.kind.value == "LANDING" for ua, ub, zt in p.surfaces
+                if u0 + ub < u_re]
+    flat = [s for s in roof if abs(s.zb1 - s.zb0) < 1e-9 and s.s0 > lay.u["wp_lo"]]
+    assert landings and flat                                                                 # 계단참에서 천장이 수평으로 꺾임
+    assert all(any(l0 - 1e-6 <= s.s0 <= l1 + 1e-6 for l0, l1 in landings) for s in flat)
+    # 흙 덮개: 천장 상면이 지표 − 덮개에 닿는 곳에서 끝
+    cov = lay_of(cfg_with({"roof_cover": 1.5}))
+    last = max((s for p in cov.box_parts if p.code.startswith("ROOF") for s in p.strips), key=lambda s: s.s1)
+    assert last.zt_end == pytest.approx(cov.ground - 1.5, abs=1e-6) and cov.u["roof_end"] < u_re
+
+
+def test_lean_concrete_under_floor(tmp_path):
+    eng = StationCADEngine(cfg_with({"lean_t": 0.14, "thickness_zones": ZONES}))
+    lay = eng.entrances.entrances[0].layout
+    a = lay.spec.inner_width / 2
+    part = {p.code: p for p in lay.box_parts}
+    for k, (u0, th) in enumerate(ZONES, start=1):
+        ln = part[f"LEAN_Z{k}"]
+        assert ln.t_range == pytest.approx((-(a + th + 0.155), a + th + 0.155))
+        fl = part[f"FLOOR_S_Z{k}"]
+        x = (ln.strips[0].s0 + ln.strips[0].s1) / 2
+        assert ln.strips[0].zt_at(x) == pytest.approx(next(s for s in fl.strips if s.s0 <= x <= s.s1).zb_at(x), abs=1e-9)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "l.ifc"))
+    lean = [s for s in f.by_type("IfcSlab") if "_LEAN_" in s.Name]
+    assert len(lean) == 3 and all(s.PredefinedType == "BASESLAB" for s in lean)
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    ent = eng.entrances.entrances[0]
+    for name, m in eng.entrances.strip_members(ent):                                         # 구간 부재도 체적 교차 검증
+        formula = m.shape.volume + sum(p.volume for p in getattr(m, "pieces", []))
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m)) + \
+            sum(PM.mesh_volume(p.faces()) for p in getattr(m, "pieces", []))
+        assert mesh == pytest.approx(formula, rel=1e-7)
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6)
+
+
+@pytest.mark.parametrize("zones,msg", [([(5.0, 0.0)], "두께는 0보다"), ([(-1.0, 0.8)], "0 이상"),
+                                       ([(3.0, 0.8), (3.0, 0.9)], "겹칩니다")])
+def test_thickness_zone_errors(zones, msg):
+    with pytest.raises(ValueError, match=msg):
+        StationCADEngine(cfg_with({"thickness_zones": zones}))
+
+
+def test_draft_zones_and_window(tmp_path):
+    from gui.entrance_draft import EntranceDraft, zones_summary
+    d = EntranceDraft(passage="EX1", thick_zones=[["14", "0.8"], ["", ""], ["0", "0.9"]], roof_cover="1", lean_t="0.14")
+    sp = d.to_spec("출입구")
+    assert sp.thickness_zones == [(0.0, 0.9), (14.0, 0.8)] and sp.roof_cover == 1.0 and sp.lean_t == 0.14
+    assert zones_summary(d) == "두께 구간: u 0~ 0.9, u 14~ 0.8"
+    d.thick_zones = [["a", "0.8"]]
+    with pytest.raises(ValueError, match="두께 구간 1"):
+        d.to_spec("출입구")
+    import tkinter as tk
+    from gui.gui_app import StationBIMApp
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("디스플레이가 없어 GUI 테스트를 건너뜀")
+    app = StationBIMApp(root, recent_file=str(tmp_path / "recent.json"), watch=False)
+    try:
+        et = app.entrance_tab
+        et.add_entrance()
+        it = et.drafts.items[0]
+        win = et.open_zones(0)
+        win.update()
+        it_add = [w for w in win.winfo_children() if isinstance(w, tk.Frame)][-1].winfo_children()[0]
+        it_add.invoke()                                                                      # + 구간 추가
+        assert it.thick_zones == [["0", it.wall_t]] and "u 0~" in et._zone_labels[0].cget("text")
+        et._zone_vars[0][1].set("0.9")
+        assert it.thick_zones[0][1] == "0.9" and "0.9" in et._zone_labels[0].cget("text")
+        from gui.project_file import open_project, save_project
+        save_project(tmp_path / "z.ssbim", app.collect_state())                             # 프로젝트 파일 왕복
+        assert open_project(tmp_path / "z.ssbim").entrance_drafts[0].thick_zones == [["0", "0.9"]]
+        win.destroy()
+    finally:
+        root.destroy()

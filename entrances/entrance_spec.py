@@ -11,9 +11,11 @@ class EntranceSpec:
 
     - 박스 안에 계단(별도 계단 슬래브)과 에스컬레이터를 나란히 둔다: 내공 폭 = 계단 폭 + 칸막이벽 + 에스컬레이터 구역 폭
     - 높이는 지표 EL 과 통로 끝 바닥 표고의 차이로 모두 자동 계산 (계단 단수·계단참, 에스컬레이터 WP, 박스 길이)
-    - 종단(1단계): 바닥 = 에스컬레이터 트러스 하면(양 끝 피트), 천장 = 에스컬레이터 스텝 코 선과 나란한 직선(하부는 통로 천장 높이),
-      천장은 상면이 지표면에 닿는 곳에서 끝나고 그 뒤 상단 끝벽까지는 지붕 없는 개구부(측벽은 지표 + 파라펫 높이)
-    - 벽·슬래브는 하나의 두께, 상부 헌치는 천장 슬래브 아래 양쪽 모서리
+    - 종단: 바닥 = 에스컬레이터 트러스 하면(양 끝 피트), 천장 하면 = 통로 천장 높이 · 에스컬레이터 스텝 코 선 + 머리 높이 ·
+      계단 피치선(디딤판 코를 잇는 선, 계단참은 수평) + 계단 머리 높이 중 가장 높은 것 (실무 도면처럼 계단참에서 꺾임).
+      천장은 상면이 지표 − 흙 덮개(roof_cover)에 닿는 곳에서 끝나고 그 뒤 상단 끝벽까지는 지붕 없는 개구부(측벽은 지표 + 파라펫)
+    - 벽·슬래브 두께 = wall_t 하나, 또는 두께 구간(thickness_zones: 출입구 진행 거리 u 구간마다 두께 — 실무 도면 700/800/900)이면
+      구간마다 바깥면이 계단식으로 바뀜 (내공 고정). 상부 헌치는 천장 슬래브 아래 양쪽 모서리. 바닥 아래 버림 콘크리트(lean_t)
 
     Attributes:
         passage: 이어 붙일 출구통로 이름
@@ -21,7 +23,11 @@ class EntranceSpec:
         stair_width / partition_t / escalator_zone: 계단 폭, 칸막이벽 두께, 에스컬레이터 구역 폭 (m)
         escalator: 에스컬레이터를 둘지 (False 면 내공 폭 = 계단 폭, 칸막이벽 없음)
         escalator_side: 에스컬레이터 쪽 +1 = 오르는 방향 왼쪽(+t), -1 = 오른쪽
-        wall_t: 벽·슬래브 두께 (m)
+        wall_t: 벽·슬래브 두께 (m, 두께 구간이 없을 때·첫 구간 앞)
+        thickness_zones: 두께 구간 [(u 시작, 두께), ...] — u = 이음면(통로 끝)에서 출입구 진행 거리 (m). 그 u 부터 다음 구간 앞까지
+                         측벽·천장·바닥 슬래브 두께. 비우면 wall_t 일정
+        roof_cover: 천장 슬래브가 끝나는 흙 덮개 두께 (m, 천장 상면이 지표 − roof_cover 에 닿는 곳에서 끝남, 0 = 지표에 닿는 곳)
+        lean_t / lean_ext: 바닥 슬래브 아래 버림 콘크리트 두께 (0 = 없음) / 외곽 밖으로 나오는 폭 (m)
         haunch_w / haunch_h: 천장 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         lower_margin: 하부 이음벽 안쪽 면 ~ 에스컬레이터 트러스 하단 끝 (m)
         top_margin: 계단·에스컬레이터 상단 끝 ~ 상단 끝벽 안쪽 면 (m)
@@ -64,6 +70,22 @@ class EntranceSpec:
     esc_handrail_height: float = 1.0
     esc_headroom: float = 2.3
     name: str = ""
+    thickness_zones: list = dataclasses.field(default_factory=list)
+    roof_cover: float = 0.0
+    lean_t: float = 0.0
+    lean_ext: float = 0.155
+
+    def thick_at(self, u: float) -> float:
+        """u 자리의 벽·슬래브 두께 (두께 구간)"""
+        t = self.wall_t
+        for u0, th in sorted(self.thickness_zones):
+            if u >= u0 - 1e-9:
+                t = th
+        return t
+
+    def thick_cuts(self, lo: float, hi: float) -> list:
+        """lo ~ hi 사이 두께가 바뀌는 u"""
+        return sorted({u0 for u0, _ in self.thickness_zones if lo + 1e-9 < u0 < hi - 1e-9})
 
     @property
     def inner_width(self) -> float:

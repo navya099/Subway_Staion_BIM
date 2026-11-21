@@ -67,6 +67,7 @@ class EntranceLayout:
     haunches: list            # BoxPiece
     stair: object             # SimpleNamespace(parts, n_risers, riser, flight_risers, run)
     escalator: object         # SimpleNamespace(parts, run, rise) 또는 None
+    spec_stair_finish: object = None   # 계단 마감 설정 StairFinish (마감 끔 = None)
 
 
 class PL:
@@ -249,13 +250,33 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
 
     # ---------- 계단: 첫 챌판 위치 = 하부 피트 끝(u_cross). 계단이 바닥 아래로 내려가면 하부 수평부 쪽으로 자동으로 앞당김
     ssp = spec.stair_spec()
-    n, r, counts, run_s = plan_risers(G - zp, ssp)
+    # 계단 마감(마감을 켜고 계단 마감을 쓰면): 디딤판 = 통로 끝 바닥 마감면 ~ 지표를 같은 단높이로, 구조 = 매끈한 경사 슬래브 + 계단석
+    fs = getattr(cfg, "finish_settings", None)
+    fin = fs.stair_finish() if fs is not None else None
+    z_st = zl if fin is not None else zp              # 첫 챌판 아래 걷는 면 (마감면 / 구조 바닥)
+    n, r, counts, run_s = plan_risers(G - z_st, ssp)
     s_probe = s_top_for(u_up + run_s + 100.0)
     u_min = T + spec.lower_margin                     # 앞당길 수 있는 한계: 하부 이음벽 안쪽 면 + 여유
+    if fin is not None:
+        fin.check(r)
+        st_side = fin.side_t
+        if not spec.escalator:                         # 옆면 마감: 칸막이벽 위로 드러나는 에스컬레이터 쪽만 (벽 쪽은 벽 마감)
+            sides = (0.0, 0.0)
+        else:
+            sides = (0.0, st_side) if spec.escalator_side > 0 else (st_side, 0.0)
+
+    def make_stair(u0, floor_pl, extra=0.0):
+        """첫 챌판 u0 의 계단 (구조 부재, 마감 부재)"""
+        if fin is None:
+            return stair_part_strips(ssp, counts, r, zp, lambda x: floor_pl.at(u0 + x), lambda x: u0 + x,
+                                     lambda *_: 1.0, top_extra=extra), []
+        from stairs.stair_finish import finished_stair
+        return finished_stair(ssp, fin, counts, r, z_st, lambda x: floor_pl.at(u0 + x), lambda x: u0 + x,
+                              lambda *_: 1.0, sides, top_extra=extra)
 
     def lowest(u0):
         """첫 챌판이 u0 일 때 (계단 슬래브 하면 − 계단 구역 바닥 상면) 최소값과 그 위치"""
-        parts_ = stair_part_strips(ssp, counts, r, zp, lambda x: s_probe.at(u0 + x), lambda x: u0 + x, lambda *_: 1.0)
+        parts_ = make_stair(u0, s_probe)[0]
         return min([(st.zb0 - s_probe.at(st.s0, 1), st.s0) for p_ in parts_ for st in p_.strips] +
                    [(st.zb1 - s_probe.at(st.s1, -1), st.s1) for p_ in parts_ for st in p_.strips])
 
@@ -263,7 +284,7 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         span = run_s + ssp.tread
         return ValueError(
             f"출입구 {name}: 계단이 박스 바닥 아래로 {-gap[0]:.2f}m 내려갑니다 (첫 챌판 u = {u0:.2f}m, 문제 위치 u = {gap[1]:.2f}m). "
-            f"계단 평균 기울기 {math.degrees(math.atan((G - zp) / span)):.1f}° < 바닥(에스컬레이터) {spec.esc_angle_deg:g}° — "
+            f"계단 평균 기울기 {math.degrees(math.atan((G - z_st) / span)):.1f}° < 바닥(에스컬레이터) {spec.esc_angle_deg:g}° — "
             "계단참 길이·단너비를 줄이거나 런 높이 상한을 키워 계단을 가파르게 하세요")
 
     if spec.stair_offset is not None:                 # 직접 지정
@@ -318,8 +339,7 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
 
     # ---------- 천장 하면 = 위쪽 포락선: 통로 천장 높이 · 스텝 코 선 + 에스컬레이터 머리 높이 · 계단 피치선 + 계단 머리 높이
     # (계단 피치선 = 디딤판 코를 잇는 선, 계단참은 수평 → 실무 도면처럼 계단참에서 천장이 꺾임)
-    stair_parts = stair_part_strips(ssp, counts, r, zp, lambda x: s_top.at(u_s0 + x), lambda x: u_s0 + x,
-                                    lambda *_: 1.0, top_extra=u_top - arrive)
+    stair_parts, stair_finish = make_stair(u_s0, s_top, u_top - arrive)     # 띠·칸은 이미 출입구 좌표 (s = u0 + x)
     surfaces = sorted((u_s0 + ua, u_s0 + ub, zt) for p in stair_parts for ua, ub, zt in p.surfaces)
     eh, sh = spec.esc_headroom, spec.stair_headroom
     flat_pl = PL([_const(0.0, far, zp + hp)])
@@ -405,7 +425,8 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
                                          z0=z0, slope=(roof_bot.at(u1, -1) - z0) / (u1 - u0)))
 
     # ---------- 계단·에스컬레이터 부재 (출입구 좌표의 띠)
-    stair = SimpleNamespace(parts=stair_parts, n_risers=n, riser=r, flight_risers=counts, run=run_s, start=u_s0)
+    stair = SimpleNamespace(parts=stair_parts, n_risers=n, riser=r, flight_risers=counts, run=run_s, start=u_s0,
+                            finish=stair_finish, finish_base=z_st if fin is not None else None)
     escalator = None
     if spec.escalator:                                # 정거장 에스컬레이터와 같은 상세 형상 + 개별 스텝 (출입구 좌표 s = u_wp + u)
         s_lo, s_hi, _ = step_range(esp, nl)
@@ -422,4 +443,4 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         name=name, spec=spec, passage=spec.passage, frame=frame, z_floor=zp, ground=G,
         u=dict(wp_lo=u_wp, wp_hi=u_up, truss_lo=truss_lo, truss_hi=truss_hi, cross=u_cross, stair0=u_s0,
                arrive=arrive, top=u_top, end=end, roof_end=u_re, roof_knee=u_k),
-        roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator)
+        roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin)

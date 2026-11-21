@@ -9,7 +9,8 @@ from escalators.escalator_engine import _FAMILY as ESC_FAMILY, _MATERIAL as ESC_
 from helper.box_piece import cut_faces_by_plane
 from helper.strip_member import StripShape, part_faces, strip_faces
 from helper.view_item import ViewItem
-from stairs.stair_data import StairData, StairPartData
+from stairs.stair_data import StairData, StairFinishData, StairPartData
+from stairs.stair_finish import CODES as FINISH_CODES
 from stairs.stair_type import StairPartKind
 
 _FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리트-출입구천장슬래브", "WALL": "콘크리트-출입구벽체",
@@ -69,13 +70,23 @@ class EntranceEngine:
                 pos_z=min(z for _, _, z in surfaces) if surfaces else lay.z_floor, material="Concrete_C24", kind=p.kind,
                 n_risers=p.n_risers, n_treads=len(surfaces) if flight else 0, t_range=t_rng, surfaces=surfaces,
                 shape=StripShape(strips=p.strips, width=t_rng[1] - t_rng[0])))
+        finishes = []                                   # 계단 마감 (정거장 계단과 같은 계단석 분리 구조, 출입구 좌표의 띠)
+        fin_t = {"TREAD": "tread_t", "RISER": "riser_t"}
+        for k, f in enumerate(getattr(lay.stair, "finish", []) or [], start=1):
+            fa, fb = f.t_range
+            thick = getattr(lay.spec_stair_finish, fin_t[f.code]) if f.code in fin_t else (fb - fa if f.code == "SIDE" else None)
+            finishes.append(StairFinishData(
+                name=f"{lay.name}_STAIR_FIN_{f.code}_{k}", family_name=f"계단 {FINISH_CODES[f.code][0]}",
+                type_name=f"{f.material} {int(round(thick * 1000))}mm" if thick else f.material, level=level,
+                pos_z=min(min(st.zb0, st.zb1) for st in f.strips), material=f.material, code=f.code, t_range=f.t_range,
+                shape=StripShape(strips=f.strips, width=fb - fa), columns=list(f.columns)))
         s0 = parts[0].shape.strips[0].s0
         s1 = parts[-1].shape.strips[-1].s1
         return StairData(name=f"{lay.name}_STAIR", family_name="콘크리트-직선계단",
                          type_name=f"{lay.stair.n_risers}단 R{lay.stair.riser * 1000:.0f} T{sp.tread * 1000:.0f}",
                          level=level, pos_z=lay.z_floor, material="Concrete_C24", lower_floor=0, direction=1,
                          n_risers=lay.stair.n_risers, riser=lay.stair.riser, tread=sp.tread, s_range=(s0, s1),
-                         t_range=t_rng, parts=parts)
+                         t_range=t_rng, parts=parts, finishes=finishes)
 
     @staticmethod
     def _escalator(lay, level) -> EscalatorData:
@@ -109,7 +120,7 @@ class EntranceEngine:
     def strip_members(self, ent: EntranceData) -> list:
         """(부재 이름, 띠 부재) — 박스 부재·계단 런/계단참·에스컬레이터 부재 (모두 출입구 좌표의 띠)"""
         out = [(e.name, e) for e in ent.elements]
-        out += [(p.name, p) for p in ent.stair.parts]
+        out += [(p.name, p) for p in ent.stair.parts] + [(f.name, f) for f in ent.stair.finishes]
         if ent.escalator:
             out += [(p.name, p) for p in ent.escalator.parts] + [(s.name, s) for s in ent.escalator.steps]
         return out
@@ -122,12 +133,40 @@ class EntranceEngine:
                 faces = [f for quads in part_faces(ent.frame, m) for f in quads]
                 faces += [f for p in getattr(m, "pieces", []) for f in p.faces()]
                 layer = "STRUCT_ENTRANCE"                              # 박스·계단 = 콘크리트, 에스컬레이터 = 정거장 에스컬레이터와 같은 레이어
+                if isinstance(m, StairFinishData):
+                    layer = "FIN_STAIR"                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
                 if isinstance(m, (EscalatorPartData, EscalatorStepData)):
                     glass = getattr(m, "kind", None) == EscalatorPartKind.BALUSTRADE and m.material == "Glass_Balustrade"
                     layer = "STRUCT_ESC_GLASS" if glass else "STRUCT_ESCALATOR"
                 m.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
             if ent.escalator:
                 self._step_frames(ent)
+            self._tread_frames(ent)
+
+    @staticmethod
+    def _tread_frames(ent):
+        """계단 디딤판(계단석·디딤판 판석) 윗면에 계단석 이미지 한 장씩 (정거장 StairEngine._tread_frames 와 같은 규약, 출입구 좌표:
+        u = +t, v = 앞 코 → 안쪽, 한 장 폭 = 계단 폭을 stone_len 에 가깝게 고르게 나눔, 계단참은 일반 타일)"""
+        from stairs.stair_engine import TREAD_TEXTURE_CODES
+        fr_ = ent.frame
+        tv, uv = (-fr_.uy, fr_.ux, 0.0), (fr_.ux, fr_.uy, 0.0)
+        stone = ent.layout.spec_stair_finish.stone_len if ent.layout.spec_stair_finish is not None else 1.2
+        for fe in ent.stair.finishes:
+            fe.face_frames = {}
+            if fe.code not in TREAD_TEXTURE_CODES:
+                continue
+            n_faces = [len(q) for q in part_faces(fr_, fe)]
+            a = 0
+            for strip, nf in zip(fe.shape.strips, n_faces):
+                mid = (strip.s0 + strip.s1) / 2.0
+                col = next((c for c in fe.columns if c[0] - 1e-9 <= mid <= c[1] + 1e-9), None)
+                if col is not None and not col[5]:
+                    s0, s1, nose, t0, t1, _ = col
+                    o = fr_.to_world(nose, t0)
+                    pieces = max(1, round((t1 - t0) / stone))
+                    frame = ((o[0], o[1], 0.0), tv, uv, (t1 - t0) / pieces, s1 - s0)
+                    fe.face_frames.update({e.dxf.handle: frame for e in fe.source_element[a:a + nf]})
+                a += nf
 
     @staticmethod
     def _step_frames(ent):
@@ -155,7 +194,8 @@ class EntranceEngine:
         for ent in self.entrances:
             labeled = False
             for name, m in self.strip_members(ent):
-                concrete = not isinstance(m, (EscalatorPartData, EscalatorStepData))
+                concrete = not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData))
+                fin_layer = isinstance(m, StairFinishData)
                 t0, t1 = m.t_range
                 polys = [cut_faces_by_plane(strip_faces(ent.frame, st, t0, t1), cx, cy, nx, ny) for st in m.shape.strips]
                 polys += [p.cut_by_plane(cx, cy, nx, ny) for p in getattr(m, "pieces", [])]
@@ -166,7 +206,7 @@ class EntranceEngine:
                     if not labeled:
                         label = (ent.name, min(w for w, _ in poly), max(z for _, z in poly) + 0.5, 0.4, "SEC_TEXT")
                         labeled = True
-                    items.append(ViewItem(name, "SEC_CONCRETE" if concrete else "SEC_ESCALATOR",
+                    items.append(ViewItem(name, "SEC_CONCRETE" if concrete else ("SEC_FINISH" if fin_layer else "SEC_ESCALATOR"),
                                           u0=min(w for w, _ in poly), u1=max(w for w, _ in poly), pts=poly,
                                           hatch_layer="SEC_HATCH" if concrete else None, label=label))
         return items

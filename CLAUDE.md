@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1098개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1102개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -265,7 +265,8 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
     - **버림 콘크리트** `lean_t`(기본 0 = 없음, 도면 0.14)·`lean_ext`(외곽 밖 0.155): 바닥 하면 아래 `LEAN(_Z{k})`, IFC IfcSlab BASESLAB, 재질 Lean_Concrete.
     - GUI: 출입구 탭 '두께 구간…' 버튼 → 창(줄마다 u 시작·두께, + 구간 추가·삭제), 옆에 요약. 입력칸 흙 덮개·버림 콘크리트·버림 내민 폭. `EntranceDraft.thick_zones = [[u, t]]`(문자열, 빈 줄 무시) → 프로젝트 파일.
     - **2단계 ESC 상세**: 출입구 에스컬레이터도 정거장과 같은 상세 형상 — `NoseLine`(곡선 전이, 아래 = 통로 끝 바닥 마감면 `zl` = Zp + 통로 마감 ffl(마감 켤 때), 위 = 지표), `escalator_part_strips(steps_range=…)`(스커트·데크·유리·뉴얼·승강구판·콤·외장), 개별 스텝(`layout_steps` → `EscalatorStepData`, 이름 `{EN}_ESC_STEP###`, IFC IfcBuildingElementPart STEP + Pset `SSBIM_EscalatorStep`). 박스는 곡선 코 선을 따름: 에스컬레이터 구역 바닥 상면 = 트러스 하면(전이 표본점에서 꺾인 PL — 상부 볼록 전이에서 트러스가 바닥을 ~5cm 파고들던 것 방지), 천장 머리 높이선도 곡선 코 선 + 머리 높이. 하부 피트 끝 `u_cross` = 트러스 하면이 구조 바닥 Zp 를 지나는 점. 3D 레이어: 에스컬레이터 부재·스텝 = STRUCT_ESCALATOR / 유리 STRUCT_ESC_GLASS(예전엔 STRUCT_ENTRANCE) → 미리보기 '계단·ESC·EV' 묶음, `element_materials`·`stair_face_frames` 가 출입구 에스컬레이터도 (핸드레일 검정·스텝 텍스처 한 장씩, `EntranceEngine._step_frames`). 상세 제원 `esc_lower_radius`·`esc_upper_radius`·`esc_skirt_height`·`esc_deck_width`·`esc_glass_t`·`esc_newel_ext`·`esc_newel_radius`(GUI 미노출 — 다른 esc_* 처럼 기본값), 치수 검사는 `escalator_check.check_escalator_shape` 공유. 볼라드는 아직(정거장 좌표 기반).
-    - 남은 단계: 3 계단 마감(계단석·논슬립), 4 내부 마감(바닥·벽·경사 천장·통로 접합부·상단 개구부). 바닥을 내린 하부 피트·상부 개구부 벽 턱(300/700)은 두께 구간으로 일부 표현 가능.
+    - **3단계 계단 마감**: 마감을 켜고 계단 마감을 쓰면(`FinishSettings.stair_finish()`) 출입구 계단도 정거장 계단과 같은 계단석 분리 구조 — `finished_stair(…, top_extra)`(위 끝 평탄부를 상단 끝벽까지 — 정거장은 0), 디딤판 = 통로 끝 바닥 마감면(`zl`, ESC 와 같음) ~ 지표를 같은 단높이로, 구조 = 매끈한 경사 슬래브(첫 런은 구조 바닥 아래 잘라냄), 스텝 판석·통석·콘크리트, 논슬립. 옆면 마감은 **에스컬레이터(칸막이벽) 쪽만**(칸막이벽이 계단 슬래브 하면까지라 그 위로 드러남), 벽 쪽은 없음(에스컬레이터 없으면 양쪽 없음). 계단 자동 앞당김 검사도 같은 계단(`make_stair`). `EntranceLayout.spec_stair_finish`, `lay.stair.finish`·`finish_base`. 엔진 `StairData.finishes`(이름 `{EN}_STAIR_FIN_{코드}_{k}`) → 3D FIN_STAIR, 디딤판 계단석 텍스처 한 장씩(`EntranceEngine._tread_frames`, 출입구 좌표), 횡단 SEC_FINISH, IFC IfcCovering → IfcRelCoversBldgElements(IfcStair), `element_materials`·`stair_face_frames` 가 출입구 계단 마감도. 검증: 세 방식 모두 계단 가운데 무작위 u 에서 연직 겹침·빈틈 없음 + 맨 위 = 걷는 면, 체적 = 메쉬 = IFC.
+    - 남은 단계: 4 내부 마감(계단석·논슬립), 4 내부 마감(바닥·벽·경사 천장·통로 접합부·상단 개구부). 바닥을 내린 하부 피트·상부 개구부 벽 턱(300/700)은 두께 구간으로 일부 표현 가능.
   - 지표 EL 은 출입구마다 입력, 비우면(GUI 기본 빈칸) 정거장 공통 지표 EL.
   - 검증: 통로 존재·통로당 1개, 치수, 내공 폭 ≥ 통로 내공 폭, 에스컬레이터 구역 ≥ 트러스 외폭, 지표가 통로 바닥보다 충분히 높음(토피), 계단 바닥 위.
 - **환기구(1단계)**: `VentSpec`(층, `path` = 출구통로와 같은 PathVertex, **n련 연속박스**: 련 수 4·칸 내공 2.5×3.0·바깥 벽 0.6·중벽 0.4·바닥/천장 0.6·칸마다 상부 헌치 0.3, 수직구 깊이(비우면 칸 높이), 그릴 두께 0.1·테두리 0.1·살 0.03·간격 0.1).

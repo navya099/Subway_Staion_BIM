@@ -102,7 +102,10 @@ def element_materials(engine) -> dict:
     tactile = getattr(engine, "tactiles", None)
     stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
     pfin = getattr(engine, "passage_finishes", None)
-    for e in engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin +             (pfin.elements if pfin is not None else []):
+    ents_ = getattr(engine, "entrances", None)
+    ent_fin = [f for en in (ents_.entrances if ents_ is not None else []) for f in en.stair.finishes]   # 출입구 계단 마감
+    for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
+              + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
     rails = getattr(engine, "railings", None)
     for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
@@ -138,10 +141,11 @@ def stair_face_frames(engine) -> dict:
     (계단석: StairEngine.add_stair_mesh, 에스컬레이터 스텝: EscalatorEngine._step_frames)"""
     out = {}
     stairs = getattr(engine, "stairs", None)
-    for fe in (stairs.finish_elements() if stairs is not None else []):
+    ents = getattr(engine, "entrances", None)
+    ent_fin = [f for en in (ents.entrances if ents is not None else []) for f in en.stair.finishes]   # 출입구 계단 마감
+    for fe in (stairs.finish_elements() if stairs is not None else []) + ent_fin:
         out.update(getattr(fe, "face_frames", None) or {})
     escs = getattr(engine, "escalators", None)
-    ents = getattr(engine, "entrances", None)
     ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
     for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:
         for stp in esc.steps:

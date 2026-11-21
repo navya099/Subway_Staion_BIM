@@ -50,10 +50,12 @@ def _crossing(a, b, fa, fb):
     return None
 
 
-def finished_stair(spec, fin, counts: list, r: float, e_base: float, floor_fn, s_at, curve_factor, sides: tuple):
+def finished_stair(spec, fin, counts: list, r: float, e_base: float, floor_fn, s_at, curve_factor, sides: tuple,
+                   top_extra: float = 0.0):
     """(구조 부재 [PartLayout], 마감 부재 [FinishPart]).
     counts: 런별 챌판 수, r: 단높이 (마감면 기준), e_base: 아래층 바닥 마감면 표고 (첫 챌판 아래),
-    floor_fn(u): 시작면(구조) 표고, s_at(u): 진행 좌표 → s, curve_factor(sa, sb, t_center), sides = (t0 쪽 옆면 두께, t1 쪽)"""
+    floor_fn(u): 시작면(구조) 표고, s_at(u): 진행 좌표 → s, curve_factor(sa, sb, t_center), sides = (t0 쪽 옆면 두께, t1 쪽),
+    top_extra: 위층 도착 디딤판 뒤로 같은 높이로 더 늘이는 길이 (출입구 상부 평탄부, 정거장은 0)"""
     from stairs.stair_layout import PartLayout
     g, w, d = spec.tread, spec.waist_t, fin.depth
     slope = r / g
@@ -86,7 +88,7 @@ def finished_stair(spec, fin, counts: list, r: float, e_base: float, floor_fn, s
             cols.append((u_end, u_end + spec.landing_len, top, corner, top, False, True, lidx))
             u = u_end + spec.landing_len
         else:
-            cols.append((u_end, u_end + g, top, corner, top, False, False, pidx))
+            cols.append((u_end, u_end + g + top_extra, top, corner, top, False, False, pidx))
         j0 += c
 
     struct = [[] for _ in part_defs]

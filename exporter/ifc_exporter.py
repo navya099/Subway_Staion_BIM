@@ -500,6 +500,15 @@ class IFCExporter:
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_stair,
                                     RelatedObjects=flights)
             members.append(ifc_stair)
+            covers = []
+            for fe in st.finishes:                             # 계단 마감 (정거장 계단과 같음)
+                from stairs.stair_finish import CODES as STAIR_FIN_CODES
+                covers.append(self._frame_element("IfcCovering", fe, ent.frame, self._frame_strip_solids(fe, "StairFinishProfile"),
+                                                  PredefinedType=STAIR_FIN_CODES[fe.code][1]))
+            if covers:
+                self.file.create_entity("IfcRelCoversBldgElements", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingBuildingElement=ifc_stair, RelatedCoverings=covers)
+                members += covers
             if ent.escalator:
                 esc = ent.escalator
                 ifc_esc = self.file.create_entity(

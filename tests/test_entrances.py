@@ -455,3 +455,69 @@ def test_entrance_escalator_starts_at_passage_finished_floor():
     zl, G = lay.escalator.finish_levels
     assert zl == pytest.approx(lay.z_floor + ffl) and G == pytest.approx(lay.ground)       # 스텝 면 = 통로 바닥 마감면 ~ 지표
     assert lay.escalator.nose(-5.0) == pytest.approx(zl) and lay.escalator.rise == pytest.approx(G - zl)
+
+
+# ===================================================== 리팩토링 3단계: 계단 마감 (계단석 분리 구조)
+def _fin_cfg(**kw):
+    from finishes.finish_spec import FinishSettings
+    cfg = cfg_with(kw or {})
+    cfg.finish_settings = FinishSettings(enabled=True)
+    return cfg
+
+
+@pytest.mark.parametrize("method", ["plate", "solid", "concrete"])
+def test_entrance_stair_finish_stack(method):
+    import dataclasses as dc
+    import random
+    cfg = _fin_cfg()
+    cfg.finish_settings.stair = dc.replace(cfg.finish_settings.stair, method=method)
+    eng = StationCADEngine(cfg)
+    ent = eng.entrances.entrances[0]
+    lay, st = ent.layout, ent.stair
+    zl = lay.escalator.finish_levels[0]
+    assert st.finishes and lay.stair.finish_base == pytest.approx(zl)
+    srf = sorted(s for p in st.parts for s in p.surfaces)
+    assert srf[0][2] == pytest.approx(zl + lay.stair.riser)                                   # 첫 디딤판 = 마감면 + 단높이
+    members = [(p.t_range, s) for p in st.parts for s in p.shape.strips] + \
+        [(f.t_range, s) for f in st.finishes for s in f.shape.strips]
+    tc = (lay.spec.stair_spec().t_lo + lay.spec.stair_spec().t_hi) / 2
+    u_lo, u_hi = srf[0][0] + 0.05, lay.u["top"] - 0.05
+    rng = random.Random(5)
+    for _ in range(300):                                                                       # 연직 쌓임: 겹침·빈틈 없음, 맨 위 = 걷는 면
+        u = rng.uniform(u_lo, u_hi)
+        col = sorted((s.zb_at(u), s.zt_at(u)) for (t0, t1), s in members if t0 < tc < t1 and s.s0 < u < s.s1)
+        col = [c for c in col if c[1] - c[0] > 1e-9]
+        for (b0, t0_), (b1, t1_) in zip(col, col[1:]):
+            assert t0_ <= b1 + 1e-6 and b1 - t0_ < 1e-6, (u, col)
+        cover = [z for a, b, z in srf if a - 1e-9 <= u <= b + 1e-9]                       # 디딤판·계단참 (출입구 좌표)
+        walk = max(cover) if cover else lay.ground                                           # 마지막 디딤판 뒤 = 지표 높이 도착부
+        assert col[-1][1] == pytest.approx(walk, abs=1e-6), (u, col[-1], walk)
+
+
+def test_entrance_stair_finish_sides_textures_and_ifc(tmp_path):
+    from exporter.dae_exporter import stair_face_frames
+    eng = StationCADEngine(_fin_cfg())
+    ent = eng.entrances.entrances[0]
+    sp = ent.layout.spec.stair_spec()
+    side = [f for f in ent.stair.finishes if f.code == "SIDE"]
+    part_t = ent.layout.spec.zones()["partition"]
+    assert side and all(abs(f.t_range[1] - part_t[0]) < 1e-9 or abs(f.t_range[0] - part_t[1]) < 1e-9 for f in side)   # 에스컬레이터(칸막이) 쪽만
+    assert all(f.t_range[0] > sp.t_lo + 1e-6 or f.t_range[1] < sp.t_hi - 1e-6 for f in side)
+    eng.build_3d_doc()
+    frames = stair_face_frames(eng)
+    tread = [f for f in ent.stair.finishes if f.code == "TREAD"]
+    assert tread and all(f.face_frames and set(f.face_frames) <= set(frames) for f in tread)       # 디딤판마다 계단석 한 장
+    assert {e.dxf.layer for f in ent.stair.finishes for e in f.source_element} == {"FIN_STAIR"}
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "f.ifc"))
+    covs = [c for c in f.by_type("IfcCovering") if c.Name.startswith("EN1_STAIR_FIN_")]
+    assert len(covs) == len(ent.stair.finishes)
+    rel = next(r for r in f.by_type("IfcRelCoversBldgElements") if r.RelatingBuildingElement.Name == "EN1_STAIR")
+    assert set(rel.RelatedCoverings) == set(covs)
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for name, m in eng.entrances.strip_members(ent):                                           # 마감 포함 체적 교차 검증
+        if not name.startswith("EN1_STAIR"):
+            continue
+        formula = m.shape.volume
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m))
+        assert mesh == pytest.approx(formula, rel=1e-7, abs=1e-8)
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)

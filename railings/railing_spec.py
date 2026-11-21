@@ -10,7 +10,9 @@ import dataclasses
 class RailingSettings:
     """유리난간. enabled: 생성 여부 (모델 기본 끔 — 기존 출력 유지, GUI 는 켬)
     escalators: 에스컬레이터 오프닝에도 둘지 (계단 오프닝은 항상)
-    경계석: 오프닝 가장자리에서 바깥으로 curb_w, 위층 구조 바닥(슬래브 상면) ~ 바닥 마감면 + curb_h, 재질 curb_material
+    경계석: 오프닝 가장자리에서 바깥으로 curb_w, 위층 구조 바닥(슬래브 상면) ~ 바닥 마감면 + curb_h. ㅠ 형태 (실무):
+            양 옆면 흑색 걸레받이 석재(두께 skirt_t, skirt_material) 위에 화강석 석판(두께 plate_t, curb_material, 경계석 폭 전체),
+            그 사이 속채움(core_material)
     POST: 난간 중심선(경계석 가운데) 위, 중심선 방향 두께 post_w × 가로지르는 폭 post_d, 간격 post_spacing 이하로 고르게
     레일: 지름(정사각 단면 한 변) rail_d, 위 레일 윗면 = 바닥 마감면 + rail_h1, 아래 레일 중심 = 마감면 + rail_h2,
           POST 바닥 쪽 면에 붙음
@@ -21,6 +23,10 @@ class RailingSettings:
     curb_w: float = 0.25
     curb_h: float = 0.15
     curb_material: str = "화강석"
+    plate_t: float = 0.03
+    skirt_t: float = 0.02
+    skirt_material: str = "흑색 걸레받이"
+    core_material: str = "몰탈"
     post_w: float = 0.015
     post_d: float = 0.06
     post_spacing: float = 1.2
@@ -47,6 +53,10 @@ class RailingSettings:
         for nm, v in pos:
             if v <= 0:
                 raise ValueError(f"유리난간 {nm}({v:g})은(는) 0 보다 커야 합니다")
+        if self.plate_t <= 0 or self.plate_t >= self.curb_h:
+            raise ValueError(f"유리난간 경계석 석판 두께({self.plate_t:g})는 0 보다 크고 경계석 높이보다 작아야 합니다")
+        if self.skirt_t <= 0 or 2 * self.skirt_t >= self.curb_w:
+            raise ValueError(f"유리난간 걸레받이 두께({self.skirt_t:g})는 0 보다 크고 경계석 폭의 절반보다 작아야 합니다")
         for nm, v in (("유리 아래 띄움", self.glass_gap), ("유리 위 띄움", self.glass_top_gap), ("유리·POST 틈", self.post_gap)):
             if v < 0:
                 raise ValueError(f"유리난간 {nm}({v:g})은(는) 0 이상이어야 합니다")

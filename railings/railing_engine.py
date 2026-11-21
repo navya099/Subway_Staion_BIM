@@ -2,7 +2,7 @@
 
 배치는 railing_layout.layout_railings. 3D DXF(STRUCT_RAILING 경계석·POST·레일 / STRUCT_RAILING_GLASS 유리) / 횡단·종단
 (SEC_RAILING 윤곽) / 평면(PLAN_RAILING, 그 층 절단 높이를 지나는 조각) / IFC(IfcRailing GUARDRAIL ⊃ 경계석
-IfcBuildingElementPart · POST IfcMember(POST) · 레일 IfcMember(USERDEFINED HANDRAIL) · 유리 IfcPlate) 의 단일 원천.
+석판·걸레받이·속채움 IfcBuildingElementPart · POST IfcMember(POST) · 레일 IfcMember(USERDEFINED HANDRAIL) · 유리 IfcPlate) 의 단일 원천.
 """
 from dataclasses import dataclass, field
 
@@ -11,9 +11,9 @@ from finishes.finish_engine import room_piece
 from helper import prism_member as PM
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
-from railings.railing_layout import CURB, GLASS, POST, RAIL, layout_railings
+from railings.railing_layout import CORE, CURB, GLASS, POST, RAIL, SKIRT, layout_railings
 
-LABELS = {CURB: "경계석", POST: "POST", RAIL: "파이프 레일", GLASS: "유리판"}
+LABELS = {CURB: "경계석 석판", SKIRT: "경계석 걸레받이", CORE: "경계석 속채움", POST: "POST", RAIL: "파이프 레일", GLASS: "유리판"}
 GLASS_MATERIAL = "난간 유리"
 
 
@@ -44,11 +44,12 @@ class RailingEngine:
         self.cfg = config
         self.railings: list[RailingData] = []
         rs = config.railing_settings
-        mats = {CURB: rs.curb_material, POST: rs.post_material, RAIL: rs.post_material, GLASS: GLASS_MATERIAL}
+        mats = {CURB: rs.curb_material, SKIRT: rs.skirt_material, CORE: rs.core_material, POST: rs.post_material,
+                RAIL: rs.post_material, GLASS: GLASS_MATERIAL}
         for lay in layout_railings(config):
             level = config.station.level_name(lay.floor)
             parts = []
-            for code in (CURB, POST, RAIL, GLASS):
+            for code in (CURB, SKIRT, CORE, POST, RAIL, GLASS):
                 rects = lay.parts.get(code) or []
                 if not rects:
                     continue
@@ -94,6 +95,6 @@ class RailingEngine:
             for e in r.parts:
                 for p in e.pieces:
                     z0 = PM.z_off(self.cfg, p)
-                    if e.code == CURB or z0 - 1e-9 <= cut_h < z0 + p.shape.height - 1e-9:
+                    if e.code in (CURB, SKIRT) or z0 - 1e-9 <= cut_h < z0 + p.shape.height - 1e-9:
                         items.append(PM.plan_item(e.name, "PLAN_RAILING", p))
         return items

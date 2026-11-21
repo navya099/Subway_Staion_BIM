@@ -13,7 +13,7 @@ import pytest
 from engine.cad_engine import StationCADEngine
 from escalators.escalator_spec import EscalatorSpec
 from helper import prism_member as PM
-from railings.railing_layout import CURB, GLASS, POST, RAIL, layout_railings
+from railings.railing_layout import CORE, CURB, GLASS, POST, RAIL, SKIRT, layout_railings
 from railings.railing_spec import RailingSettings
 from stairs.stair_spec import StairSpec
 from test_finishes import cfg_with
@@ -83,7 +83,14 @@ def test_heights_follow_finished_floor():
     lay = next(l for l in layout_railings(cfg) if l.opening == "ST")
     ffl = st.floor_level(3) + cfg.finish_settings.table["기본"].ffl
     assert lay.ffl == pytest.approx(ffl)
-    assert all(z0 == pytest.approx(st.floor_level(3)) and z1 == pytest.approx(ffl + rs.curb_h) for *_, z0, z1 in lay.parts[CURB])
+    top = ffl + rs.curb_h                                           # ㅠ: 석판(폭 전체) 아래 양 옆 걸레받이 + 속채움, 구조 FL 부터
+    assert all(z0 == pytest.approx(top - rs.plate_t) and z1 == pytest.approx(top) for *_, z0, z1 in lay.parts[CURB])
+    for code in (SKIRT, CORE):
+        assert all(z0 == pytest.approx(st.floor_level(3)) and z1 == pytest.approx(top - rs.plate_t) for *_, z0, z1 in lay.parts[code])
+    assert len(lay.parts[SKIRT]) == 2 * len(lay.edges) and len(lay.parts[CORE]) == len(lay.edges)
+    # 경계석 단면: 석판 폭 = 걸레받이 2 + 속채움 (가장자리마다 같은 평면 넓이)
+    area = lambda r: (r[1] - r[0]) * (r[3] - r[2])
+    assert sum(map(area, lay.parts[CURB])) == pytest.approx(sum(map(area, lay.parts[SKIRT] + lay.parts[CORE])))
     assert max(z1 for *_, z1 in lay.parts[RAIL]) == pytest.approx(ffl + rs.rail_h1)
     assert max(z1 for *_, z1 in lay.parts[POST]) == pytest.approx(ffl + rs.rail_h1)
     off = make(finish=False)                                        # 마감을 끄면 구조 FL 기준
@@ -149,7 +156,7 @@ def test_glass_color_in_viewer_and_dae(tmp_path):
     data, _ = build_web_data(eng)
     glass = [c for c in data["chunks"] if c["layer"] == "STRUCT_RAILING_GLASS"]
     assert glass and glass[0]["color"] == [1.0, 0.0, 0.0] and glass[0]["alpha"] == 0.5
-    assert any(c["layer"] == "STRUCT_RAILING" and c["material"] == "화강석" for c in data["chunks"])
+    assert {"화강석", "흑색 걸레받이", "스테인리스"} <= {c["material"] for c in data["chunks"] if c["layer"] == "STRUCT_RAILING"}
     res = export_dae(eng, tmp_path / "m.dae")
     assert "난간 유리" in res.materials and "스테인리스" in res.materials
 

@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass, field
 
 _EPS = 1e-6
-CURB, POST, RAIL, GLASS = "CURB", "POST", "RAIL", "GLASS"
+CURB, SKIRT, CORE, POST, RAIL, GLASS = "CURB", "SKIRT", "CORE", "POST", "RAIL", "GLASS"   # CURB = 경계석 윗면 화강석 석판
 EDGES = ("T0", "T1", "S0", "S1")     # T0/T1 = t 일정(s 방향) 가장자리 −t/+t, S0/S1 = s 일정(t 방향) 가장자리 시점/종점 쪽
 
 
@@ -27,6 +27,7 @@ class RailingLayout:
 
     @property
     def curb_rects(self) -> list:
+        """경계석 평면 (윗면 석판 = 경계석 폭 전체)"""
         return [p[:4] for p in self.parts.get(CURB, [])]
 
 
@@ -104,11 +105,16 @@ def _parts(rs, rect, present, fl, ffl) -> dict:
     S0, S1, T0, T1 = rect
     c = rs.center
     curb_top = ffl + rs.curb_h
-    parts = {CURB: [], POST: [], RAIL: [], GLASS: []}
-    # 경계석
+    parts = {CURB: [], SKIRT: [], CORE: [], POST: [], RAIL: [], GLASS: []}
+    # 경계석 (ㅠ): 윗면 화강석 석판(폭 전체) + 양 옆 흑색 걸레받이 + 속채움. 바깥 거리 띠로 나눠 모서리에서도 겹침·빈틈 없음
+    cw, ts = rs.curb_w, rs.skirt_t
+    z_plate = curb_top - rs.plate_t
     for e in EDGES:
         if e in present:
-            parts[CURB].append((*band(rect, e, present, 0.0, rs.curb_w), fl, curb_top))
+            parts[CURB].append((*band(rect, e, present, 0.0, cw), z_plate, curb_top))
+            parts[SKIRT].append((*band(rect, e, present, 0.0, ts), fl, z_plate))
+            parts[SKIRT].append((*band(rect, e, present, cw - ts, cw), fl, z_plate))
+            parts[CORE].append((*band(rect, e, present, ts, cw - ts), fl, z_plate))
     # 레일 (POST 바닥 쪽 면에 붙음): 위 레일 윗면 rail_h1, 아래 레일 중심 rail_h2
     r0 = c + rs.post_d / 2.0
     for z0, z1 in ((ffl + rs.rail_h1 - rs.rail_d, ffl + rs.rail_h1),

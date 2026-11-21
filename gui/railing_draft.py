@@ -5,11 +5,12 @@ from gui.column_draft import _num
 from railings.railing_spec import RailingSettings
 
 # (속성, 라벨) 숫자 칸
-NUM_FIELDS = [("curb_w", "경계석 폭"), ("curb_h", "경계석 높이"), ("post_spacing", "POST 간격"),
+NUM_FIELDS = [("curb_w", "경계석 폭"), ("curb_h", "경계석 높이"), ("plate_t", "석판 두께"), ("skirt_t", "걸레받이 두께"),
+              ("post_spacing", "POST 간격"),
               ("post_w", "POST 두께"), ("post_d", "POST 폭"), ("rail_d", "레일 지름"),
               ("rail_h1", "위 레일 높이"), ("rail_h2", "아래 레일 높이"), ("glass_t", "유리 두께"),
               ("glass_alpha", "유리 불투명도")]
-TEXT_FIELDS = [("curb_material", "경계석 재질"), ("post_material", "POST·레일 재질")]
+TEXT_FIELDS = [("curb_material", "석판 재질"), ("skirt_material", "걸레받이 재질"), ("post_material", "POST·레일 재질")]
 
 
 @dataclass
@@ -20,6 +21,9 @@ class RailingDraft:
     curb_w: str = "0.25"
     curb_h: str = "0.15"
     curb_material: str = "화강석"
+    plate_t: str = "0.03"
+    skirt_t: str = "0.02"
+    skirt_material: str = "흑색 걸레받이"
     post_w: str = "0.015"
     post_d: str = "0.06"
     post_spacing: str = "1.2"
@@ -58,5 +62,5 @@ def preview(d: RailingDraft) -> str:
     except ValueError:
         return "→ 입력값을 확인하세요"
     who = "계단·에스컬레이터" if rs.escalators else "계단"
-    return (f"→ {who} 오프닝 둘레(도착 쪽 제외)에 경계석 {rs.curb_w:g}×{rs.curb_h:g} + POST {rs.post_spacing:g} 간격 + "
+    return (f"→ {who} 오프닝 둘레(도착 쪽 제외)에 경계석 {rs.curb_w:g}×{rs.curb_h:g}({rs.skirt_material} 위 {rs.curb_material} 석판) + POST {rs.post_spacing:g} 간격 + "
             f"유리 {rs.glass_t * 1000:g}mm, 레일 마감면 +{rs.rail_h1:g}/+{rs.rail_h2:g}")

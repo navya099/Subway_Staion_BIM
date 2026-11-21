@@ -38,6 +38,7 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("콘크리트", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("논슬립", (0.22, 0.22, 0.24)),
     RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
+    RenderMaterial("흑색 걸레받이", (0.10, 0.10, 0.11), "Skirting", 0.8, 0.2),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
     RenderMaterial("점자블록 점형", (0.96, 0.80, 0.10), "tactile_warning", 0.3, 0.3),

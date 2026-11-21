@@ -778,8 +778,8 @@ class IFCExporter:
                           ObjectPlacement=self._placement(),
                           Representation=self._product_shape([self._face_set(self._finish_faces(p)) for p in e.pieces],
                                                              "Tessellation"))
-                if e.code == "CURB":
-                    kw["ObjectType"] = "CURB"
+                if e.code in ("CURB", "SKIRT", "CORE"):
+                    kw["ObjectType"] = {"CURB": "CURB_PLATE", "SKIRT": "CURB_SKIRTING", "CORE": "CURB_CORE"}[e.code]
                     el = f.create_entity("IfcBuildingElementPart", PredefinedType="USERDEFINED", **kw)
                 elif e.code == "POST":
                     el = f.create_entity("IfcMember", PredefinedType="POST", **kw)

@@ -236,6 +236,17 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
                 mat_of[ent.dxf.handle] = m
+    ents_e = getattr(engine, "entrances", None)
+    extra = ents_e.sign_images() if ents_e is not None else []
+    if extra:                                                        # 출입구 캐노피 출구 사인
+        tex_dir = path.parent / TEXTURE_FOLDER
+        tex_dir.mkdir(exist_ok=True)
+        for k, (name, img, frame, faces) in enumerate(extra, start=1):
+            img_path = tex_dir / f"entrance_sign_{k:03d}.png"
+            img.save(img_path)
+            m = RenderMaterial(name, (1.0, 1.0, 1.0), image=str(img_path), frame=frame)
+            for ent in faces:
+                mat_of[ent.dxf.handle] = m
     handles = {}
     groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"}, handles)
     tread_frames = stair_face_frames(engine)

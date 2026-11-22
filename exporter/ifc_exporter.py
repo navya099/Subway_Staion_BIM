@@ -511,6 +511,20 @@ class IFCExporter:
                 else:
                     pre = {"FLOOR": "FLOORING", "FILL": "FLOORING", "WALL": "CLADDING", "CEILING": "CEILING"}[fe.kind]
                     members.append(self._frame_element("IfcCovering", fe, ent.frame, items, PredefinedType=pre))
+            for ce in ent.canopy:                              # 캐노피: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 출구 사인
+                items = self._frame_strip_solids(ce, "EntranceCanopyProfile")
+                if ce.kind == "CP_POST":
+                    members.append(self._frame_element("IfcColumn", ce, ent.frame, items, PredefinedType="COLUMN"))
+                elif ce.kind == "CP_BEAM":
+                    members.append(self._frame_element("IfcBeam", ce, ent.frame, items, PredefinedType="BEAM"))
+                elif ce.kind == "CP_GLASS":
+                    members.append(self._frame_element("IfcPlate", ce, ent.frame, items, PredefinedType="USERDEFINED"))
+                else:
+                    text = f"{ent.exit_number} 출구" + (": " + " / ".join(ent.exit_dest.splitlines()) if ent.exit_dest else "")
+                    el = self._frame_element("IfcBuildingElementProxy", ce, ent.frame, items, PredefinedType="USERDEFINED",
+                                             Description=text)
+                    el.ObjectType = "SIGNAGE"
+                    members.append(el)
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm,
                                     RelatedObjects=members)
             self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),

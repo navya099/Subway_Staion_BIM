@@ -57,6 +57,13 @@ class EntranceSpec:
                    (내공면 고정, 바깥면만 얇아짐)
         top_ffl: 상부 승강구 바닥 마감 두께 (m, 0 = 없음, 실무 100) — 에스컬레이터 구역 승강구 슬래브 윗면·상단 끝벽 윗면(높임)이 그만큼
                  낮아지고 그 위에 승강구 바닥 마감 부재 (마감을 꺼도 있음, 재질 top_material). 계단 구역은 계단 마감이 맡음
+        canopy: 지붕 없는 개구부 위 캐노피 (철골 + 평판 유리 지붕, 모델 기본 끔·GUI 켬). 기둥(cp_post 정사각) = 개구부 측벽
+                (파라펫) 두께 가운데 선, 파라펫 윗면 ~ 보 하면, 천장 끝 ~ 상단 끝벽 안쪽 면을 간격 ≤ cp_spacing 로 고르게. 보(cp_beam_w ×
+                cp_beam_h) = 기둥 선 위 테두리 보(뒤 = 가로 파라펫 바깥면 ~ 앞 = 상단 끝벽 바깥면 + cp_front) + 기둥마다·앞뒤 끝 가로 보.
+                보 하면 = 앞 끝에서 승강구 + cp_height, 뒤로 cp_slope 기울기로 낮아짐(배수). 유리(cp_glass_t) = 보 위, 옆은 기둥 선
+                너머 cp_side
+        cp_sign: 캐노피 앞 가로 보 아래 출구 사인 (폭 cp_sign_w × 높이 cp_sign_h × 두께 cp_sign_t, 바깥(+u)을 향함). 번호·목적지 =
+                 exit_number / exit_dest (비우면 사인 설정 출구 안내 → 통로 순번), 이미지 = 역 안 출구 사인과 같은 그림
         landing_t: 에스컬레이터 구역 승강구 슬래브 두께 (m, 실무 200) — 트러스 위 끝 ~ 상단 끝벽, 아래는 빈 공간(바닥 = 트러스 하면 높이)
         stair_offset: 계단 첫 챌판 위치 = 하부 피트 끝 + stair_offset (m, 0 이하). None 이면 자동: 피트 끝에서 시작하되
                       계단 슬래브가 바닥 아래로 내려가면 바닥 위에 머물 때까지 하부 수평부 쪽으로 앞당김
@@ -134,6 +141,22 @@ class EntranceSpec:
     top_ffl: float = 0.0             # 상부 승강구 바닥 마감 두께
     landing_t: float = 0.2           # 에스컬레이터 구역 승강구 슬래브 두께
     top_material: str = "화강석"      # 상부 승강구 바닥 마감 재질
+    canopy: bool = False             # 캐노피 (철골 + 유리 지붕)
+    cp_height: float = 3.0           # 앞 끝 보 하면 = 승강구 + 높이
+    cp_slope: float = 0.03           # 지붕 기울기 (뒤로 낮아짐)
+    cp_front: float = 0.6            # 앞 내밈 (상단 끝벽 바깥면 너머)
+    cp_side: float = 0.3             # 옆 내밈 (기둥 선 너머 유리)
+    cp_post: float = 0.2             # 기둥 (정사각 한 변)
+    cp_spacing: float = 4.0          # 기둥 간격 상한
+    cp_beam_w: float = 0.15          # 보 폭
+    cp_beam_h: float = 0.3           # 보 높이
+    cp_glass_t: float = 0.024        # 유리 두께
+    cp_sign: bool = True             # 캐노피 앞 출구 사인
+    cp_sign_w: float = 2.4
+    cp_sign_h: float = 0.6
+    cp_sign_t: float = 0.15
+    exit_number: str = ""            # 출구 번호 (비우면 사인 설정 / 통로 순번)
+    exit_dest: str = ""              # 목적지 (줄바꿈 구분, 비우면 사인 설정)
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

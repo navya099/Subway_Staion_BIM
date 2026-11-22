@@ -102,8 +102,11 @@ def _entrance_items(engine, ent, x0: float, t_off: float) -> list:
         esc = isinstance(m, (EscalatorPartData, EscalatorStepData))
         if not cut and (fin or t0 < t_off):                # 너머: 절단면 왼쪽(+t) 부재만, 마감은 너머로 안 그림
             continue
+        cp = isinstance(m, EntranceElementData) and m.kind.startswith("CP_")
         layer = ("PROF_FINISH" if fin else "PROF_ESCALATOR" if esc else "PROF_CONCRETE") if cut else "PROF_BEYOND"
-        hatch = cut and not fin and not esc
+        if cp and cut:
+            layer = "SEC_SIGN" if m.kind == "CP_SIGN" else "SEC_RAILING"           # 캐노피·출구 사인 (윤곽)
+        hatch = cut and not fin and not esc and not cp
         for st in m.shape.strips:
             pts = [(x0 + st.s0, st.zb0), (x0 + st.s1, st.zb1), (x0 + st.s1, st.zt_end), (x0 + st.s0, st.zt)]
             if max(abs(pts[3][1] - pts[0][1]), abs(pts[2][1] - pts[1][1])) < 1e-9:

@@ -1009,3 +1009,75 @@ def test_parapet_thickness_and_ground_reference(tmp_path):
     sp = EntranceDraft(passage="EX1").to_spec("출입구")
     assert sp.parapet_t is None and sp.top_ffl == 0.1 and sp.landing_t == 0.2                # 화면 기본 = 실무 상세 승강구 마감
     assert EntranceDraft(passage="EX1", parapet_t="0.3").to_spec("출입구").parapet_t == 0.3
+
+
+# ===================================================== 캐노피 (철골 + 평판 유리 지붕) · 앞 출구 사인
+CANOPY = dict(FORE, top_ffl=0.1, parapet_t=0.3, canopy=True, exit_number="3", exit_dest="검단신도시\n시청")
+
+
+def test_canopy_layout_and_outputs(tmp_path):
+    eng = StationCADEngine(cfg_with(CANOPY))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    sp, G, Gt = lay.spec, lay.ground, lay.top_level
+    u_re, u_top, end = lay.u["roof_end"], lay.u["top"], lay.u["end"]
+    cp = {p.code: p for p in lay.canopy}
+    a_o = sp.inner_width / 2 - 0.2
+    t_post = a_o + 0.15                                                                       # 파라펫(0.3) 두께 가운데
+    posts = sorted((p.strips[0].s0 + p.strips[0].s1) / 2 for c, p in cp.items() if c.startswith("CP_POST_L"))
+    assert posts[0] == pytest.approx(u_re + 0.1) and posts[-1] == pytest.approx(u_top - 0.1)
+    assert max(b - a for a, b in zip(posts, posts[1:])) <= sp.cp_spacing + 1e-9               # 간격 ≤ 상한, 고르게
+    zb = lambda u: Gt + sp.cp_height - sp.cp_slope * (end + sp.cp_front - u)
+    for c, p in cp.items():
+        if c.startswith("CP_POST"):
+            s = p.strips[0]
+            assert abs(abs(sum(p.t_range) / 2) - t_post) < 1e-9
+            assert s.zb0 == pytest.approx(G + sp.parapet) and s.zt == pytest.approx(zb(s.s0))   # 파라펫 윗면 ~ 보 하면
+    bl = cp["CP_BEAM_L"].strips[0]
+    assert (bl.s0, bl.s1) == pytest.approx((u_re - 0.3, end + sp.cp_front))                  # 가로 파라펫 바깥면 ~ 앞 내밈
+    assert (bl.zb0, bl.zb1) == pytest.approx((zb(bl.s0), zb(bl.s1)))
+    gl = cp["CP_GLASS"]
+    assert gl.t_range == pytest.approx((-(t_post + sp.cp_side), t_post + sp.cp_side))
+    assert gl.strips[0].zb0 == pytest.approx(zb(bl.s0) + sp.cp_beam_h)
+    sg = cp["CP_SIGN"]
+    assert sg.t_range == pytest.approx((-1.2, 1.2)) and sg.strips[-1].s1 == pytest.approx(end + sp.cp_front)
+    assert sg.strips[0].zb0 - Gt >= 2.1 - 1e-9
+    _no_overlap(lay.canopy + lay.box_parts, n=10)
+    # IFC: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 사인 IfcBuildingElementProxy(SIGNAGE), 체적 공식 = 메쉬 = IFC
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "cp.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    kinds = {"CP_POST": "IfcColumn", "CP_BEAM": "IfcBeam", "CP_GLASS": "IfcPlate", "CP_SIGN": "IfcBuildingElementProxy"}
+    for e in ent.canopy:
+        el = by_name[e.name]
+        assert el.is_a(kinds[e.kind])
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, e))
+        assert mesh == pytest.approx(e.volume, rel=1e-7)
+        assert ifc_world_volume(el) == pytest.approx(e.volume, rel=1e-6)
+    sign = by_name["EN1_CP_SIGN"]
+    assert sign.ObjectType == "SIGNAGE" and sign.Description == "3 출구: 검단신도시 / 시청"
+    # 3D 레이어 · 사인 이미지 (DAE textures/entrance_sign_001.png)
+    eng.build_3d_doc()
+    layers = {e.kind: {x.dxf.layer for x in e.source_element} for e in ent.canopy}
+    assert layers["CP_POST"] == {"STRUCT_CANOPY"} and layers["CP_GLASS"] == {"STRUCT_CANOPY_GLASS"}
+    assert layers["CP_SIGN"] == {"STRUCT_SIGN", "STRUCT_SIGN_FACE"}
+    (name, img, frame, faces), = eng.entrances.sign_images()
+    assert img.size[0] / img.size[1] == pytest.approx(2.4 / 0.6, rel=0.02) and frame[3:5] == pytest.approx((2.4, 0.6))
+    eng.generate_dae(str(tmp_path / "d" / "m.dae"))
+    assert (tmp_path / "d" / "textures" / "entrance_sign_001.png").exists()
+
+
+def test_canopy_rules_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    assert not lay_of(cfg_with(FORE)).canopy                                                  # 모델 기본 = 없음
+    with pytest.raises(ValueError, match="2.1m"):
+        lay_of(cfg_with(dict(CANOPY, cp_height=2.4)))
+    with pytest.raises(ValueError, match="보 사이"):
+        lay_of(cfg_with(dict(CANOPY, cp_sign_w=6.0)))
+    with pytest.raises(ValueError, match="보 폭"):
+        lay_of(cfg_with(dict(CANOPY, cp_beam_w=0.3)))
+    nos = lay_of(cfg_with(dict(CANOPY, cp_sign=False)))
+    assert "CP_SIGN" not in {p.code for p in nos.canopy}
+    eng = StationCADEngine(cfg_with(dict(CANOPY, exit_number="", exit_dest="")))
+    assert eng.entrances.entrances[0].exit_number == "1"                                      # 비우면 통로 순번
+    sp = EntranceDraft(passage="EX1", exit_number="2", exit_dest="시청 / 공원").to_spec("출입구")
+    assert sp.canopy and sp.exit_number == "2" and sp.exit_dest == "시청\n공원"                # 화면 기본 = 캐노피 있음

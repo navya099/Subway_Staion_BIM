@@ -159,6 +159,21 @@ class EntranceTab:
         zl.pack(side="left", padx=(4, 0))
         self._zone_labels[i] = zl
 
+        row2 = tk.Frame(box)                              # 캐노피 · 출구 사인
+        row2.pack(fill="x", pady=(4, 0))
+        cvar = tk.BooleanVar(value=getattr(it, "canopy", True))
+        self._vars[(i, "canopy")] = cvar
+
+        def on_canopy(*_, obj=it, v=cvar):
+            obj.canopy = v.get()
+            self.refresh_info()
+        cvar.trace_add("write", on_canopy)
+        tk.Checkbutton(row2, text="캐노피 (출구 사인)", variable=cvar, font=FONT).pack(side="left")
+        tk.Label(row2, text="출구 번호", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "exit_number", (i, "exit_number"), 4).pack(side="left", padx=(2, 0))
+        tk.Label(row2, text="목적지(/ 로 줄)", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "exit_dest", (i, "exit_dest"), 22).pack(side="left", padx=(2, 0))
+
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
         fields = [(attr, label) for attr, label, _ in NUM_FIELDS] + [("stair_offset", "계단 시작 조정")]

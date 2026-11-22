@@ -16,6 +16,9 @@ from stairs.stair_type import StairPartKind
 _FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리트-출입구천장슬래브", "WALL": "콘크리트-출입구벽체",
            "LEAN": "콘크리트-버림", "RAMP": "콘크리트-출입구경사로", "STEPS": "콘크리트-출입구바깥계단",
            "PAVE": "출입구 앞마당 포장", "LANDING": "콘크리트-출입구승강구슬래브", "LANDFIN": "출입구 승강구 바닥 마감"}
+_CANOPY = {"CP_POST": ("출입구 캐노피 기둥", "Canopy_Steel"), "CP_BEAM": ("출입구 캐노피 보", "Canopy_Steel"),
+           "CP_GLASS": ("출입구 캐노피 유리", "Canopy_Glass"), "CP_SIGN": ("출입구 출구 사인", "Aluminium_Sign")}
+_CANOPY_LAYER = {"CP_POST": "STRUCT_CANOPY", "CP_BEAM": "STRUCT_CANOPY", "CP_GLASS": "STRUCT_CANOPY_GLASS"}
 
 
 class EntranceEngine:
@@ -58,6 +61,15 @@ class EntranceEngine:
                     type_name=f"{lay.finish_type.name} {fin_labels[kind]}", level=level,
                     pos_z=min(min(s.zb0, s.zb1) for s in strips), material=mat, kind=kind, code=code, t_range=t_rng,
                     shape=StripShape(strips=strips, width=ft1 - ft0)))
+            canopy = []
+            for p in lay.canopy:
+                fam, mat = _CANOPY[p.kind]
+                ct0, ct1 = p.t_range
+                canopy.append(EntranceElementData(
+                    name=f"{lay.name}_{p.code}", family_name=fam, type_name=fam.split()[-1] if p.kind != "CP_SIGN" else "출구",
+                    level=level, pos_z=min(min(s.zb0, s.zb1) for s in p.strips), material=mat, kind=p.kind, code=p.code,
+                    t_range=p.t_range, shape=StripShape(strips=p.strips, width=ct1 - ct0)))
+            number, dest = self._exit_info(lay)
             n_esc = len(lay.escalators)
             escalators = [self._escalator(lay, level, e, k, n_esc) for k, e in enumerate(lay.escalators)]
             kinds = (["계단"] if lay.stair is not None else []) + ([f"ESC×{n_esc}" if n_esc > 1 else "ESC"] if n_esc else [])
@@ -65,7 +77,35 @@ class EntranceEngine:
                 name=lay.name, family_name="출입구", type_name=f"W{spec.inner_width:g} " + "+".join(kinds),
                 level=level, pos_x=lay.frame.px, pos_y=lay.frame.py, pos_z=lay.z_floor, passage=lay.passage, floor=floor,
                 frame=lay.frame, layout=lay, elements=elements, stair=stair, escalator=escalators[0] if escalators else None,
-                escalators=escalators, finishes=finishes))
+                escalators=escalators, finishes=finishes, canopy=canopy, exit_number=number, exit_dest=dest))
+
+    def _exit_info(self, lay) -> tuple:
+        """캐노피 출구 사인 (번호, 목적지): 출입구 입력 → 사인 설정 출구 안내(통로 이름) → 통로 순번"""
+        spec = lay.spec
+        ss = getattr(self.cfg, "sign_settings", None)
+        info = {e.passage.strip(): e for e in (ss.exit_info if ss is not None else []) if e.passage.strip()}.get(lay.passage)
+        names = [p.name for p in self.cfg.passage_layouts()]
+        number = spec.exit_number.strip() or (info.number.strip() if info and info.number.strip() else "") or \
+            str(names.index(lay.passage) + 1 if lay.passage in names else 1)
+        dest = spec.exit_dest.strip() or (info.destinations if info else "")
+        return number, dest
+
+    def sign_images(self) -> list:
+        """캐노피 출구 사인 [(재질 이름, PIL 이미지, uv 틀, 앞면 3DFACE 목록)] — DAE·웹 뷰어가 면에 한 장 맞춤. add_entrance_mesh 뒤에 부를 것"""
+        from signs.nameplate import render_exit
+        out = []
+        for ent in self.entrances:
+            for e in ent.canopy:
+                if e.kind != "CP_SIGN" or not getattr(e, "face_entities", None):
+                    continue
+                st = e.shape.strips[1]
+                t0, t1 = e.t_range
+                w, h = t1 - t0, st.zt - st.zb0
+                fr = ent.frame
+                x0, y0 = fr.to_world(st.s1, t0)                       # 앞(+u)에서 볼 때 오른쪽 = +t, 왼쪽 아래 = (앞면, t0, 하단)
+                frame = ((x0, y0, st.zb0), (-fr.uy, fr.ux, 0.0), (0.0, 0.0, 1.0), w, h, 0.0)
+                out.append((f"사인 {e.name}", render_exit(w, h, ent.exit_number, ent.exit_dest), frame, e.face_entities))
+        return out
 
     @staticmethod
     def _stair(lay, level) -> StairData:
@@ -139,6 +179,7 @@ class EntranceEngine:
         if ent.stair is not None:
             out += [(p.name, p) for p in ent.stair.parts] + [(f.name, f) for f in ent.stair.finishes]
         out += [(f.name, f) for f in ent.finishes]
+        out += [(c.name, c) for c in ent.canopy]
         for esc in ent.escalators:
             out += [(p.name, p) for p in esc.parts] + [(s.name, s) for s in esc.steps]
         return out
@@ -154,7 +195,15 @@ class EntranceEngine:
                 if isinstance(m, StairFinishData):
                     layer = "FIN_STAIR"
                 if isinstance(m, EntranceElementData) and m.kind in FLOOR_FINISH_KINDS:
-                    layer = "FIN_FLOOR"                                 # 앞마당 포장·승강구 바닥 마감 = 바닥 마감                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
+                    layer = "FIN_FLOOR"                                 # 앞마당 포장·승강구 바닥 마감 = 바닥 마감
+                if isinstance(m, EntranceElementData) and m.kind in _CANOPY_LAYER:
+                    layer = _CANOPY_LAYER[m.kind]                      # 캐노피 철골 / 유리
+                if isinstance(m, EntranceElementData) and m.kind == "CP_SIGN":   # 출구 사인: 본체 / 앞면 이미지 판
+                    quads = part_faces(ent.frame, m)
+                    body = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SIGN"}) for f in quads[0]]
+                    m.face_entities = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SIGN_FACE"}) for f in quads[1]]
+                    m.source_element = body + m.face_entities
+                    continue                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
                 if isinstance(m, EntranceFinishData):                    # 내부 마감 = 실 마감과 같은 레이어
                     layer = {"FLOOR": "FIN_FLOOR", "FILL": "FIN_FLOOR", "WALL": "FIN_WALL", "CEILING": "FIN_CEILING",
                              "FRAME": "FIN_FRAME"}[m.kind]
@@ -220,7 +269,9 @@ class EntranceEngine:
                 if isinstance(m, EntranceFinishData) and m.kind == "FRAME":
                     continue                                    # 천장틀은 단면에 안 그림
                 pave = isinstance(m, EntranceElementData) and m.kind in FLOOR_FINISH_KINDS
-                concrete = not pave and not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData, EntranceFinishData))
+                cp = isinstance(m, EntranceElementData) and m.kind.startswith("CP_")
+                concrete = not pave and not cp and not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData,
+                                                                      EntranceFinishData))
                 fin_layer = pave or isinstance(m, (StairFinishData, EntranceFinishData))
                 t0, t1 = m.t_range
                 polys = [cut_faces_by_plane(strip_faces(ent.frame, st, t0, t1), cx, cy, nx, ny) for st in m.shape.strips]
@@ -232,7 +283,10 @@ class EntranceEngine:
                     if not labeled:
                         label = (ent.name, min(w for w, _ in poly), max(z for _, z in poly) + 0.5, 0.4, "SEC_TEXT")
                         labeled = True
-                    items.append(ViewItem(name, "SEC_CONCRETE" if concrete else ("SEC_FINISH" if fin_layer else "SEC_ESCALATOR"),
+                    layer = "SEC_CONCRETE" if concrete else ("SEC_FINISH" if fin_layer else "SEC_ESCALATOR")
+                    if cp:
+                        layer = "SEC_SIGN" if m.kind == "CP_SIGN" else "SEC_RAILING"
+                    items.append(ViewItem(name, layer,
                                           u0=min(w for w, _ in poly), u1=max(w for w, _ in poly), pts=poly,
                                           hatch_layer="SEC_HATCH" if concrete else None, label=label))
         return items

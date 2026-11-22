@@ -77,6 +77,7 @@ class EntranceLayout:
     ceiling_raise: float = 0.0         # 천장판·천장틀 두께만큼 올린 천장 슬래브 높이
     escalators: list = field(default_factory=list)  # 에스컬레이터 대마다 (모두 같은 제원·u, t 만 다름)
     top_level: float = None            # 상부 승강구 바닥 표고 (지표 + top_rise)
+    canopy: list = field(default_factory=list)      # 캐노피 부재 EntrancePartLayout (CP_POST / CP_BEAM / CP_GLASS / CP_SIGN)
 
 
 class PL:
@@ -310,6 +311,57 @@ def forecourt(spec, a: float, u0: float, G: float, Gt: float) -> list:
         e = (spec.fc_foot_w - spec.fc_beam_t) / 2.0
         out.append(("FC_FOOT", "LEAN", t, strips_between(PL([_const(ub - e, ue + e, zb - spec.fc_foot_t)]),
                                                         PL([_const(ub - e, ue + e, zb)]), ub - e, ue + e), spec.fc_foot_t))
+    return out
+
+
+def canopy_parts(spec, name, G, Gt, u_re, u_back, u_top, end, t_post, z_base) -> list:
+    """캐노피 (철골 + 평판 유리 지붕) 부재 [EntrancePartLayout]. t_post = 기둥 중심선 |t| (측벽·파라펫 두께 가운데),
+    z_base = 기둥 밑 (파라펫 윗면), u_back = 지붕 뒤 끝 (가로 파라펫 바깥면). 보 하면 = 앞 끝에서 Gt + cp_height, 뒤로 cp_slope 로 낮아짐.
+    사인(CP_SIGN)은 띠 두 개 = [본체, 앞면 이미지 판 2mm]"""
+    bw, bh, ps = spec.cp_beam_w, spec.cp_beam_h, spec.cp_post
+    u_f = end + spec.cp_front
+    z_f = Gt + spec.cp_height
+
+    def zb(u):
+        return z_f - spec.cp_slope * (u_f - u)
+    p0, p1 = u_re + ps / 2.0, u_top - ps / 2.0
+    if p1 - p0 < -1e-9:
+        raise ValueError(f"출입구 {name}: 캐노피 기둥을 세울 개구부가 없습니다 (천장 끝 ~ 상단 끝벽이 기둥보다 짧음)")
+    n = max(1, math.ceil((p1 - p0) / spec.cp_spacing - 1e-9)) if p1 - p0 > 1e-9 else 0
+    posts = [p0 + (p1 - p0) * k / n for k in range(n + 1)] if n else [p0]
+    if zb(u_back) - z_base < 0.3 - 1e-9:
+        raise ValueError(f"출입구 {name}: 캐노피 뒤 끝 보 하면({zb(u_back) - G:.2f}m, 지표 위)이 파라펫 윗면보다 충분히 높지 않습니다 "
+                         "(캐노피 높이를 키우거나 기울기를 줄이세요)")
+    out = []
+
+    def box(code, kind, t, u0, u1, z0_of, z1_of, thick):
+        out.append(EntrancePartLayout(code, kind, t, [Strip(u0, u1, z0_of(u0), z0_of(u1), z1_of(u0), zt1=z1_of(u1))], thick))
+    ztop = lambda u: zb(u) + bh
+    for k, uc in enumerate(posts, start=1):
+        for tag, sg in (("L", 1), ("R", -1)):
+            box(f"CP_POST_{tag}{k}", "CP_POST", (sg * t_post - ps / 2.0, sg * t_post + ps / 2.0), uc - ps / 2.0, uc + ps / 2.0,
+                lambda u: z_base, zb, ps)
+    for tag, sg in (("L", 1), ("R", -1)):
+        box(f"CP_BEAM_{tag}", "CP_BEAM", (sg * t_post - bw / 2.0, sg * t_post + bw / 2.0), u_back, u_f, zb, ztop, bw)
+    inner = (-t_post + bw / 2.0, t_post - bw / 2.0)
+    cross = [(u_back, u_back + bw)] + [(uc - bw / 2.0, uc + bw / 2.0) for uc in posts] + [(u_f - bw, u_f)]
+    cross = [c for k, c in enumerate(sorted(cross)) if k == 0 or c[0] >= sorted(cross)[k - 1][1] - 1e-9]   # 겹치는 가로 보는 하나만
+    for k, (c0, c1) in enumerate(cross, start=1):
+        box(f"CP_BEAM_X{k}", "CP_BEAM", inner, c0, c1, zb, ztop, bw)
+    tg = t_post + spec.cp_side
+    box("CP_GLASS", "CP_GLASS", (-tg, tg), u_back, u_f, ztop, lambda u: ztop(u) + spec.cp_glass_t, spec.cp_glass_t)
+    if spec.cp_sign:
+        sw, sh, st = spec.cp_sign_w, spec.cp_sign_h, spec.cp_sign_t
+        if sw > 2 * t_post - bw + 1e-9:
+            raise ValueError(f"출입구 {name}: 출구 사인 폭({sw:g}m)이 캐노피 보 사이({2 * t_post - bw:.2f}m)보다 넓습니다")
+        z1 = zb(u_f - st)                              # 앞 가로 보 하면 아래 (기울어 낮은 쪽)
+        z0 = z1 - sh
+        if z0 - Gt < 2.1 - 1e-9:
+            raise ValueError(f"출입구 {name}: 출구 사인 아래 높이({z0 - Gt:.2f}m, 승강구 위)가 2.1m 보다 낮습니다 "
+                             "(캐노피 높이를 키우거나 사인 높이를 줄이세요)")
+        face = 0.002
+        out.append(EntrancePartLayout("CP_SIGN", "CP_SIGN", (-sw / 2.0, sw / 2.0),
+                                      [Strip(u_f - st, u_f - face, z0, z0, z1), Strip(u_f - face, u_f, z0, z0, z1)], st))
     return out
 
 
@@ -671,6 +723,13 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
                                         nose_at=nose, nose_breaks=nose_bps, ceil_pl=ceil_pl, roof_pl=roof_bot,
                                         joint_top=joint_top, a_open=a_o if spec.open_narrow > 0 else None)
 
+    # ---------- 캐노피 (지붕 없는 개구부 위 철골 + 유리 지붕, 앞 출구 사인)
+    canopy = []
+    if spec.canopy:
+        w_par = pt if split else tw_e                 # 기둥 = 측벽(지표 위 파라펫) 두께 가운데
+        canopy = canopy_parts(spec, name, G, Gt, u_re, u_re - pt_re, u_top, end, ai_e + w_par / 2.0,
+                              z_par if spec.parapet > 0 else G)
+
     # ---------- 계단·에스컬레이터 부재 (출입구 좌표의 띠). 개구부 내공 축소: 계단의 개구부 쪽 조각은 벽 쪽 변을 축소된 내공면까지
     if spec.stair and spec.open_narrow > 0:
         z0, z1 = zones["stair"]
@@ -700,4 +759,4 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         u=dict(wp_lo=u_wp, wp_hi=u_up, truss_lo=truss_lo, truss_hi=truss_hi, cross=u_cross, stair0=u_s0,
                arrive=arrive, top=u_top, end=end, roof_end=u_re, roof_knee=u_k),
         roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin,
-        finish=finish, finish_type=eft, ceiling_raise=rz, escalators=escalators)
+        finish=finish, finish_type=eft, ceiling_raise=rz, escalators=escalators, canopy=canopy)

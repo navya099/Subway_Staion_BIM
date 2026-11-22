@@ -62,6 +62,9 @@ class EntranceData(CommonBIMData):
     escalators: list = field(default_factory=list)
 
     finishes: list = field(default_factory=list)       # EntranceFinishData (내부 마감, 마감 끔 = [])
+    canopy: list = field(default_factory=list)         # 캐노피 EntranceElementData (CP_POST·CP_BEAM·CP_GLASS·CP_SIGN)
+    exit_number: str = ""                              # 캐노피 출구 사인 번호·목적지
+    exit_dest: str = ""
 
     def element(self, code: str) -> EntranceElementData:
         return next(e for e in self.elements if e.code == code)

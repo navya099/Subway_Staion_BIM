@@ -52,6 +52,7 @@ def check_entrance_spec(spec, name: str):
         if spec.ramp_width > spec.inner_width + 1e-9:
             raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
     check_landing(spec, name)
+    check_canopy(spec, name)
     for label, v in (("개구부 내공 축소", spec.open_narrow), ("바깥면 전이 기울기", spec.taper_ratio)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
@@ -158,3 +159,22 @@ def check_landing(spec, name: str):
         if spec.top_ffl + spec.landing_t >= spec.esc_truss_depth - 1e-6:
             raise ValueError(f"출입구 {name}: 승강구 마감 + 슬래브({spec.top_ffl + spec.landing_t:g}m)가 트러스 높이"
                              f"({spec.esc_truss_depth:g}m)보다 두껍습니다")
+
+
+def check_canopy(spec, name: str):
+    """캐노피·출구 사인 치수"""
+    if not spec.canopy:
+        return
+    for label, v in (("캐노피 높이", spec.cp_height), ("캐노피 기둥", spec.cp_post), ("캐노피 기둥 간격", spec.cp_spacing),
+                     ("캐노피 보 폭", spec.cp_beam_w), ("캐노피 보 높이", spec.cp_beam_h), ("캐노피 유리 두께", spec.cp_glass_t)):
+        if not v > 0:
+            raise ValueError(f"출입구 {name}: {label}는 0 보다 커야 합니다 ({v:g})")
+    for label, v in (("캐노피 기울기", spec.cp_slope), ("캐노피 앞 내밈", spec.cp_front), ("캐노피 옆 내밈", spec.cp_side)):
+        if not v >= 0:
+            raise ValueError(f"출입구 {name}: {label}는 0 이상이어야 합니다 ({v:g})")
+    if spec.cp_beam_w > spec.cp_post + 1e-9:
+        raise ValueError(f"출입구 {name}: 캐노피 보 폭({spec.cp_beam_w:g}m)이 기둥({spec.cp_post:g}m)보다 큽니다")
+    if spec.cp_sign:
+        for label, v in (("출구 사인 폭", spec.cp_sign_w), ("출구 사인 높이", spec.cp_sign_h), ("출구 사인 두께", spec.cp_sign_t)):
+            if not v > 0:
+                raise ValueError(f"출입구 {name}: {label}는 0 보다 커야 합니다 ({v:g})")

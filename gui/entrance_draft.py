@@ -25,7 +25,9 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("open_wall_t", "개구부 벽 두께", "opt"), ("taper_ratio", "바깥면 전이 길이/차", "nonneg"),
               ("fc_length", "앞마당 길이", "pos"), ("fc_flat", "앞마당 평탄 길이", "opt0"),
               ("fc_pave_t", "앞마당 포장 두께", "nonneg"), ("parapet_t", "파라펫 두께", "opt"),
-              ("top_ffl", "승강구 마감 두께", "nonneg"), ("landing_t", "승강구 슬래브", "pos")]
+              ("top_ffl", "승강구 마감 두께", "nonneg"), ("landing_t", "승강구 슬래브", "pos"),
+              ("cp_height", "캐노피 높이", "pos"), ("cp_slope", "캐노피 기울기", "nonneg"), ("cp_front", "캐노피 앞 내밈", "nonneg"),
+              ("cp_spacing", "캐노피 기둥 간격", "pos"), ("cp_sign_w", "출구 사인 폭", "pos"), ("cp_sign_h", "출구 사인 높이", "pos")]
 
 OUTDOOR_FORECOURT = "앞마당 슬래브"
 OUTDOOR_STEPS = "경사로·계단"
@@ -77,6 +79,15 @@ class EntranceDraft:
     parapet_t: str = ""                   # 비우면 천장 끝·벽 두께 그대로
     top_ffl: str = "0.1"                  # 화면 기본 = 실무 상세 (모델 기본 0)
     landing_t: str = f"{_SPEC.landing_t:g}"
+    canopy: bool = True                   # 화면 기본 = 캐노피 있음 (모델 기본 끔)
+    cp_height: str = f"{_SPEC.cp_height:g}"
+    cp_slope: str = f"{_SPEC.cp_slope:g}"
+    cp_front: str = f"{_SPEC.cp_front:g}"
+    cp_spacing: str = f"{_SPEC.cp_spacing:g}"
+    cp_sign_w: str = f"{_SPEC.cp_sign_w:g}"
+    cp_sign_h: str = f"{_SPEC.cp_sign_h:g}"
+    exit_number: str = ""                 # 비우면 사인 설정 출구 안내 / 통로 순번
+    exit_dest: str = ""                   # 목적지 ('/' 로 줄 나눔)
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 
@@ -117,6 +128,8 @@ class EntranceDraft:
             raise ValueError(f"{where}: 에스컬레이터 대수가 정수가 아닙니다 ('{self.escalator_count}')") from None
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
                             stair=bool(self.stair), escalator_count=n_esc, outdoor=_OUTDOOR[self.outdoor],
+                            canopy=bool(self.canopy), exit_number=str(self.exit_number).strip(),
+                            exit_dest="\n".join(x.strip() for x in str(self.exit_dest).split("/") if x.strip()),
                             stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
                             finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
 

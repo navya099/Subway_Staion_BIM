@@ -105,7 +105,7 @@ def element_materials(engine) -> dict:
     ents_ = getattr(engine, "entrances", None)
     ent_fin = [f for en in (ents_.entrances if ents_ is not None else [])
                for f in (en.stair.finishes if en.stair is not None else []) + en.finishes
-               + [e for e in en.elements if e.kind == "PAVE"]]   # 출입구 계단·내부 마감·앞마당 포장
+               + [e for e in en.elements if e.kind in ("PAVE", "LANDFIN")]]   # 출입구 계단·내부 마감·앞마당 포장·승강구 마감
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))

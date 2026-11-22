@@ -98,7 +98,7 @@ def _entrance_items(engine, ent, x0: float, t_off: float) -> list:
             continue
         t0, t1 = m.t_range
         cut = t0 - TOL <= t_off <= t1 + TOL
-        fin = isinstance(m, (EntranceFinishData, StairFinishData)) or (isinstance(m, EntranceElementData) and m.kind == "PAVE")
+        fin = isinstance(m, (EntranceFinishData, StairFinishData)) or (isinstance(m, EntranceElementData) and m.kind in ("PAVE", "LANDFIN"))
         esc = isinstance(m, (EscalatorPartData, EscalatorStepData))
         if not cut and (fin or t0 < t_off):                # 너머: 절단면 왼쪽(+t) 부재만, 마감은 너머로 안 그림
             continue

@@ -49,7 +49,8 @@ class EntranceFrame:
 @dataclass
 class EntrancePartLayout:
     code: str                 # FLOOR_S, FLOOR_E, ROOF, WALL_L, WALL_R, END_WALL_S, END_WALL_E, JOINT_WALL_L/R, PARTITION, LEAN
-    kind: str                 # FLOOR / ROOF / WALL / LEAN (버림 콘크리트) / RAMP / STEPS / PAVE (앞마당 포장)   (두께 구간이 둘 이상이면 측벽·바닥·천장·버림은 _Z{k})
+    kind: str                 # FLOOR / ROOF / WALL / LEAN (버림 콘크리트) / RAMP / STEPS / LANDING (승강구 슬래브) /
+    #                           PAVE (앞마당 포장) / LANDFIN (승강구 바닥 마감) — PAVE·LANDFIN = 바닥 마감 부재(FLOOR_FINISH_KINDS)   (두께 구간이 둘 이상이면 측벽·바닥·천장·버림은 _Z{k})
     t_range: tuple
     strips: list
     thick: float = None       # 부재 두께 (벽·슬래브: 그 구간 두께)
@@ -460,7 +461,7 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
     struct_top = PL([_const(0.0, truss_lo - T, zp), _const(truss_lo - T, u_wp, zl - D), (u_wp, u_up, zl - D, Gt - D),
                      _const(u_up, far, Gt - D)])
     e_top = PL([_const(0.0, truss_lo, zp)] + nose_pl(truss_lo, truss_hi, -D) +           # 트러스 하면 (곡선 전이 따라)
-               [_const(truss_hi, end, Gt)]) if spec.escalator else None
+               [_const(truss_hi, end, Gt - D)]) if spec.escalator else None   # 승강구 아래 = 트러스 하면 높이 (빈 공간)
     s_top = s_top_for(end)
     bottom = offset_zoned(struct_top, -1)
 
@@ -548,24 +549,55 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         t_s = lambda ai, tw: (-(ai + tw), ai + tw)
         add_zoned("FLOOR_S", "FLOOR", t_s, bottom, s_top, 0.0, end)
     add_zoned("ROOF", "ROOF", lambda ai, tw: (-(ai + tw), ai + tw), roof_bot, roof_top, 0.0, u_re)
-    # 개구부 시작부 가로 파라펫 (천장 슬래브 끝에서 그 두께만큼, 천장 상면 ~ 지표 + 파라펫, 외곽 전폭 — 흙막이 겸 난간벽)
+    # 개구부 시작부 가로 파라펫 (천장 슬래브 끝면에서 안쪽으로 파라펫 두께(비우면 천장 끝 두께), 천장 상면 ~ 지표 + 파라펫,
+    # 외곽 전폭 — 흙막이 겸 난간벽, 실무 상세 "d")
     T_re = spec.thick_at(u_re)
-    if spec.parapet > 0 and u_re - T_re > 1e-6:
+    z_par = G + spec.parapet                          # 파라펫 윗면 (지표 기준 — 실무 GL+300)
+    pt = spec.parapet_t
+    pt_re = pt if pt is not None else T_re
+    if spec.parapet > 0 and u_re - pt_re > 1e-6:
         add("PARAPET", "WALL", (-(a + T_re), a + T_re),
-            strips_between(roof_top, PL([_const(0.0, far, Gt + spec.parapet)]), u_re - T_re, u_re), T_re)
+            strips_between(roof_top, PL([_const(0.0, far, z_par)]), u_re - pt_re, u_re), pt_re)
+    # 개구부 측벽: 파라펫 두께를 주면 지표 위는 얇은 파라펫 (내공면 고정) — 벽은 지표까지
+    split = pt is not None and spec.parapet > 0
     wall_top = PL([(u0, min(u1, u_re), z0, z0 + (z1 - z0) * (min(u1, u_re) - u0) / (u1 - u0))
-                   for u0, u1, z0, z1 in roof_bot.segs if u0 < u_re] + [_const(u_re, end, Gt + spec.parapet)])
+                   for u0, u1, z0, z1 in roof_bot.segs if u0 < u_re] + [_const(u_re, end, G if split else z_par)])
     for code, side in (("WALL_L", 1), ("WALL_R", -1)):
         on_e = spec.escalator and (not spec.stair or (side > 0) == (e_side > 0))
         add_zoned(code, "WALL", (lambda ai, tw, sd=side: (ai, ai + tw) if sd > 0 else (-(ai + tw), -ai)),
                   e_top if on_e else s_top, wall_top, 0.0, u_top)
-    # 상단 끝벽: 높임이 있으면 승강구 바닥 높이까지만 (앞면 개방 = 출구, 앞에 바깥 경사로·계단), 없으면 지표 + 파라펫 (예전)
-    parapet = PL([_const(0.0, end, Gt if spec.top_rise > 0 else G + spec.parapet)])
     _, _, _, ai_e, tw_e = iv_at(u_top)               # 상단 끝벽 자리의 평면 구간 (개구부면 축소된 내공·개구부 벽 두께)
+    if split:
+        for code, side in (("PARAPET_L", 1), ("PARAPET_R", -1)):
+            lo_p = max(u_re, 0.0)
+            add(code, "WALL", (ai_e, ai_e + pt) if side > 0 else (-(ai_e + pt), -ai_e),
+                strips_between(PL([_const(lo_p, u_top, G)]), PL([_const(lo_p, u_top, z_par)]), lo_p, u_top), pt)
+    # 상단 끝벽: 높임이 있으면 승강구 높이 − 승강구 마감까지 (앞면 개방 = 출구, 앞에 바깥 경사로·계단·앞마당),
+    # 없으면 지표 + 파라펫 (파라펫 두께를 주면 지표 위는 얇은 파라펫)
+    raised = spec.top_rise > 0
+    end_top = Gt - spec.top_ffl if raised else (G if split else z_par)
+    parapet = PL([_const(0.0, end, end_top)])
     if spec.stair:
         add("END_WALL_S", "WALL", t_s(ai_e, tw_e), strips_between(s_top, parapet, u_top, end), T_end)
     if spec.escalator:
         add("END_WALL_E", "WALL", t_e(ai_e, tw_e), strips_between(e_top, parapet, u_top, end), T_end)
+    if split and not raised:
+        add("PARAPET_END", "WALL", (-(ai_e + tw_e), ai_e + tw_e),
+            strips_between(PL([_const(u_top, end, G)]), PL([_const(u_top, end, z_par)]), u_top, u_top + pt), pt)
+    # 에스컬레이터 구역 승강구 (트러스 위 끝 ~ 상단 끝벽 안쪽 면): 슬래브(landing_t, 윗면 = 승강구 − 마감) + 아래 빈 공간
+    # + 승강구 바닥 마감(top_ffl), 높임이면 상단 끝벽 위도 마감 — 실무 종단·상세 "a"
+    if spec.escalator:
+        z0e, z1e = zs["escalator"] if spec.stair else (-ai_e, ai_e)
+        t_land = (max(z0e, -ai_e), min(z1e, ai_e))
+        z_ls = Gt - spec.top_ffl
+        add("LANDING_E", "LANDING", t_land, strips_between(PL([_const(truss_hi, u_top, z_ls - spec.landing_t)]),
+                                                           PL([_const(truss_hi, u_top, z_ls)]), truss_hi, u_top), spec.landing_t)
+        if spec.top_ffl > 0:
+            add("FIN_TOP_E", "LANDFIN", t_land, strips_between(PL([_const(truss_hi, u_top, z_ls)]),
+                                                                 PL([_const(truss_hi, u_top, Gt)]), truss_hi, u_top), spec.top_ffl)
+    if raised and spec.top_ffl > 0:
+        add("FIN_TOP_W", "LANDFIN", (-(ai_e + tw_e), ai_e + tw_e),
+            strips_between(PL([_const(u_top, end, Gt - spec.top_ffl)]), PL([_const(u_top, end, Gt)]), u_top, end), spec.top_ffl)
     roof_lo = PL([_const(0.0, T, roof_bot.at(0.0))])
     if a - a_p > 1e-6:
         add("JOINT_WALL_L", "WALL", (a_p, a), strips_between(PL([_const(0.0, T, zp)]), roof_lo, 0.0, T), T)
@@ -635,7 +667,7 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
             if ceiling_fit(pl.spec, pft)[0]:
                 joint_top = min(joint_top, zp + pft.ffl + pft.ceiling_h)         # 통로 천장판 하면까지 막음
         finish = layout_entrance_finish(spec, eft, a=a, a_p=a_p, T=T, zones=zones, e_side=e_side if spec.escalator else 1,
-                                        zl=zl, G=Gt, u_s0=u_s0, surfaces=surfaces, u_top=u_top, u_re=u_re, truss_lo=truss_lo,
+                                        zl=zl, G=Gt, ground=G, u_s0=u_s0, surfaces=surfaces, u_top=u_top, u_re=u_re, truss_lo=truss_lo,
                                         nose_at=nose, nose_breaks=nose_bps, ceil_pl=ceil_pl, roof_pl=roof_bot,
                                         joint_top=joint_top, a_open=a_o if spec.open_narrow > 0 else None)
 

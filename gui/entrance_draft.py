@@ -24,7 +24,8 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("out_tread", "바깥 단너비", "pos"), ("open_narrow", "개구부 내공 축소", "nonneg"),
               ("open_wall_t", "개구부 벽 두께", "opt"), ("taper_ratio", "바깥면 전이 길이/차", "nonneg"),
               ("fc_length", "앞마당 길이", "pos"), ("fc_flat", "앞마당 평탄 길이", "opt0"),
-              ("fc_pave_t", "앞마당 포장 두께", "nonneg")]
+              ("fc_pave_t", "앞마당 포장 두께", "nonneg"), ("parapet_t", "파라펫 두께", "opt"),
+              ("top_ffl", "승강구 마감 두께", "nonneg"), ("landing_t", "승강구 슬래브", "pos")]
 
 OUTDOOR_FORECOURT = "앞마당 슬래브"
 OUTDOOR_STEPS = "경사로·계단"
@@ -73,6 +74,9 @@ class EntranceDraft:
     fc_length: str = f"{_SPEC.fc_length:g}"
     fc_flat: str = ""                     # 비우면 자동 (포장 윗면이 앞마당 끝에서 지표)
     fc_pave_t: str = f"{_SPEC.fc_pave_t:g}"
+    parapet_t: str = ""                   # 비우면 천장 끝·벽 두께 그대로
+    top_ffl: str = "0.1"                  # 화면 기본 = 실무 상세 (모델 기본 0)
+    landing_t: str = f"{_SPEC.landing_t:g}"
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 

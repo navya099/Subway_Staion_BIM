@@ -50,7 +50,14 @@ class EntranceSpec:
         haunch_w / haunch_h: 천장 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         lower_margin: 하부 이음벽 안쪽 면 ~ 에스컬레이터 트러스 하단 끝 (m)
         top_margin: 계단·에스컬레이터 상단 끝 ~ 상단 끝벽 안쪽 면 (m)
-        parapet: 개구부 측벽·끝벽의 지표면 위 높이 (m)
+        parapet: 파라펫(개구부 측벽·끝벽·천장 끝 가로 파라펫) 윗면의 지표(GL) 위 높이 (m, 실무 GL+300). 상부 승강구를 높이면
+                 top_rise 이상이어야 함
+        parapet_t: 파라펫 두께 (m, None = 예전: 가로 파라펫 = 천장 끝 두께, 측벽·끝벽은 벽 두께 그대로). 주면 천장 끝 가로 파라펫
+                   (천장 슬래브 끝면에서 안쪽으로 그 두께, 실무 상세 "d" 300)과 개구부 측벽·끝벽(높임 없을 때)의 지표 위 부분이 그 두께
+                   (내공면 고정, 바깥면만 얇아짐)
+        top_ffl: 상부 승강구 바닥 마감 두께 (m, 0 = 없음, 실무 100) — 에스컬레이터 구역 승강구 슬래브 윗면·상단 끝벽 윗면(높임)이 그만큼
+                 낮아지고 그 위에 승강구 바닥 마감 부재 (마감을 꺼도 있음, 재질 top_material). 계단 구역은 계단 마감이 맡음
+        landing_t: 에스컬레이터 구역 승강구 슬래브 두께 (m, 실무 200) — 트러스 위 끝 ~ 상단 끝벽, 아래는 빈 공간(바닥 = 트러스 하면 높이)
         stair_offset: 계단 첫 챌판 위치 = 하부 피트 끝 + stair_offset (m, 0 이하). None 이면 자동: 피트 끝에서 시작하되
                       계단 슬래브가 바닥 아래로 내려가면 바닥 위에 머물 때까지 하부 수평부 쪽으로 앞당김
         riser_max / tread / flight_rise_max / landing_len / stair_slab_t / stair_headroom: 계단 규칙 (계단 객체와 같은 의미)
@@ -123,6 +130,10 @@ class EntranceSpec:
     fc_foot_w: float = 0.61          # 끝단 보 아래 기초 버림 폭 / 두께
     fc_foot_t: float = 0.14
     fc_material: str = "화강석"       # 앞마당 포장 재질
+    parapet_t: Optional[float] = None  # 파라펫 두께 (None = 천장 끝·벽 두께)
+    top_ffl: float = 0.0             # 상부 승강구 바닥 마감 두께
+    landing_t: float = 0.2           # 에스컬레이터 구역 승강구 슬래브 두께
+    top_material: str = "화강석"      # 상부 승강구 바닥 마감 재질
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

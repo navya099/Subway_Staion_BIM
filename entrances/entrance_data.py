@@ -5,11 +5,14 @@ from bim_data.common_bim_data import CommonBIMData
 from helper.strip_member import StripShape
 
 
+FLOOR_FINISH_KINDS = ("PAVE", "LANDFIN")      # 박스 부재 중 바닥 마감 (앞마당 포장·승강구 바닥 마감): FIN_FLOOR·IfcCovering
+
+
 @dataclass
 class EntranceElementData(CommonBIMData):
     """출입구 박스 부재 1개 (바닥·천장 슬래브, 측벽·끝벽·이음벽·칸막이벽). IFC: IfcSlab / IfcWall
     Attributes:
-        kind: FLOOR / ROOF / WALL
+        kind: FLOOR / ROOF / WALL / LEAN / RAMP / STEPS / LANDING / PAVE / LANDFIN
         code: 부재 코드 (FLOOR_S, ROOF, WALL_L, END_WALL_E, JOINT_WALL_R, PARTITION ...)
         t_range: 출입구 좌표 t 범위
         shape: 띠 부재 형상 (출입구 좌표 s = u)

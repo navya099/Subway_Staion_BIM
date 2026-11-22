@@ -492,12 +492,12 @@ class IFCExporter:
                     el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL", rep=rep)
                 elif e.kind == "RAMP":                         # 바깥 경사로·계단 (박스 앞, 상부 승강구 ~ 지표)
                     el = self._frame_element("IfcRampFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
-                elif e.kind == "PAVE":                         # 앞마당 포장
+                elif e.kind in ("PAVE", "LANDFIN"):            # 앞마당 포장·승강구 바닥 마감
                     el = self._frame_element("IfcCovering", e, ent.frame, items, PredefinedType="FLOORING", rep=rep)
                 elif e.kind == "STEPS":
                     el = self._frame_element("IfcStairFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
                 else:
-                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"), rep=rep)
+                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB", "LANDING": "LANDING"}.get(e.kind, "ROOF"), rep=rep)
                 members.append(el)
             st = ent.stair
             if st is not None:

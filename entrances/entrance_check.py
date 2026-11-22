@@ -43,12 +43,15 @@ def check_entrance_spec(spec, name: str):
                          ("바깥 계단 단너비", spec.out_tread)):
             if not v > 0:
                 raise ValueError(f"출입구 {name}: {label}은(는) 0보다 커야 합니다 ({v})")
+        if spec.parapet < spec.top_rise - 1e-9:
+            raise ValueError(f"출입구 {name}: 파라펫 높이({spec.parapet:g}m, 지표 위)가 상부 승강구 높이({spec.top_rise:g}m)보다 낮습니다")
         if spec.outdoor not in ("steps", "forecourt"):
             raise ValueError(f"출입구 {name}: 바깥 접근 형식이 올바르지 않습니다 ('{spec.outdoor}' — steps | forecourt)")
         if spec.outdoor == "forecourt":
             check_forecourt(spec, name)
         if spec.ramp_width > spec.inner_width + 1e-9:
             raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
+    check_landing(spec, name)
     for label, v in (("개구부 내공 축소", spec.open_narrow), ("바깥면 전이 기울기", spec.taper_ratio)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
@@ -137,3 +140,21 @@ def check_forecourt(spec, name: str):
         need = spec.top_rise * spec.ramp_ratio + flat
         raise ValueError(f"출입구 {name}: 앞마당 끝 포장 윗면이 지표보다 {end:.3f}m 높습니다 (경사 1/{spec.ramp_ratio:g} 로 지표까지 "
                          f"앞마당 길이 {need:.3f}m 필요 — 평탄 길이를 줄이거나 앞마당 길이를 늘리세요)")
+
+
+def check_landing(spec, name: str):
+    """파라펫 두께·승강구 마감·승강구 슬래브 검사"""
+    if spec.parapet_t is not None:
+        if spec.parapet_t <= 0:
+            raise ValueError(f"출입구 {name}: 파라펫 두께는 0 보다 커야 합니다 ({spec.parapet_t:g})")
+        tw = spec.open_wall_t if spec.open_wall_t is not None else min(t for _, t in [(0.0, spec.wall_t)] + list(spec.thickness_zones))
+        if spec.parapet_t > tw + 1e-9:
+            raise ValueError(f"출입구 {name}: 파라펫 두께({spec.parapet_t:g}m)가 개구부 벽 두께({tw:g}m)보다 큽니다")
+    if spec.top_ffl < 0:
+        raise ValueError(f"출입구 {name}: 승강구 마감 두께는 0 이상이어야 합니다 ({spec.top_ffl:g})")
+    if spec.escalator:
+        if spec.landing_t <= 0:
+            raise ValueError(f"출입구 {name}: 승강구 슬래브 두께는 0 보다 커야 합니다 ({spec.landing_t:g})")
+        if spec.top_ffl + spec.landing_t >= spec.esc_truss_depth - 1e-6:
+            raise ValueError(f"출입구 {name}: 승강구 마감 + 슬래브({spec.top_ffl + spec.landing_t:g}m)가 트러스 높이"
+                             f"({spec.esc_truss_depth:g}m)보다 두껍습니다")

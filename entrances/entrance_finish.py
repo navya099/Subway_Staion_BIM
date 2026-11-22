@@ -52,7 +52,7 @@ def _ends(f, a, b, e):
 
 
 def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, surfaces, u_top, u_re, truss_lo,
-                           nose_at, nose_breaks, ceil_pl, roof_pl, joint_top, a_open=None) -> list:
+                           nose_at, nose_breaks, ceil_pl, roof_pl, joint_top, a_open=None, ground=None) -> list:
     """[(코드, 종류, 재질, t 범위, 띠 목록)]. 종류 = FLOOR / FILL / WALL / CEILING / FRAME.
     ceil_pl = 천장판 하면 PL (천장 없으면 None), roof_pl = 천장 슬래브 하면 PL, joint_top = 이음면 막이 윗면 표고,
     surfaces = 계단 디딤판·계단참 [(u0, u1, 윗면)] (출입구 좌표), nose_at(u) = 스텝 코 선.
@@ -98,7 +98,7 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
             add(f"FIN_FLOOR{k}", "FLOOR", ft.floor_material, t_rng, [Strip(u_beg, u_end, mat0, mat0, zl)])
 
     # ---- 천장 위 끝 (천장 구간 = 천장판 하면, 개구부 = 지표 + 파라펫)
-    top_open = G + spec.parapet
+    top_open = (G if ground is None else ground) + spec.parapet     # 파라펫 윗면 = 지표(GL) + 파라펫
 
     def wall_top(u):
         if u >= u_re:

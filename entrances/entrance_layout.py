@@ -46,10 +46,11 @@ class EntranceFrame:
 
 @dataclass
 class EntrancePartLayout:
-    code: str                 # FLOOR_S, FLOOR_E, ROOF, WALL_L, WALL_R, END_WALL_S, END_WALL_E, JOINT_WALL_L/R, PARTITION
-    kind: str                 # FLOOR / ROOF / WALL
+    code: str                 # FLOOR_S, FLOOR_E, ROOF, WALL_L, WALL_R, END_WALL_S, END_WALL_E, JOINT_WALL_L/R, PARTITION, LEAN
+    kind: str                 # FLOOR / ROOF / WALL / LEAN (버림 콘크리트)   (두께 구간이 둘 이상이면 측벽·바닥·천장·버림은 _Z{k})
     t_range: tuple
     strips: list
+    thick: float = None       # 부재 두께 (벽·슬래브: 그 구간 두께)
 
 
 @dataclass
@@ -66,6 +67,10 @@ class EntranceLayout:
     haunches: list            # BoxPiece
     stair: object             # SimpleNamespace(parts, n_risers, riser, flight_risers, run)
     escalator: object         # SimpleNamespace(parts, run, rise) 또는 None
+    spec_stair_finish: object = None   # 계단 마감 설정 StairFinish (마감 끔 = None)
+    finish: list = field(default_factory=list)     # 내부 마감 [(코드, 종류, 재질, t 범위, 띠)] (entrance_finish, 마감 끔 = [])
+    finish_type: object = None         # 내부 마감 종류 FinishType (마감 끔 = None)
+    ceiling_raise: float = 0.0         # 천장판·천장틀 두께만큼 올린 천장 슬래브 높이
 
 
 class PL:
@@ -126,6 +131,70 @@ def _const(u0, u1, z):
     return (u0, u1, z, z)
 
 
+def _clip(pl: PL, lo: float, hi: float) -> PL:
+    """lo ~ hi 로 자른 PL"""
+    out = []
+    for u0, u1, z0, z1 in pl.segs:
+        a, b = max(u0, lo), min(u1, hi)
+        if b - a > TOL:
+            f = lambda x: z0 + (z1 - z0) * (x - u0) / (u1 - u0)
+            out.append((a, b, f(a), f(b)))
+    return PL(out)
+
+
+def envelope(funcs) -> PL:
+    """위쪽 포락선. funcs = [(PL, lo, hi)] — 각 함수는 lo ~ hi 에서만 (교차점에서 나누고, 이어진 같은 기울기 구간은 합침)"""
+    lo_all, hi_all = min(f[1] for f in funcs), max(f[2] for f in funcs)
+    xs = sorted({x for f, lo, hi in funcs for x in [lo, hi] + f.breaks if lo_all - TOL <= x <= hi_all + TOL})
+    segs = []
+    for a, b in zip(xs, xs[1:]):
+        if b - a <= 1e-9:
+            continue
+        act = [f for f, lo, hi in funcs if lo <= a + TOL and b <= hi + TOL]
+        if not act:
+            continue
+        ends = [(f.at(a, 1), f.at(b, -1)) for f in act]
+        cut = {a, b}
+        for i in range(len(act)):
+            for j in range(i + 1, len(act)):
+                d0, d1 = ends[i][0] - ends[j][0], ends[i][1] - ends[j][1]
+                if d0 * d1 < 0:
+                    cut.add(a + (b - a) * d0 / (d0 - d1))
+        cs = sorted(cut)
+        for x0, x1 in zip(cs, cs[1:]):
+            if x1 - x0 <= 1e-9:
+                continue
+            val = lambda e, x: e[0] + (e[1] - e[0]) * (x - a) / (b - a)
+            k = max(range(len(act)), key=lambda i: val(ends[i], 0.5 * (x0 + x1)))
+            segs.append((x0, x1, val(ends[k], x0), val(ends[k], x1)))
+    merged = []
+    for sg in segs:                                       # 이어진 같은 기울기 구간 합침
+        if merged:
+            p = merged[-1]
+            m0, m1 = (p[3] - p[2]) / (p[1] - p[0]), (sg[3] - sg[2]) / (sg[1] - sg[0])
+            if abs(p[1] - sg[0]) < TOL and abs(p[3] - sg[2]) < 1e-9 and abs(m0 - m1) < 1e-9:
+                merged[-1] = (p[0], sg[1], p[2], sg[3])
+                continue
+        merged.append(sg)
+    return PL(merged)
+
+
+def pitch_points(surfaces, tread: float, riser: float) -> list:
+    """계단 피치선 꼭짓점 [(u, z)]: 첫 디딤판 코 한 단 앞의 바닥 ~ 디딤판 코들 (계단참·도착부처럼 긴 면은 끝 한 단 앞까지 수평).
+    surfaces = [(u 시작 = 코, u 끝, 상면 z)] (오름차순)"""
+    pts = [(surfaces[0][0] - tread, surfaces[0][2] - riser)]
+    for ua, ub, zt in surfaces:
+        pts.append((ua, zt))
+        if ub - ua > 1.5 * tread:
+            pts.append((ub - tread, zt))
+    out = []
+    for u, z in pts:
+        if out and u <= out[-1][0] + 1e-9:
+            continue
+        out.append((u, z))
+    return out
+
+
 def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayout:
     pl = next((p for p in passage_layouts if p.name == spec.passage), None)
     if pl is None:
@@ -138,36 +207,45 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         raise ValueError(f"출입구 {name}: 지표 EL 을 입력하세요 (출입구마다 또는 정거장 공통 지표 EL)")
     zp = vb.z
     hp, a_p = pl.spec.inner_height, pl.spec.half_in
-    T = spec.wall_t
+    T = spec.thick_at(0.0)                            # 이음면 쪽 벽·슬래브 두께 (두께 구간)
     W = spec.inner_width
-    a, b = W / 2.0, W / 2.0 + T
+    a = W / 2.0
     if W < 2 * a_p - 1e-6:
         raise ValueError(f"출입구 {name}: 내공 폭({W:g}m)이 통로 내공 폭({2 * a_p:g}m)보다 좁습니다")
     if G - zp < 2.0:
         raise ValueError(f"출입구 {name}: 지표 EL({G:g})이 통로 끝 바닥({zp:.3f})보다 충분히 높지 않습니다")
-    if zp + hp + T >= G - 1e-6:
-        raise ValueError(f"출입구 {name}: 토피가 부족합니다 (통로 끝 천장 상면 {zp + hp + T:.3f} ≥ 지표 {G:g})")
+    if zp + hp + T >= G - spec.roof_cover - 1e-6:
+        raise ValueError(f"출입구 {name}: 토피가 부족합니다 (통로 끝 천장 상면 {zp + hp + T:.3f} ≥ 지표 {G:g}"
+                         + (f" − 흙 덮개 {spec.roof_cover:g}" if spec.roof_cover else "") + ")")
     zones = spec.zones()
     if spec.escalator and zones["escalator"][1] - zones["escalator"][0] < spec.esc_truss_width - 1e-9:
         raise ValueError(f"출입구 {name}: 에스컬레이터 구역 폭({spec.escalator_zone:g}m)이 트러스 외폭보다 좁습니다")
 
     # ---------- 에스컬레이터 (없으면 같은 규칙의 가상 경사선으로 박스 형상만 정함)
+    # 스텝 코 선 = 정거장 에스컬레이터와 같은 곡선 전이 NoseLine. 아래 = 통로 끝 바닥 마감면(통로 마감이 있으면 그 마감 높이), 위 = 지표
+    from escalators.escalator_geom import NoseLine, layout_steps, step_range
+    from passages.passage_finish import passage_finish_type
+    pft = passage_finish_type(cfg, pl.spec)
+    zl = zp + (pft.ffl if pft is not None else 0.0)    # 하부 승강구 바닥 마감면 (스텝 면 기준)
     esp = spec.escalator_spec() if spec.escalator else None
     tan = math.tan(math.radians(spec.esc_angle_deg))
     D = spec.esc_truss_depth
     truss_lo = T + spec.lower_margin
     u_wp = truss_lo + spec.esc_lower_ext
-    run_e = (G - zp) / tan
+    run_e = (G - zl) / tan
     u_up = u_wp + run_e
     truss_hi = u_up + spec.esc_upper_ext
-    u_cross = u_wp + D / tan                          # 트러스 하면이 하부 바닥(Zp)을 다시 지나는 점 = 하부 피트 끝
+    u_cross = u_wp + (D - (zl - zp)) / tan            # 트러스 하면이 하부 구조 바닥(Zp)을 다시 지나는 점 = 하부 피트 끝
+    nl = NoseLine(zl, run_e, tan, lambda x: zl, lambda x: G, spec.esc_lower_radius, spec.esc_upper_radius)
+    nose_bps = [u_wp + x for x in nl.breakpoints()]
 
     def nose(u):
-        if u <= u_wp:
-            return zp
-        if u >= u_up:
-            return G
-        return zp + (u - u_wp) * tan
+        return nl(u - u_wp)
+
+    def nose_pl(lo, hi, dz):
+        """lo ~ hi 의 코 선 + dz (전이부 표본점에서 꺾인 PL)"""
+        xs = sorted({lo, hi, *(x for x in nose_bps if lo < x < hi)})
+        return [(a, b, nose(a) + dz, nose(b) + dz) for a, b in zip(xs, xs[1:])]
 
     # ---------- 바닥 상면 (계단 구역 S / 에스컬레이터 구역 E), 하면은 공통 — 끝은 상단 끝벽이 정해진 뒤 맞춤
     def s_top_for(end_u):
@@ -175,13 +253,33 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
 
     # ---------- 계단: 첫 챌판 위치 = 하부 피트 끝(u_cross). 계단이 바닥 아래로 내려가면 하부 수평부 쪽으로 자동으로 앞당김
     ssp = spec.stair_spec()
-    n, r, counts, run_s = plan_risers(G - zp, ssp)
+    # 계단 마감(마감을 켜고 계단 마감을 쓰면): 디딤판 = 통로 끝 바닥 마감면 ~ 지표를 같은 단높이로, 구조 = 매끈한 경사 슬래브 + 계단석
+    fs = getattr(cfg, "finish_settings", None)
+    fin = fs.stair_finish() if fs is not None else None
+    z_st = zl if fin is not None else zp              # 첫 챌판 아래 걷는 면 (마감면 / 구조 바닥)
+    n, r, counts, run_s = plan_risers(G - z_st, ssp)
     s_probe = s_top_for(u_up + run_s + 100.0)
     u_min = T + spec.lower_margin                     # 앞당길 수 있는 한계: 하부 이음벽 안쪽 면 + 여유
+    if fin is not None:
+        fin.check(r)
+        st_side = fin.side_t
+        if not spec.escalator:                         # 옆면 마감: 칸막이벽 위로 드러나는 에스컬레이터 쪽만 (벽 쪽은 벽 마감)
+            sides = (0.0, 0.0)
+        else:
+            sides = (0.0, st_side) if spec.escalator_side > 0 else (st_side, 0.0)
+
+    def make_stair(u0, floor_pl, extra=0.0):
+        """첫 챌판 u0 의 계단 (구조 부재, 마감 부재)"""
+        if fin is None:
+            return stair_part_strips(ssp, counts, r, zp, lambda x: floor_pl.at(u0 + x), lambda x: u0 + x,
+                                     lambda *_: 1.0, top_extra=extra), []
+        from stairs.stair_finish import finished_stair
+        return finished_stair(ssp, fin, counts, r, z_st, lambda x: floor_pl.at(u0 + x), lambda x: u0 + x,
+                              lambda *_: 1.0, sides, top_extra=extra)
 
     def lowest(u0):
         """첫 챌판이 u0 일 때 (계단 슬래브 하면 − 계단 구역 바닥 상면) 최소값과 그 위치"""
-        parts_ = stair_part_strips(ssp, counts, r, zp, lambda x: s_probe.at(u0 + x), lambda x: u0 + x, lambda *_: 1.0)
+        parts_ = make_stair(u0, s_probe)[0]
         return min([(st.zb0 - s_probe.at(st.s0, 1), st.s0) for p_ in parts_ for st in p_.strips] +
                    [(st.zb1 - s_probe.at(st.s1, -1), st.s1) for p_ in parts_ for st in p_.strips])
 
@@ -189,7 +287,7 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         span = run_s + ssp.tread
         return ValueError(
             f"출입구 {name}: 계단이 박스 바닥 아래로 {-gap[0]:.2f}m 내려갑니다 (첫 챌판 u = {u0:.2f}m, 문제 위치 u = {gap[1]:.2f}m). "
-            f"계단 평균 기울기 {math.degrees(math.atan((G - zp) / span)):.1f}° < 바닥(에스컬레이터) {spec.esc_angle_deg:g}° — "
+            f"계단 평균 기울기 {math.degrees(math.atan((G - z_st) / span)):.1f}° < 바닥(에스컬레이터) {spec.esc_angle_deg:g}° — "
             "계단참 길이·단너비를 줄이거나 런 높이 상한을 키워 계단을 가파르게 하세요")
 
     if spec.stair_offset is not None:                 # 직접 지정
@@ -217,70 +315,111 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
     arrive = u_s0 + run_s + ssp.tread                 # 계단 위 지표 높이 디딤판 끝
     u_top = max(truss_hi if spec.escalator else u_up, arrive) + spec.top_margin
 
-    # ---------- 바닥 (계단 구역 S / 에스컬레이터 구역 E), 하면은 공통
-    end = u_top + T
-    tb_segs = [_const(truss_lo - T, u_wp, zp - D), (u_wp, u_up, zp - D, G - D), _const(u_up, end, G - D)]
-    e_top = PL([_const(0.0, truss_lo, zp), _const(truss_lo, u_wp, zp - D), (u_wp, u_up, zp - D, G - D),
-                _const(u_up, truss_hi, G - D), _const(truss_hi, end, G)]) if spec.escalator else None
+    # ---------- 두께 구간: [(u0, u1, 두께)] — 측벽·바닥·천장 바깥면이 구간마다 바뀜 (내공 고정)
+    T_end = spec.thick_at(u_top)
+    end = u_top + T_end
+    far = u_up + 50.0
+    cuts = [0.0] + spec.thick_cuts(0.0, far) + [far]
+    zone_iv = [(u0, u1, spec.thick_at(u0)) for u0, u1 in zip(cuts, cuts[1:]) if u1 - u0 > 1e-9]
+    zoned = len([z for z in zone_iv if z[0] < end - 1e-9]) > 1
+
+    def offset_zoned(pl, sign):
+        """구간마다 그 두께만큼 직각 평행 이동 (구간 경계에서 값이 뜀)"""
+        segs = []
+        for u0, u1, th in zone_iv:
+            sub = _clip(pl, u0, u1)
+            if sub.segs:
+                segs += sub.offset(sign * th).segs
+        return PL(segs)
+
+    # ---------- 바닥 (계단 구역 S / 에스컬레이터 구역 E), 하면은 공통 (구조 상면선을 구간 두께만큼 내림)
+    struct_top = PL([_const(0.0, truss_lo - T, zp), _const(truss_lo - T, u_wp, zl - D), (u_wp, u_up, zl - D, G - D),
+                     _const(u_up, far, G - D)])
+    e_top = PL([_const(0.0, truss_lo, zp)] + nose_pl(truss_lo, truss_hi, -D) +           # 트러스 하면 (곡선 전이 따라)
+               [_const(truss_hi, end, G)]) if spec.escalator else None
     s_top = s_top_for(end)
-    bottom = PL([_const(0.0, truss_lo - T, zp - T)] + PL(tb_segs).offset(-T).segs)
+    bottom = offset_zoned(struct_top, -1)
 
-    # ---------- 천장: 하면 = max(Zp + Hp, 코 선 + c), c 는 머리 높이 조건의 최소값 (천장 끝 위치와 함께 반복 계산)
-    stair_parts = stair_part_strips(ssp, counts, r, zp, lambda x: s_top.at(u_s0 + x), lambda x: u_s0 + x,
-                                    lambda *_: 1.0, top_extra=u_top - arrive)
-    surfaces = [(u_s0 + ua, u_s0 + ub, zt) for p in stair_parts for ua, ub, zt in p.surfaces]
-    c = spec.esc_headroom
-    for _ in range(50):
-        flat = max(hp, c)                                # 하부 천장 하면 높이 (통로 천장 또는 머리 높이 중 큰 쪽)
-        u_k = u_wp + (flat - c) / tan                    # 천장 하면이 수평 → 경사로 꺾이는 점
-        far = u_up + 50.0
-        roof_bot = PL([_const(0.0, u_k, zp + flat), (u_k, far, zp + flat, zp + flat + (far - u_k) * tan)])
-        roof_top = roof_bot.offset(T)
-        u_re = next(u0 + (u1 - u0) * (G - z0) / (z1 - z0) for u0, u1, z0, z1 in roof_top.segs if z1 > G >= z0)
-        need = max([c] + [zt + spec.stair_headroom - nose(x) for ua, ub, zt in surfaces for x in (ua, ub) if x < u_re])
-        if need <= c + 1e-9:
+    # ---------- 천장 하면 = 위쪽 포락선: 통로 천장 높이 · 스텝 코 선 + 에스컬레이터 머리 높이 · 계단 피치선 + 계단 머리 높이
+    # (계단 피치선 = 디딤판 코를 잇는 선, 계단참은 수평 → 실무 도면처럼 계단참에서 천장이 꺾임)
+    stair_parts, stair_finish = make_stair(u_s0, s_top, u_top - arrive)     # 띠·칸은 이미 출입구 좌표 (s = u0 + x)
+    surfaces = sorted((u_s0 + ua, u_s0 + ub, zt) for p in stair_parts for ua, ub, zt in p.surfaces)
+    # 내부 마감 종류 (마감 켤 때): 출입구 finish, 비우면 붙은 통로의 마감 종류. 천장이 있으면 천장판·틀만큼 천장 슬래브를 올림
+    eft = None
+    if fs is not None and fs.enabled:
+        eft = fs.for_room("통로", (getattr(spec, "finish", "") or "").strip() or (getattr(pl.spec, "finish", "") or ""))
+    from entrances.entrance_finish import ceiling_raise, layout_entrance_finish
+    rz = ceiling_raise(spec, eft)
+    eh, sh = spec.esc_headroom + rz, spec.stair_headroom + rz
+    flat_pl = PL([_const(0.0, far, zp + hp)])
+    esc_pl = PL(nose_pl(0.0, far, eh))
+    pitch = pitch_points(surfaces, ssp.tread, r)
+    stair_pl = PL([(p[0], q[0], p[1] + sh, q[1] + sh) for p, q in zip(pitch, pitch[1:])])
+    roof_bot = envelope([(flat_pl, 0.0, far), (esc_pl, 0.0, far), (stair_pl, pitch[0][0], pitch[-1][0])])
+    roof_top = offset_zoned(roof_bot, +1)
+    target = G - spec.roof_cover                        # 천장 상면이 이 높이에 닿는 곳에서 끝 (흙 덮개)
+    u_re = None
+    for u0, u1, z0, z1 in roof_top.segs:
+        if z0 >= target - 1e-12:
+            u_re = u0
             break
-        c = need
-    else:
-        raise ValueError(f"출입구 {name}: 천장 높이 계산이 수렴하지 않습니다")
+        if z1 >= target:
+            u_re = u0 + (u1 - u0) * (target - z0) / (z1 - z0)
+            break
+    if u_re is None:
+        raise ValueError(f"출입구 {name}: 천장 슬래브가 지표에 닿지 않습니다 (지표 EL·흙 덮개 확인)")
+    gaps = [(z - nose(x)) for u0, u1, z0, z1 in roof_bot.segs if u0 < u_re
+            for x, z in ((u0, z0), (min(u1, u_re), roof_bot.at(min(u1, u_re), -1)))]
+    c = min(gaps)
+    u_k = next((u0 for u0, u1, z0, z1 in roof_bot.segs if z0 > zp + hp + 1e-9 or z1 > zp + hp + 1e-9), 0.0)
 
-    # ---------- 박스 부재
+    # ---------- 박스 부재 (두께 구간이 둘 이상이면 측벽·바닥·천장·버림을 구간마다 _Z{k})
     zs = zones
     parts = []
 
-    def add(code, kind, t_range, strips):
+    def add(code, kind, t_range, strips, thick=None):
         if strips:
-            parts.append(EntrancePartLayout(code, kind, t_range, strips))
+            parts.append(EntrancePartLayout(code, kind, t_range, strips, thick))
+
+    def add_zoned(code, kind, t_of, bot, top, lo, hi):
+        for k, (u0, u1, th) in enumerate(zone_iv, start=1):
+            a0, a1 = max(lo, u0), min(hi, u1)
+            if a1 - a0 > 1e-9:
+                add(f"{code}_Z{k}" if zoned else code, kind, t_of(th), strips_between(bot, top, a0, a1), th)
 
     if spec.escalator:
         sp0, sp1 = zs["partition"]
         e_side = spec.escalator_side
         boundary = sp1 if e_side > 0 else sp0                         # 계단·칸막이(S) | 에스컬레이터(E) 경계
-        t_s = (-b, boundary) if e_side > 0 else (boundary, b)
-        t_e = (boundary, b) if e_side > 0 else (-b, boundary)
-        add("FLOOR_S", "FLOOR", t_s, strips_between(bottom, s_top, 0.0, end))
-        add("FLOOR_E", "FLOOR", t_e, strips_between(bottom, e_top, 0.0, end))
+        t_s = (lambda th: (-(a + th), boundary)) if e_side > 0 else (lambda th: (boundary, a + th))
+        t_e = (lambda th: (boundary, a + th)) if e_side > 0 else (lambda th: (-(a + th), boundary))
+        add_zoned("FLOOR_S", "FLOOR", t_s, bottom, s_top, 0.0, end)
+        add_zoned("FLOOR_E", "FLOOR", t_e, bottom, e_top, 0.0, end)
     else:
         e_side = 1
-        t_s = (-b, b)
-        add("FLOOR_S", "FLOOR", t_s, strips_between(bottom, s_top, 0.0, end))
-    add("ROOF", "ROOF", (-b, b), strips_between(roof_bot, roof_top, 0.0, u_re))
+        t_s = lambda th: (-(a + th), a + th)
+        add_zoned("FLOOR_S", "FLOOR", t_s, bottom, s_top, 0.0, end)
+    add_zoned("ROOF", "ROOF", lambda th: (-(a + th), a + th), roof_bot, roof_top, 0.0, u_re)
     wall_top = PL([(u0, min(u1, u_re), z0, z0 + (z1 - z0) * (min(u1, u_re) - u0) / (u1 - u0))
                    for u0, u1, z0, z1 in roof_bot.segs if u0 < u_re] + [_const(u_re, end, G + spec.parapet)])
-    for code, t_rng in (("WALL_L", (a, b)), ("WALL_R", (-b, -a))):
-        on_e = spec.escalator and ((t_rng[0] > 0) == (e_side > 0))
-        add(code, "WALL", t_rng, strips_between(e_top if on_e else s_top, wall_top, 0.0, u_top))
+    for code, side in (("WALL_L", 1), ("WALL_R", -1)):
+        on_e = spec.escalator and ((side > 0) == (e_side > 0))
+        add_zoned(code, "WALL", (lambda th, sd=side: (a, a + th) if sd > 0 else (-(a + th), -a)),
+                  e_top if on_e else s_top, wall_top, 0.0, u_top)
     parapet = PL([_const(0.0, end, G + spec.parapet)])
-    add("END_WALL_S", "WALL", t_s, strips_between(s_top, parapet, u_top, end))
+    add("END_WALL_S", "WALL", t_s(T_end), strips_between(s_top, parapet, u_top, end), T_end)
     if spec.escalator:
-        add("END_WALL_E", "WALL", t_e, strips_between(e_top, parapet, u_top, end))
+        add("END_WALL_E", "WALL", t_e(T_end), strips_between(e_top, parapet, u_top, end), T_end)
     roof_lo = PL([_const(0.0, T, roof_bot.at(0.0))])
     if a - a_p > 1e-6:
-        add("JOINT_WALL_L", "WALL", (a_p, a), strips_between(PL([_const(0.0, T, zp)]), roof_lo, 0.0, T))
-        add("JOINT_WALL_R", "WALL", (-a, -a_p), strips_between(PL([_const(0.0, T, zp)]), roof_lo, 0.0, T))
+        add("JOINT_WALL_L", "WALL", (a_p, a), strips_between(PL([_const(0.0, T, zp)]), roof_lo, 0.0, T), T)
+        add("JOINT_WALL_R", "WALL", (-a, -a_p), strips_between(PL([_const(0.0, T, zp)]), roof_lo, 0.0, T), T)
     if spec.escalator:                                # 칸막이벽: 계단 구역 바닥 ~ 계단 슬래브 하면
         st_bot = PL(sorted((s.s0, s.s1, s.zb0, s.zb1) for p in stair_parts for s in p.strips))
-        add("PARTITION", "WALL", zs["partition"], strips_between(s_top, st_bot, u_s0, u_top))
+        add("PARTITION", "WALL", zs["partition"], strips_between(s_top, st_bot, u_s0, u_top), spec.partition_t)
+    if spec.lean_t > 0:                               # 버림 콘크리트: 바닥 하면 아래, 외곽 밖으로 lean_ext
+        add_zoned("LEAN", "LEAN", lambda th: (-(a + th + spec.lean_ext), a + th + spec.lean_ext),
+                  bottom.offset(-spec.lean_t), bottom, 0.0, end)
 
     # ---------- 천장 헌치 (천장 하면 구간마다 곧은 조각, 연직 단면이라 꺾임점에서 정확히 맞닿음)
     haunches = []
@@ -294,15 +433,38 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
                 haunches.append(BoxPiece(ox=frame.px, oy=frame.py, ux=frame.ux, uy=frame.uy, a0=u0, a1=u1, sect=sect,
                                          z0=z0, slope=(roof_bot.at(u1, -1) - z0) / (u1 - u0)))
 
+    # ---------- 내부 마감 (마감 켤 때): 하부 평탄부 바닥·측벽·경사 천장(천장 슬래브 하면 − 올림)·천장틀·막이
+    finish = []
+    if eft is not None:
+        ceil_pl = PL([(u0, u1, z0 - rz, z1 - rz) for u0, u1, z0, z1 in roof_bot.segs]) if eft.ceiling else None
+        joint_top = roof_bot.at(0.0)
+        if pft is not None and pft.ceiling:
+            from passages.passage_finish import ceiling_fit
+            if ceiling_fit(pl.spec, pft)[0]:
+                joint_top = min(joint_top, zp + pft.ffl + pft.ceiling_h)         # 통로 천장판 하면까지 막음
+        finish = layout_entrance_finish(spec, eft, a=a, a_p=a_p, T=T, zones=zones, e_side=e_side if spec.escalator else 1,
+                                        zl=zl, G=G, u_s0=u_s0, surfaces=surfaces, u_top=u_top, u_re=u_re, truss_lo=truss_lo,
+                                        nose_at=nose, nose_breaks=nose_bps, ceil_pl=ceil_pl, roof_pl=roof_bot,
+                                        joint_top=joint_top)
+
     # ---------- 계단·에스컬레이터 부재 (출입구 좌표의 띠)
-    stair = SimpleNamespace(parts=stair_parts, n_risers=n, riser=r, flight_risers=counts, run=run_s, start=u_s0)
+    stair = SimpleNamespace(parts=stair_parts, n_risers=n, riser=r, flight_risers=counts, run=run_s, start=u_s0,
+                            finish=stair_finish, finish_base=z_st if fin is not None else None)
     escalator = None
-    if spec.escalator:
-        eparts, _, _ = escalator_part_strips(esp, lambda x: nose(u_wp + x), zp, run_e, lambda x: u_wp + x, lambda *_: 1.0)
-        escalator = SimpleNamespace(parts=eparts, run=run_e, rise=G - zp, spec=esp)
+    if spec.escalator:                                # 정거장 에스컬레이터와 같은 상세 형상 + 개별 스텝 (출입구 좌표 s = u_wp + u)
+        s_lo, s_hi, _ = step_range(esp, nl)
+        reach = esp.newel_ext + esp.newel_radius
+        if s_lo - reach < -esp.lower_ext - 1e-6 or s_hi + reach > run_e + esp.upper_ext + 1e-6:
+            raise ValueError(f"출입구 {name}: 에스컬레이터 스텝(평탄 스텝 + 곡선 전이부)과 끝 뉴얼이 트러스보다 깁니다 "
+                             "(하부/상부 연장을 늘리거나 평탄 스텝 수·반경을 줄이세요)")
+        eparts, _, _ = escalator_part_strips(esp, nl, zl, run_e, lambda x: u_wp + x, lambda *_: 1.0,
+                                             extra_us=nl.breakpoints(), steps_range=(s_lo, s_hi))
+        escalator = SimpleNamespace(parts=eparts, run=run_e, rise=G - zl, spec=esp, steps=layout_steps(esp, nl), nose=nl,
+                                    u_wp=u_wp, finish_levels=(zl, G))
 
     return EntranceLayout(
         name=name, spec=spec, passage=spec.passage, frame=frame, z_floor=zp, ground=G,
         u=dict(wp_lo=u_wp, wp_hi=u_up, truss_lo=truss_lo, truss_hi=truss_hi, cross=u_cross, stair0=u_s0,
                arrive=arrive, top=u_top, end=end, roof_end=u_re, roof_knee=u_k),
-        roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator)
+        roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin,
+        finish=finish, finish_type=eft, ceiling_raise=rz)

@@ -30,6 +30,22 @@ def check_entrance_spec(spec, name: str):
                      ("헌치 폭", spec.haunch_w), ("헌치 높이", spec.haunch_h)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    for label, v in (("흙 덮개", spec.roof_cover), ("버림 콘크리트 두께", spec.lean_t), ("버림 콘크리트 내민 폭", spec.lean_ext)):
+        if not v >= 0:
+            raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    us = []
+    for k, z in enumerate(spec.thickness_zones, start=1):
+        try:
+            u0, th = float(z[0]), float(z[1])
+        except (TypeError, ValueError, IndexError):
+            raise ValueError(f"출입구 {name}: 두께 구간 {k} 의 형식이 올바르지 않습니다 ({z!r})") from None
+        if not (math.isfinite(u0) and u0 >= 0):
+            raise ValueError(f"출입구 {name}: 두께 구간 {k} 의 시작 위치는 0 이상이어야 합니다 ({u0:g})")
+        if not th > 0:
+            raise ValueError(f"출입구 {name}: 두께 구간 {k} 의 두께는 0보다 커야 합니다 ({th:g})")
+        us.append(u0)
+    if len(set(round(u, 6) for u in us)) != len(us):
+        raise ValueError(f"출입구 {name}: 두께 구간의 시작 위치가 겹칩니다")
     if (spec.haunch_w > 0) != (spec.haunch_h > 0):
         raise ValueError(f"출입구 {name}: 헌치는 폭과 높이를 모두 0 이거나 모두 0보다 크게 입력하세요")
     if not 0 < spec.esc_angle_deg < 60:
@@ -38,6 +54,9 @@ def check_entrance_spec(spec, name: str):
         raise ValueError(f"출입구 {name}: 계단참 길이({spec.landing_len:g}m)는 단너비({spec.tread:g}m) 이상이어야 합니다")
     if spec.flight_rise_max < 2 * spec.riser_max - _EPS:
         raise ValueError(f"출입구 {name}: 런 높이 상한은 단높이 상한의 2배 이상이어야 합니다")
+    if spec.escalator:
+        from escalators.escalator_check import check_escalator_shape
+        check_escalator_shape(spec.escalator_spec(), f"{name} 에스컬레이터")
     if spec.haunch_w >= spec.inner_width / 2.0 - _EPS:
         raise ValueError(f"출입구 {name}: 헌치 폭이 내공 폭의 절반 이상입니다")
 

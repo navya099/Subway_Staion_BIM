@@ -482,7 +482,7 @@ class IFCExporter:
                 if e.kind == "WALL":
                     el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL")
                 else:
-                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType="FLOOR" if e.kind == "FLOOR" else "ROOF")
+                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"))
                 members.append(el)
             st = ent.stair
             ifc_stair = self.file.create_entity(
@@ -500,6 +500,22 @@ class IFCExporter:
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_stair,
                                     RelatedObjects=flights)
             members.append(ifc_stair)
+            covers = []
+            for fe in st.finishes:                             # 계단 마감 (정거장 계단과 같음)
+                from stairs.stair_finish import CODES as STAIR_FIN_CODES
+                covers.append(self._frame_element("IfcCovering", fe, ent.frame, self._frame_strip_solids(fe, "StairFinishProfile"),
+                                                  PredefinedType=STAIR_FIN_CODES[fe.code][1]))
+            if covers:
+                self.file.create_entity("IfcRelCoversBldgElements", GlobalId=ifcopenshell.guid.new(),
+                                        RelatingBuildingElement=ifc_stair, RelatedCoverings=covers)
+                members += covers
+            for fe in ent.finishes:                            # 내부 마감: IfcCovering (바닥·벽·천장) / 천장틀 IfcMember
+                items = self._frame_strip_solids(fe, "EntranceFinishProfile")
+                if fe.kind == "FRAME":
+                    members.append(self._frame_element("IfcMember", fe, ent.frame, items, PredefinedType="USERDEFINED"))
+                else:
+                    pre = {"FLOOR": "FLOORING", "FILL": "FLOORING", "WALL": "CLADDING", "CEILING": "CEILING"}[fe.kind]
+                    members.append(self._frame_element("IfcCovering", fe, ent.frame, items, PredefinedType=pre))
             if ent.escalator:
                 esc = ent.escalator
                 ifc_esc = self.file.create_entity(
@@ -510,6 +526,19 @@ class IFCExporter:
                     entity, predefined = self._ESC_ENTITY[p.kind]
                     eparts.append(self._frame_element(entity, p, ent.frame, self._frame_strip_solids(p, "EscalatorProfile"),
                                                       PredefinedType=predefined, ObjectType=p.kind.value))
+                for stp in esc.steps:                          # 개별 스텝 (정거장 에스컬레이터와 같은 속성)
+                    el = self._frame_element("IfcBuildingElementPart", stp, ent.frame,
+                                             self._frame_strip_solids(stp, "EscalatorStepProfile"),
+                                             PredefinedType="USERDEFINED", ObjectType="STEP")
+                    props = [self.file.create_entity("IfcPropertySingleValue", Name="Index",
+                                                     NominalValue=self.file.create_entity("IfcInteger", stp.index)),
+                             self.file.create_entity("IfcPropertySingleValue", Name="ChainU",
+                                                     NominalValue=self.file.create_entity("IfcLengthMeasure", float(stp.chain_u)))]
+                    pset = self.file.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(),
+                                                   Name="SSBIM_EscalatorStep", HasProperties=props)
+                    self.file.create_entity("IfcRelDefinesByProperties", GlobalId=ifcopenshell.guid.new(),
+                                            RelatedObjects=[el], RelatingPropertyDefinition=pset)
+                    eparts.append(el)
                 self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_esc,
                                         RelatedObjects=eparts)
                 members.append(ifc_esc)

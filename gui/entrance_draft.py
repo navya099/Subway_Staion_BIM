@@ -1,5 +1,5 @@
 """출입구 입력의 화면 비의존 모델 (문자열 초안 → EntranceSpec 변환 + 검증)"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from entrances.entrance_spec import EntranceSpec
 from gui.column_draft import _num
@@ -17,7 +17,8 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("haunch_h", "헌치 높이", "nonneg"), ("lower_margin", "하부 여유", "nonneg"), ("top_margin", "상부 여유", "nonneg"),
               ("parapet", "파라펫", "nonneg"), ("riser_max", "단높이 상한", "pos"), ("tread", "단너비", "pos"),
               ("flight_rise_max", "런 높이 상한", "pos"), ("landing_len", "계단참 길이", "pos"),
-              ("stair_slab_t", "계단 슬래브", "pos"), ("stair_headroom", "계단 머리 높이", "pos")]
+              ("stair_slab_t", "계단 슬래브", "pos"), ("stair_headroom", "계단 머리 높이", "pos"),
+              ("roof_cover", "흙 덮개", "nonneg"), ("lean_t", "버림 콘크리트", "nonneg"), ("lean_ext", "버림 내민 폭", "nonneg")]
 
 
 @dataclass
@@ -44,6 +45,22 @@ class EntranceDraft:
     stair_slab_t: str = f"{_SPEC.stair_slab_t:g}"
     stair_headroom: str = f"{_SPEC.stair_headroom:g}"
     stair_offset: str = ""
+    roof_cover: str = f"{_SPEC.roof_cover:g}"
+    lean_t: str = f"{_SPEC.lean_t:g}"
+    lean_ext: str = f"{_SPEC.lean_ext:g}"
+    finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
+    thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
+
+    def zones(self, where: str) -> list:
+        """두께 구간 → [(u 시작, 두께)] (u 순서, 둘 다 빈 줄은 건너뜀)"""
+        out = []
+        for k, row in enumerate(self.thick_zones, start=1):
+            u, t = (str(x).strip() for x in (list(row) + ["", ""])[:2])
+            if not u and not t:
+                continue
+            w = f"{where} 두께 구간 {k}"
+            out.append((_num(u, w, "시작 위치", nonneg=True), _num(t, w, "두께", positive=True)))
+        return sorted(out)
 
     def to_spec(self, where: str) -> EntranceSpec:
         if self.side not in _SIDE:
@@ -58,7 +75,19 @@ class EntranceDraft:
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
-                            stair_offset=offset, name=self.name.strip(), **vals)
+                            stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
+                            finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
+
+
+def zones_summary(it: EntranceDraft) -> str:
+    """두께 구간 요약 (탭의 버튼 옆 글자)"""
+    try:
+        zs = it.zones("")
+    except ValueError:
+        return "두께 구간: 입력값 확인"
+    if not zs:
+        return "두께 구간: 없음 (벽·슬래브 두께 일정)"
+    return "두께 구간: " + ", ".join(f"u {u:g}~ {t:g}" for u, t in zs)
 
 
 class EntranceDrafts:
@@ -89,4 +118,5 @@ def preview(it: EntranceDraft) -> str:
     return (f"→ 내공 폭 {sp.inner_width:g}m = {parts}\n"
             f"   통로 {sp.passage} 끝에서 " + ("정거장 공통 지표 EL" if sp.ground_el is None else f"지표 EL {sp.ground_el:g}")
             + " 까지 자동 계산"
-            + ("" if sp.stair_offset is None else f", 계단 시작 조정 {sp.stair_offset:g}m"))
+            + ("" if sp.stair_offset is None else f", 계단 시작 조정 {sp.stair_offset:g}m")
+            + (f"\n   두께 구간 {len(sp.thickness_zones)}개 (u = 통로 끝 이음면에서 거리)" if sp.thickness_zones else ""))

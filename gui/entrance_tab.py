@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.entrance_draft import NUM_FIELDS, SIDES, EntranceDraft, EntranceDrafts, preview
+from gui.entrance_draft import NUM_FIELDS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -23,6 +23,7 @@ class EntranceTab:
         self._vars = {}            # (번호, 필드) → StringVar / BooleanVar
         self._info_vars = []
         self._combos = {}
+        self._zone_labels = {}      # 번호 → 두께 구간 요약 Label
 
     def build(self):
         tk.Label(self.parent, text="[ 출입구 ]", font=("Malgun Gothic", 10, "bold"),
@@ -87,6 +88,7 @@ class EntranceTab:
         self._vars.clear()
         self._info_vars.clear()
         self._combos.clear()
+        self._zone_labels.clear()
         if not self.drafts.items:
             tk.Label(self.body, text="출입구 없음", fg="#888888", font=FONT).pack(anchor="w", padx=8, pady=6)
         for i, it in enumerate(self.drafts.items):
@@ -106,6 +108,14 @@ class EntranceTab:
         self._entry(top, it, "name", (i, "name"), 6).pack(side="left", padx=(2, 6))
         tk.Label(top, text="통로", font=FONT).pack(side="left")
         self._entry(top, it, "passage", (i, "passage"), 6).pack(side="left", padx=(2, 0))
+        tk.Label(top, text="마감", font=FONT).pack(side="left", padx=(8, 0))
+        fd = self.entries.get("finish_drafts")
+        fnames = ["(통로 기준)"] + (fd.names() if fd is not None else [])
+        fc = ttk.Combobox(top, values=fnames, state="readonly", width=10, font=FONT)
+        fc.set(it.finish if it.finish in fnames else fnames[0])
+        fc.bind("<<ComboboxSelected>>", lambda e, cc=fc, k=i: setattr(self.drafts.items[k], "finish", cc.get()))
+        fc.pack(side="left", padx=(2, 0))
+        self._combos[(i, "finish")] = fc
         tk.Button(top, text="삭제", font=FONT, command=lambda: self.remove_entrance(i)).pack(side="right")
 
         row = tk.Frame(box)
@@ -124,6 +134,10 @@ class EntranceTab:
         c.bind("<<ComboboxSelected>>", lambda e, cc=c, k=i: self.set_side(k, cc.get()))
         c.pack(side="left", padx=(2, 0))
         self._combos[(i, "side")] = c
+        tk.Button(row, text="두께 구간…", font=FONT, command=lambda k=i: self.open_zones(k)).pack(side="left", padx=(12, 0))
+        zl = tk.Label(row, text=zones_summary(it), font=FONT, fg="#455A64")
+        zl.pack(side="left", padx=(4, 0))
+        self._zone_labels[i] = zl
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
@@ -146,6 +160,63 @@ class EntranceTab:
             self.refresh_info()
         var.trace_add("write", on_write)
         return tk.Entry(parent, textvariable=var, width=width, font=FONT)
+
+    # ------------------------------------------------------------ 두께 구간 창
+    def open_zones(self, i):
+        """두께 구간 입력 창: 줄마다 (u 시작, 두께). u = 통로 끝 이음면에서 출입구 진행 거리 (m). 비우면 벽·슬래브 두께 일정"""
+        it = self.drafts.items[i]
+        win = tk.Toplevel(self.canvas)
+        win.title(f"출입구 {i + 1} 두께 구간")
+        self.zone_win = win
+        tk.Label(win, text="u 시작 = 통로 끝(이음면)에서 출입구 진행 거리 (m). 그 u 부터 다음 구간 앞까지 측벽·천장·바닥 두께.\n"
+                           "첫 구간 앞(u < 첫 시작)은 '벽·슬래브 두께'. 줄이 없으면 두께 일정.",
+                 font=FONT, justify="left", fg="#455A64").pack(anchor="w", padx=8, pady=(6, 4))
+        body = tk.Frame(win)
+        body.pack(fill="x", padx=8)
+        self._zone_vars = []
+
+        def draw():
+            for w in body.winfo_children():
+                w.destroy()
+            self._zone_vars = []
+            tk.Label(body, text="u 시작 (m)", font=FONT).grid(row=0, column=0)
+            tk.Label(body, text="두께 (m)", font=FONT).grid(row=0, column=1)
+            for r, row in enumerate(it.thick_zones, start=1):
+                pair = []
+                for col in (0, 1):
+                    var = tk.StringVar(value=str(row[col]))
+
+                    def on_write(*_, rr=row, cc=col, v=var):
+                        rr[cc] = v.get()
+                        self._update_zone_label(i)
+                    var.trace_add("write", on_write)
+                    tk.Entry(body, textvariable=var, width=10, font=FONT).grid(row=r, column=col, padx=2, pady=1)
+                    pair.append(var)
+                self._zone_vars.append(pair)
+                tk.Button(body, text="삭제", font=FONT, command=lambda rr=r - 1: (it.thick_zones.pop(rr), draw(),
+                                                                              self._update_zone_label(i))).grid(row=r, column=2, padx=4)
+
+        def add():
+            last = it.thick_zones[-1][0] if it.thick_zones else "0"
+            try:
+                nxt = f"{float(last) + 10:g}" if it.thick_zones else "0"
+            except ValueError:
+                nxt = ""
+            it.thick_zones.append([nxt, str(it.wall_t)])
+            draw()
+            self._update_zone_label(i)
+        bar = tk.Frame(win)
+        bar.pack(fill="x", padx=8, pady=6)
+        tk.Button(bar, text="+ 구간 추가", font=FONT, command=add).pack(side="left")
+        tk.Button(bar, text="닫기", font=FONT, command=win.destroy).pack(side="right")
+        draw()
+        return win
+
+    def _update_zone_label(self, i):
+        zl = self._zone_labels.get(i)
+        if zl is not None:
+            zl.config(text=zones_summary(self.drafts.items[i]))
+        self.refresh_info()
 
     def refresh_info(self):
         for var, it in self._info_vars:

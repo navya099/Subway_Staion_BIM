@@ -300,6 +300,31 @@ class StationCADEngine:
             msp.add_text(f"STATION PROFILE VIEW ({label}: {self.cfg.grade_permil(0.0):.2f}‰{axis})", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0 + dv))
         return doc
 
+    def build_path_profile_doc(self, names=None, t_off: float = 0.0) -> ezdxf.document.Drawing:
+        """통로 경로 종단 DXF 문서 (통로마다 경로를 따라 펼친 종단 + 끝에 붙은 출입구, 여러 통로는 아래로 쌓음).
+        names = 통로 이름 목록 (None = 모든 통로), t_off = 중심선에서 절단면까지 거리 (진행방향 왼쪽 +)"""
+        from engine.path_profile import passage_profile_items, profile_bounds
+        doc, msp = self._init_doc()
+        names = [p.name for p in self.passages.all_passages()] if names is None else list(names)
+        dv = 0.0
+        prev_lo = None
+        for name in names:
+            items = passage_profile_items(self, name, t_off)
+            x0, x1, z0, z1 = profile_bounds(items)
+            if prev_lo is not None:
+                dv = prev_lo - 10.0 - z1                      # 앞 그림 아래로 (제목 포함 여유)
+            draw_view_items(msp, items, dv=dv)
+            axis = f", AXIS: C.L.{t_off:+.3f}m" if t_off else ", AXIS: C.L."
+            msp.add_text(f"PASSAGE PROFILE VIEW: {name} (developed along path{axis})",
+                         dxfattribs={'height': 1.2, 'layer': 'PROF_TEXT'}).set_placement((x0, z1 + 3.0 + dv))
+            prev_lo = z0 + dv
+        return doc
+
+    def generate_path_profile_dxf(self, filename="output/통로종단면도.dxf", names=None, t_off: float = 0.0) -> str:
+        doc = self.build_path_profile_doc(names, t_off)
+        self._save(doc, filename)
+        return os.path.abspath(filename)
+
     def generate_dae(self, filename="output/정거장3d모델.dae", texture_dir=None) -> str:
         """텍스처 3D 모델 (COLLADA, 스케치업 둘러보기용). 결과 요약(원점·재질·텍스처 없는 재질)은 self.dae_result"""
         kw = {} if texture_dir is None else {"texture_dir": texture_dir}

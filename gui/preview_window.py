@@ -332,7 +332,8 @@ class PreviewWindow:
         vals = [ALL_FLOORS] + [f"{n}까지" for n in names]
         self.d3_floor["values"] = vals
         self.d3_floor.set(cur if cur in vals else ALL_FLOORS)
-        axes = [n for n, _ in R.axis_choices(cfg)]
+        from engine.path_profile import path_axis_choices
+        axes = [n for n, _ in R.axis_choices(cfg)] + [n for n, _ in path_axis_choices(cfg)]   # + 통로 경로 종단
         cur = self.profile_axis.get()
         self.profile_axis["values"] = axes
         if not cur.strip():
@@ -381,14 +382,24 @@ class PreviewWindow:
     def draw_profile(self):
         if not self._ready():
             return
+        from engine.path_profile import parse_path_axis
         try:
-            t = R.parse_axis(self.profile_axis.get(), self.cfg)
-            doc = self.engine.build_profile_doc([t])
+            path = parse_path_axis(self.profile_axis.get(), self.cfg)     # 통로 경로 종단 ('통로 EX1 경로 [+offset]')
+            if path is not None:
+                name, t = path
+                doc = self.engine.build_path_profile_doc([name], t)
+            else:
+                t = R.parse_axis(self.profile_axis.get(), self.cfg)
+                doc = self.engine.build_profile_doc([t])
         except Exception as e:
             self._fail("종단", e)
             return
-        self.profile.draw_2d(doc, ("profile",))      # 축만 바뀌면 같은 자리에서 비교할 수 있도록 확대 상태 유지
-        self._say(f"종단 축 C.L.{t:+g}m" if t else "종단 축 C.L.")
+        key = ("path", path[0]) if path is not None else ("profile",)
+        self.profile.draw_2d(doc, key)                    # 같은 보기(본체 종단 / 같은 통로)면 확대 상태 유지
+        if path is not None:
+            self._say(f"통로 {path[0]} 경로 종단 (펼침, 중심선{t:+g}m)" if t else f"통로 {path[0]} 경로 종단 (펼침, 중심선)")
+        else:
+            self._say(f"종단 축 C.L.{t:+g}m" if t else "종단 축 C.L.")
 
     def _set_sta(self, sta):
         km = int(sta // 1000)

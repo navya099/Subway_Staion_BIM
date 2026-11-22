@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1105개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1110개 통과** (GUI 135개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -76,7 +76,7 @@ assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_pa
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -306,6 +306,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - **평면 경로 객체 표시·편집(`gui/path_edit.py` 화면 비의존 + `PreviewWindow`)**: 출구통로·환기구·점자 유도 경로를 미리보기 평면(그 층)에 중심선(점선, 통로 청록·환기구 연두·점자 노랑) + 꼭짓점 손잡이(■ 자유, □ 첫 꼭짓점 = 본체 벽을 따라 s 방향만 — t 는 입력 그대로·비우면 계속 자동, 회색 ■ = 분기 통로 첫 꼭짓점 고정) + 구간 가운데 손잡이(○)로 표시. 평면 조작 줄 '경로 표시' 체크(기본 켬).
   - 편집(선택 중이 아닐 때): 꼭짓점 **끌기**(스냅·직교 = 직전 꼭짓점 기준), 가운데 손잡이 **누르기/끌기 = 꼭짓점 추가**(높이 = 이웃 사이 평면 거리 보간, 첫 꼭짓점 높이 비움 = 0), **오른쪽 클릭·Delete·명령줄 D = 삭제**(2개 이상, 첫 꼭짓점 불가), 꼭짓점을 고른 뒤 **명령줄 좌표**(STA,offset / @ds,dt = 그 꼭짓점 기준)로 옮김. 환기구 수직 구간(평면 위치 같은 연속 꼭짓점)은 함께 움직임. 좌표 방식(선형 상대/절대 X·Y)을 지켜 입력 초안 문자열을 고침 → `on_path_edit(kind)` 로 그 탭 render → 미리보기 갱신(확대 유지, 고른 꼭짓점 유지). 모델 오류면 초안은 바뀌고 상태줄에 오류.
   - `collect_paths(cfg, entries)` = 배치 결과(통로·환기구 `vertices` (s, t), 점자 `TactilePathSpec.points`)와 입력 초안을 순서로 짝지음(개수가 다르면 그 종류 생략). 앱은 `PreviewWindow(entries=…, on_path_edit=…)` 로 넘김.
+- **통로 경로 종단(`engine/path_profile.py`, 사용자 요청: 외부출입구·통로를 종단 뷰로)**: 출구통로마다 **경로를 따라 펼친 종단**(실무 도면 A-A 처럼) — X = 첫 꼭짓점(본체 외벽 접합점)부터 통로 중심선을 따라 잰 거리(꺾여도 펼침), Z = 절대 표고. 절단면 = 구간마다 그 구간 축을 품은 연직면을 중심선에서 `t_off`(왼쪽 +)만큼 옮긴 면: 통로 부재·통로 마감은 `BoxPiece.cut_by_plane`(정확), 끝에 붙은 출입구는 출입구 좌표 띠를 t = t_off 에서(출입구 u 축 = 통로 마지막 구간). 잘리지 않는 부재는 절단면 왼쪽(+t)에 있는 것만 너머 윤곽(PROF_BEYOND, 통로 조각은 축·표고 평면 투영 볼록 외곽), 레이어 PROF_CONCRETE+해치 / PROF_FINISH / PROF_ESCALATOR, 지표선 PROF_CENTER, 통로·출입구 이름 글자. `StationCADEngine.build_path_profile_doc(names, t_off)`(여러 통로는 아래로 쌓음, 제목 'PASSAGE PROFILE VIEW: 이름') / `generate_path_profile_dxf`. 미리보기 종단 탭 축 목록에 `통로 {이름} 경로`(뒤에 '+0.98' 처럼 offset — `parse_path_axis`, 같은 통로면 확대 유지), 출력 탭 '통로 종단면도'(`OutputOptions.path_profile`, 기본 끔 → `통로종단면도.dxf`, 통로 없으면 안 만듦). 본체 쪽(접합부 너머)은 그리지 않음.
 - **텍스처 3D 모델(COLLADA .dae, `exporter/dae_exporter.py`)**: 스케치업 기본 가져오기로 둘러보기용 (스케치업 IFC 가져오기는 텍스처를 읽지 않음, 2D 도면에는 불필요). 출력 탭 '텍스처 DAE'(기본 끔) → `정거장3d모델.dae` + 옆 `textures/` 에 이미지 복사.
   - 기하 = `build_3d_doc` 의 3DFACE 그대로(단일 원천). 마감 부재는 그 부재의 `material`(source_element 핸들로 연결), 나머지는 레이어별 재질(`render_material.LAYER_MATERIALS`, 목록에 없는 구조 레이어 = `CONCRETE` — 텍스처 `Polished Concrete New` 2.0×2.0, 콘크리트 면처리도 같은 텍스처). **천장틀(FIN_FRAME)은 기본 제외**(면이 많고 천장판에 가림, `frames=True` 로 포함).
   - 텍스처는 재질 이름 기준 `FINISH_MATERIALS`: 금속패널 → `metal_panel` 1.2×0.6, 화강석 → `granite` 0.6×0.6, 알루미늄 천장판 → `ceiling_panel` 0.6×0.6 (이미지 한 장의 실제 크기). 이미지(`assets/image/tile/{이름}.jpg|.jpeg|.png`, 공백 있는 이름은 URI 에서 `%20`)가 없으면 색만 + 완료 알림에 안내. 그 밖의 재질은 색만.

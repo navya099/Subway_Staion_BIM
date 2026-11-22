@@ -17,8 +17,10 @@ _FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리�
            "LEAN": "콘크리트-버림", "RAMP": "콘크리트-출입구경사로", "STEPS": "콘크리트-출입구바깥계단",
            "PAVE": "출입구 앞마당 포장", "LANDING": "콘크리트-출입구승강구슬래브", "LANDFIN": "출입구 승강구 바닥 마감"}
 _CANOPY = {"CP_POST": ("출입구 캐노피 기둥", "Canopy_Steel"), "CP_BEAM": ("출입구 캐노피 보", "Canopy_Steel"),
-           "CP_GLASS": ("출입구 캐노피 유리", "Canopy_Glass"), "CP_SIGN": ("출입구 출구 사인", "Aluminium_Sign")}
-_CANOPY_LAYER = {"CP_POST": "STRUCT_CANOPY", "CP_BEAM": "STRUCT_CANOPY", "CP_GLASS": "STRUCT_CANOPY_GLASS"}
+           "CP_GLASS": ("출입구 캐노피 유리", "Canopy_Glass"), "CP_SIGN": ("출입구 출구 사인", "Aluminium_Sign"),
+           "CP_WALL": ("출입구 캐노피 유리벽", "Canopy_Glass")}
+_CANOPY_LAYER = {"CP_POST": "STRUCT_CANOPY", "CP_BEAM": "STRUCT_CANOPY", "CP_GLASS": "STRUCT_CANOPY_GLASS",
+                 "CP_WALL": "STRUCT_CANOPY_GLASS"}
 
 
 class EntranceEngine:

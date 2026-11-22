@@ -317,7 +317,8 @@ def forecourt(spec, a: float, u0: float, G: float, Gt: float) -> list:
 def canopy_parts(spec, name, G, Gt, u_re, u_back, u_top, end, t_post, z_base) -> list:
     """캐노피 (철골 + 평판 유리 지붕) 부재 [EntrancePartLayout]. t_post = 기둥 중심선 |t| (측벽·파라펫 두께 가운데),
     z_base = 기둥 밑 (파라펫 윗면), u_back = 지붕 뒤 끝 (가로 파라펫 바깥면). 보 하면 = 앞 끝에서 Gt + cp_height, 뒤로 cp_slope 로 낮아짐.
-    사인(CP_SIGN)은 띠 두 개 = [본체, 앞면 이미지 판 2mm]"""
+    사인(CP_SIGN)은 띠 두 개 = [본체, 앞면 이미지 판 2mm]. 유리벽(CP_WALL, cp_wall) = 옆(기둥 중심선, 뒤 끝 ~ 첫 기둥, 기둥 사이)·
+    뒤(뒤 가로 보 아래 가운데) 파라펫 윗면 ~ 보 하면, 앞(출구)은 열림"""
     bw, bh, ps = spec.cp_beam_w, spec.cp_beam_h, spec.cp_post
     u_f = end + spec.cp_front
     z_f = Gt + spec.cp_height
@@ -350,6 +351,16 @@ def canopy_parts(spec, name, G, Gt, u_re, u_back, u_top, end, t_post, z_base) ->
         box(f"CP_BEAM_X{k}", "CP_BEAM", inner, c0, c1, zb, ztop, bw)
     tg = t_post + spec.cp_side
     box("CP_GLASS", "CP_GLASS", (-tg, tg), u_back, u_f, ztop, lambda u: ztop(u) + spec.cp_glass_t, spec.cp_glass_t)
+    if spec.cp_wall:                                   # 외부 차단 유리벽: 옆(기둥 선, 뒤 끝 ~ 기둥 사이)·뒤(가로 파라펫 위) — 앞은 출구
+        gt = spec.cp_wall_t
+        gaps = [(u_back, posts[0] - ps / 2.0)] + [(a_ + ps / 2.0, b_ - ps / 2.0) for a_, b_ in zip(posts, posts[1:])]
+        for tag, sg in (("L", 1), ("R", -1)):
+            for k, (g0, g1) in enumerate((g for g in gaps if g[1] - g[0] > 1e-6), start=1):
+                box(f"CP_WALL_{tag}{k}", "CP_WALL", (sg * t_post - gt / 2.0, sg * t_post + gt / 2.0), g0, g1,
+                    lambda u: z_base, zb, gt)
+        ub = u_back + bw / 2.0                         # 뒤 = 뒤 가로 보 아래 (가로 파라펫 위)
+        box("CP_WALL_B", "CP_WALL", (-t_post + gt / 2.0, t_post - gt / 2.0), ub - gt / 2.0, ub + gt / 2.0,
+            lambda u: z_base, zb, gt)
     if spec.cp_sign:
         sw, sh, st = spec.cp_sign_w, spec.cp_sign_h, spec.cp_sign_t
         if sw > 2 * t_post - bw + 1e-9:

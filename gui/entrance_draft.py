@@ -80,6 +80,7 @@ class EntranceDraft:
     top_ffl: str = "0.1"                  # 화면 기본 = 실무 상세 (모델 기본 0)
     landing_t: str = f"{_SPEC.landing_t:g}"
     canopy: bool = True                   # 화면 기본 = 캐노피 있음 (모델 기본 끔)
+    cp_wall: bool = True                  # 캐노피 외부 차단 유리벽 (옆·뒤)
     cp_height: str = f"{_SPEC.cp_height:g}"
     cp_slope: str = f"{_SPEC.cp_slope:g}"
     cp_front: str = f"{_SPEC.cp_front:g}"
@@ -128,7 +129,7 @@ class EntranceDraft:
             raise ValueError(f"{where}: 에스컬레이터 대수가 정수가 아닙니다 ('{self.escalator_count}')") from None
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
                             stair=bool(self.stair), escalator_count=n_esc, outdoor=_OUTDOOR[self.outdoor],
-                            canopy=bool(self.canopy), exit_number=str(self.exit_number).strip(),
+                            canopy=bool(self.canopy), cp_wall=bool(self.cp_wall), exit_number=str(self.exit_number).strip(),
                             exit_dest="\n".join(x.strip() for x in str(self.exit_dest).split("/") if x.strip()),
                             stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
                             finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)

@@ -172,6 +172,8 @@ def check_canopy(spec, name: str):
     for label, v in (("캐노피 기울기", spec.cp_slope), ("캐노피 앞 내밈", spec.cp_front), ("캐노피 옆 내밈", spec.cp_side)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}는 0 이상이어야 합니다 ({v:g})")
+    if spec.cp_wall and not 0 < spec.cp_wall_t < spec.cp_beam_w:
+        raise ValueError(f"출입구 {name}: 캐노피 유리벽 두께({spec.cp_wall_t:g}m)는 0 보다 크고 보 폭보다 작아야 합니다")
     if spec.cp_beam_w > spec.cp_post + 1e-9:
         raise ValueError(f"출입구 {name}: 캐노피 보 폭({spec.cp_beam_w:g}m)이 기둥({spec.cp_post:g}m)보다 큽니다")
     if spec.cp_sign:

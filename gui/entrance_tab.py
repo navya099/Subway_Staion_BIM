@@ -169,6 +169,14 @@ class EntranceTab:
             self.refresh_info()
         cvar.trace_add("write", on_canopy)
         tk.Checkbutton(row2, text="캐노피 (출구 사인)", variable=cvar, font=FONT).pack(side="left")
+        wvar = tk.BooleanVar(value=getattr(it, "cp_wall", True))
+        self._vars[(i, "cp_wall")] = wvar
+
+        def on_wall(*_, obj=it, v=wvar):
+            obj.cp_wall = v.get()
+            self.refresh_info()
+        wvar.trace_add("write", on_wall)
+        tk.Checkbutton(row2, text="유리벽", variable=wvar, font=FONT).pack(side="left", padx=(4, 0))
         tk.Label(row2, text="출구 번호", font=FONT).pack(side="left", padx=(8, 0))
         self._entry(row2, it, "exit_number", (i, "exit_number"), 4).pack(side="left", padx=(2, 0))
         tk.Label(row2, text="목적지(/ 로 줄)", font=FONT).pack(side="left", padx=(8, 0))

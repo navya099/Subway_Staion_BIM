@@ -1039,6 +1039,16 @@ def test_canopy_layout_and_outputs(tmp_path):
     gl = cp["CP_GLASS"]
     assert gl.t_range == pytest.approx((-(t_post + sp.cp_side), t_post + sp.cp_side))
     assert gl.strips[0].zb0 == pytest.approx(zb(bl.s0) + sp.cp_beam_h)
+    walls = [p for c, p in cp.items() if c.startswith("CP_WALL")]                           # 외부 차단 유리벽: 옆·뒤, 앞은 열림
+    side = sorted((p.strips[0].s0, p.strips[0].s1) for c, p in cp.items() if c.startswith("CP_WALL_L"))
+    assert side[0] == pytest.approx((u_re - 0.3, u_re)) and len(side) == len(posts)          # 뒤 끝 ~ 첫 기둥, 기둥 사이
+    assert all(b - a == pytest.approx(posts[1] - posts[0] - sp.cp_post) for a, b in side[1:])
+    assert max(s1 for _, s1 in side) <= u_top + 1e-9                                         # 앞(출구) 쪽엔 없음
+    wb = cp["CP_WALL_B"].strips[0]
+    assert (wb.s0 + wb.s1) / 2 == pytest.approx(u_re - 0.3 + sp.cp_beam_w / 2)
+    for p in walls:
+        s = p.strips[0]
+        assert s.zb0 == pytest.approx(G + sp.parapet) and s.zt == pytest.approx(zb(s.s0))
     sg = cp["CP_SIGN"]
     assert sg.t_range == pytest.approx((-1.2, 1.2)) and sg.strips[-1].s1 == pytest.approx(end + sp.cp_front)
     assert sg.strips[0].zb0 - Gt >= 2.1 - 1e-9
@@ -1046,19 +1056,21 @@ def test_canopy_layout_and_outputs(tmp_path):
     # IFC: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 사인 IfcBuildingElementProxy(SIGNAGE), 체적 공식 = 메쉬 = IFC
     f = ifcopenshell.open(eng.generate_ifc(tmp_path / "cp.ifc"))
     by_name = {e.Name: e for e in f.by_type("IfcElement")}
-    kinds = {"CP_POST": "IfcColumn", "CP_BEAM": "IfcBeam", "CP_GLASS": "IfcPlate", "CP_SIGN": "IfcBuildingElementProxy"}
+    kinds = {"CP_POST": "IfcColumn", "CP_BEAM": "IfcBeam", "CP_GLASS": "IfcPlate", "CP_SIGN": "IfcBuildingElementProxy",
+             "CP_WALL": "IfcPlate"}
     for e in ent.canopy:
         el = by_name[e.name]
         assert el.is_a(kinds[e.kind])
         mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, e))
         assert mesh == pytest.approx(e.volume, rel=1e-7)
         assert ifc_world_volume(el) == pytest.approx(e.volume, rel=1e-6)
+    assert by_name["EN1_CP_WALL_B"].PredefinedType == "CURTAIN_PANEL"
     sign = by_name["EN1_CP_SIGN"]
     assert sign.ObjectType == "SIGNAGE" and sign.Description == "3 출구: 검단신도시 / 시청"
     # 3D 레이어 · 사인 이미지 (DAE textures/entrance_sign_001.png)
     eng.build_3d_doc()
     layers = {e.kind: {x.dxf.layer for x in e.source_element} for e in ent.canopy}
-    assert layers["CP_POST"] == {"STRUCT_CANOPY"} and layers["CP_GLASS"] == {"STRUCT_CANOPY_GLASS"}
+    assert layers["CP_POST"] == {"STRUCT_CANOPY"} and layers["CP_GLASS"] == layers["CP_WALL"] == {"STRUCT_CANOPY_GLASS"}
     assert layers["CP_SIGN"] == {"STRUCT_SIGN", "STRUCT_SIGN_FACE"}
     (name, img, frame, faces), = eng.entrances.sign_images()
     assert img.size[0] / img.size[1] == pytest.approx(2.4 / 0.6, rel=0.02) and frame[3:5] == pytest.approx((2.4, 0.6))
@@ -1075,9 +1087,11 @@ def test_canopy_rules_and_draft():
         lay_of(cfg_with(dict(CANOPY, cp_sign_w=6.0)))
     with pytest.raises(ValueError, match="보 폭"):
         lay_of(cfg_with(dict(CANOPY, cp_beam_w=0.3)))
-    nos = lay_of(cfg_with(dict(CANOPY, cp_sign=False)))
-    assert "CP_SIGN" not in {p.code for p in nos.canopy}
+    nos = lay_of(cfg_with(dict(CANOPY, cp_sign=False, cp_wall=False)))
+    assert not {p.code for p in nos.canopy if p.code.startswith(("CP_SIGN", "CP_WALL"))}
+    with pytest.raises(ValueError, match="유리벽 두께"):
+        lay_of(cfg_with(dict(CANOPY, cp_wall_t=0.2)))
     eng = StationCADEngine(cfg_with(dict(CANOPY, exit_number="", exit_dest="")))
     assert eng.entrances.entrances[0].exit_number == "1"                                      # 비우면 통로 순번
     sp = EntranceDraft(passage="EX1", exit_number="2", exit_dest="시청 / 공원").to_spec("출입구")
-    assert sp.canopy and sp.exit_number == "2" and sp.exit_dest == "시청\n공원"                # 화면 기본 = 캐노피 있음
+    assert sp.canopy and sp.cp_wall and sp.exit_number == "2" and sp.exit_dest == "시청\n공원"                # 화면 기본 = 캐노피 있음

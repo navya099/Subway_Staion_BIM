@@ -61,7 +61,7 @@ class EntranceSpec:
                 (파라펫) 두께 가운데 선, 파라펫 윗면 ~ 보 하면, 천장 끝 ~ 상단 끝벽 안쪽 면을 간격 ≤ cp_spacing 로 고르게. 보(cp_beam_w ×
                 cp_beam_h) = 기둥 선 위 테두리 보(뒤 = 가로 파라펫 바깥면 ~ 앞 = 상단 끝벽 바깥면 + cp_front) + 기둥마다·앞뒤 끝 가로 보.
                 보 하면 = 앞 끝에서 승강구 + cp_height, 뒤로 cp_slope 기울기로 낮아짐(배수). 유리(cp_glass_t) = 보 위, 옆은 기둥 선
-                너머 cp_side
+                너머 cp_side. 외부 차단 유리벽 cp_wall(두께 cp_wall_t) = 옆(기둥 선)·뒤(가로 파라펫 위) 파라펫 윗면 ~ 보 하면, 앞은 출구로 열림
         cp_sign: 캐노피 앞 가로 보 아래 출구 사인 (폭 cp_sign_w × 높이 cp_sign_h × 두께 cp_sign_t, 바깥(+u)을 향함). 번호·목적지 =
                  exit_number / exit_dest (비우면 사인 설정 출구 안내 → 통로 순번), 이미지 = 역 안 출구 사인과 같은 그림
         landing_t: 에스컬레이터 구역 승강구 슬래브 두께 (m, 실무 200) — 트러스 위 끝 ~ 상단 끝벽, 아래는 빈 공간(바닥 = 트러스 하면 높이)
@@ -151,6 +151,8 @@ class EntranceSpec:
     cp_beam_w: float = 0.15          # 보 폭
     cp_beam_h: float = 0.3           # 보 높이
     cp_glass_t: float = 0.024        # 유리 두께
+    cp_wall: bool = True             # 외부 차단 유리벽 (옆·뒤, 앞은 출구)
+    cp_wall_t: float = 0.016         # 유리벽 두께
     cp_sign: bool = True             # 캐노피 앞 출구 사인
     cp_sign_w: float = 2.4
     cp_sign_h: float = 0.6

@@ -519,6 +519,8 @@ class IFCExporter:
                     members.append(self._frame_element("IfcBeam", ce, ent.frame, items, PredefinedType="BEAM"))
                 elif ce.kind == "CP_GLASS":
                     members.append(self._frame_element("IfcPlate", ce, ent.frame, items, PredefinedType="USERDEFINED"))
+                elif ce.kind == "CP_WALL":                     # 외부 차단 유리벽
+                    members.append(self._frame_element("IfcPlate", ce, ent.frame, items, PredefinedType="CURTAIN_PANEL"))
                 else:
                     text = f"{ent.exit_number} 출구" + (": " + " / ".join(ent.exit_dest.splitlines()) if ent.exit_dest else "")
                     el = self._frame_element("IfcBuildingElementProxy", ce, ent.frame, items, PredefinedType="USERDEFINED",

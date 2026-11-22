@@ -130,7 +130,7 @@ def test_box_parts_layout():
     sp, u = lay.spec, lay.u
     codes = {p.code for p in lay.box_parts}
     assert codes == {"FLOOR_S", "FLOOR_E", "ROOF", "WALL_L", "WALL_R", "END_WALL_S", "END_WALL_E",
-                     "JOINT_WALL_L", "JOINT_WALL_R", "PARTITION"}
+                     "JOINT_WALL_L", "JOINT_WALL_R", "PARTITION", "PARAPET", "LANDING_E"}
     a, b = sp.inner_width / 2, sp.inner_width / 2 + sp.wall_t
     part = {p.code: p for p in lay.box_parts}
     assert part["WALL_L"].t_range == pytest.approx((a, b)) and part["ROOF"].t_range == pytest.approx((-b, b))
@@ -594,3 +594,576 @@ def test_entrance_finish_override_and_draft():
     assert lay_of(cfg).finish_type.name == "역무실"
     d = EntranceDraft(passage="EX1", finish="화장실")
     assert d.to_spec("출입구").finish == "화장실" and EntranceDraft(passage="EX1").to_spec("출입구").finish == ""
+
+
+# ===================================================== 지상부 1단계: 계단만·ESC 만·ESC n대 + 개구부 시작부 파라펫
+def test_escalator_only_and_multiple_escalators(tmp_path):
+    from escalators.escalator_type import EscalatorPartKind as EK
+    cfg = cfg_with({"stair": False, "escalator_count": 2, "escalator_side": 1})
+    eng = StationCADEngine(cfg)
+    ent = eng.entrances.entrances[0]
+    sp = ent.layout.spec
+    assert ent.stair is None and len(ent.escalators) == 2
+    assert sp.inner_width == pytest.approx(sp.escalator_zone + sp.esc_truss_width)            # 둘째 대는 트러스 폭만큼만
+    z = sp.zones()["escalators"]
+    assert z[0][1] == pytest.approx(z[1][0])                                                   # 대 사이 이격 없음
+    names = {e.name for e in ent.escalators}
+    assert names == {"EN1_ESC1", "EN1_ESC2"}
+    clad = [next(p for p in e.parts if p.kind == EK.CLAD_SIDE and p.side == 1) for e in ent.escalators]
+    out = [next(p for p in e.parts if p.kind == EK.CLAD_SIDE and p.side == -1) for e in ent.escalators]
+    assert clad[0].t_range[1] == pytest.approx(out[1].t_range[0])                              # 트러스 외장끼리 이격 없이 붙음
+    m = (sp.escalator_zone - sp.esc_truss_width) / 2
+    assert ent.escalators[0].t_range[0] == pytest.approx(-sp.inner_width / 2 + m)              # 벽 쪽 여유 = 1대일 때와 같음
+    codes = {p.code for p in ent.layout.box_parts}
+    assert "FLOOR_S" not in codes and "PARTITION" not in codes and "END_WALL_S" not in codes and "FLOOR_E" in codes
+    # 두 측벽 모두 에스컬레이터 쪽 바닥(트러스 하면) 위
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "m.ifc"))
+    assert len([t for t in f.by_type("IfcTransportElement") if t.Name.startswith("EN1_ESC")]) == 2
+    assert not [s for s in f.by_type("IfcStair") if s.Name.startswith("EN1")]
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for name, m in eng.entrances.strip_members(ent):
+        formula = m.shape.volume + sum(p.volume for p in getattr(m, "pieces", []))
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
+    # 계단 + 에스컬레이터 3대: 계단 | 칸막이 | ESC × 3
+    lay = lay_of(cfg_with({"escalator_count": 3}))
+    z = lay.spec.zones()
+    m = (lay.spec.escalator_zone - lay.spec.esc_truss_width) / 2
+    assert len(lay.escalators) == 3 and z["escalators"][0][0] == pytest.approx(z["partition"][1] + m)     # 칸막이 쪽 여유
+    assert z["escalators"][1][0] == pytest.approx(z["escalators"][0][1]) and z["escalators"][2][1] == pytest.approx(z["escalator"][1] - m)
+    assert lay.spec.inner_width == pytest.approx(lay.spec.stair_width + lay.spec.partition_t + lay.spec.escalator_zone
+                                                 + 2 * lay.spec.esc_truss_width)
+
+
+def test_stair_only_and_rules():
+    lay = lay_of(cfg_with({"escalator": False, "stair_width": 4.6}))
+    assert lay.escalators == [] and lay.stair is not None
+    with pytest.raises(ValueError, match="하나는 있어야"):
+        StationCADEngine(cfg_with({"escalator": False, "stair": False}))
+    with pytest.raises(ValueError, match="대수"):
+        StationCADEngine(cfg_with({"escalator_count": 0}))
+
+
+def test_roof_end_parapet():
+    lay = lay_of(cfg_with())
+    sp = lay.spec
+    par = next(p for p in lay.box_parts if p.code == "PARAPET")
+    u_re = lay.u["roof_end"]
+    T = sp.thick_at(u_re)
+    a = sp.inner_width / 2
+    assert par.t_range == pytest.approx((-(a + T), a + T))
+    assert par.strips[0].s0 == pytest.approx(u_re - T) and par.strips[-1].s1 == pytest.approx(u_re)
+    assert all(st.zt == pytest.approx(lay.ground + sp.parapet) for st in par.strips)
+    roof = max((s for p in lay.box_parts if p.code.startswith("ROOF") for s in p.strips), key=lambda s: s.s1)
+    assert par.strips[-1].zb1 == pytest.approx(roof.zt_end)                                    # 천장 상면 위에 섬
+
+
+def test_draft_stair_and_count():
+    from gui.entrance_draft import EntranceDraft, preview
+    d = EntranceDraft(passage="EX1", stair=False, escalator_count="2")
+    sp = d.to_spec("출입구")
+    assert not sp.stair and sp.escalator_count == 2 and "2대 붙임" in preview(d) and "계단 없음" in preview(d)
+    d.escalator_count = "x"
+    with pytest.raises(ValueError, match="정수"):
+        d.to_spec("출입구")
+    d.escalator, d.escalator_count = False, "1"
+    with pytest.raises(ValueError, match="하나는"):
+        d.to_spec("출입구")
+
+
+# ===================================================== 지상부 2단계: 상부 승강구 높임 + 바깥 경사로·계단
+def test_raised_top_landing_ramp_and_steps(tmp_path):
+    import math as _m
+    cfg = cfg_with({"top_rise": 0.45, "ramp_width": 1.2, "ramp_ratio": 12.0, "parapet": 0.6})
+    eng = StationCADEngine(cfg)
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    G, Gt = lay.ground, lay.top_level
+    assert Gt == pytest.approx(G + 0.45)
+    assert lay.escalator.finish_levels[1] == pytest.approx(Gt)                               # 에스컬레이터 위 끝 = 승강구
+    top = max(z for p in lay.stair.parts for _, _, z in p.surfaces)
+    assert top <= Gt + 1e-9 and lay.stair.parts[-1].strips[-1].zt == pytest.approx(Gt)        # 계단 도착 = 승강구
+    part = {p.code: p for p in lay.box_parts}
+    assert all(st.zt_end == pytest.approx(Gt) for st in part["END_WALL_S"].strips)           # 앞면 개방 (끝벽 = 승강구 높이까지)
+    ramp, stair = part["OUT_RAMP"], part["OUT_STAIR"]
+    a = lay.spec.inner_width / 2
+    assert ramp.t_range == pytest.approx((a - 1.2, a))                                       # 에스컬레이터 쪽(+t) 벽 옆
+    (rs,) = ramp.strips
+    assert (rs.s0, rs.zt, rs.zt_end) == (pytest.approx(lay.u["end"]), pytest.approx(Gt), pytest.approx(G))
+    assert rs.s1 - rs.s0 == pytest.approx(0.45 * 12)
+    n = _m.ceil(0.45 / lay.spec.out_riser_max - 1e-9)
+    assert len(stair.strips) == n - 1 and stair.t_range == pytest.approx((-a, a - 1.2))
+    assert [st.zt for st in stair.strips] == pytest.approx([Gt - k * 0.45 / n for k in range(1, n)])
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "r.ifc"))
+    assert [e.Name for e in f.by_type("IfcRampFlight")] == ["EN1_OUT_RAMP"]
+    assert "EN1_OUT_STAIR" in [e.Name for e in f.by_type("IfcStairFlight")]
+    # 높임 없으면 예전 (끝벽 = 지표 + 파라펫, 바깥 부재 없음)
+    plain = lay_of(cfg_with())
+    assert not [p for p in plain.box_parts if p.code.startswith("OUT")]
+    assert plain.top_level == pytest.approx(plain.ground)
+
+
+def test_raised_landing_finish_and_draft():
+    from finishes.finish_spec import FinishSettings
+    from gui.entrance_draft import EntranceDraft
+    cfg = cfg_with({"top_rise": 0.3})
+    cfg.finish_settings = FinishSettings(enabled=True)
+    lay = lay_of(cfg)
+    assert "FIN_END_WALL" not in {c for c, *_ in lay.finish}                                 # 앞면 개방: 끝벽 마감 없음
+    op = [s for c, k, m, t, st in lay.finish if c == "FIN_WALL_L" for s in st if s.s0 >= lay.u["roof_end"] - 1e-9]
+    assert op and all(s.zt_end == pytest.approx(lay.ground + lay.spec.parapet) for s in op)       # 파라펫 = 지표(GL) 기준
+    sp = EntranceDraft(passage="EX1", top_rise="0.45", ramp_width="0").to_spec("출입구")
+    assert sp.top_rise == 0.45 and sp.ramp_width == 0.0
+    lay = lay_of(cfg_with({"top_rise": 0.45, "ramp_width": 0.0, "parapet": 0.6}))
+    assert "OUT_RAMP" not in {p.code for p in lay.box_parts}                                 # 경사로 폭 0 = 계단만
+
+
+# ===================================================== 실무 평면도: 개구부 내공 축소 · 바깥면 사선 전이
+OPEN = {"thickness_zones": ZONES, "wall_t": 0.7, "open_narrow": 0.2, "open_wall_t": 0.3, "taper_ratio": 2.0}
+
+
+def _in_taper(q, u, t, z):
+    f = (u - q.u0) / (q.u1 - q.u0)
+    ta, tb = q.ta0 + (q.ta1 - q.ta0) * f, q.tb0 + (q.tb1 - q.tb0) * f
+    zb, zt = q.zb0 + (q.zb1 - q.zb0) * f, q.zt0 + (q.zt1 - q.zt0) * f
+    return ta + 1e-7 < t < tb - 1e-7 and zb + 1e-7 < z < zt - 1e-7
+
+
+def test_opening_narrow_and_outer_taper():
+    lay = lay_of(cfg_with(OPEN))
+    a = lay.spec.inner_width / 2
+    a_o, u_re = a - 0.2, lay.u["roof_end"]
+    part = {p.code: p for p in lay.box_parts}
+    wl = part["WALL_L_Z4"]                                                                    # 개구부 (u_re 뒤) 측벽
+    assert wl.strips[0].s0 == pytest.approx(u_re) and wl.t_range == pytest.approx((a_o, a_o + 0.3)) and wl.thick == 0.3
+    assert part["WALL_R_Z4"].t_range == pytest.approx((-(a_o + 0.3), -a_o))
+    assert part["WALL_L_Z3"].t_range == pytest.approx((a, a + 0.7))                         # 천장 구간은 그대로
+    assert part["END_WALL_S"].t_range[0] == pytest.approx(-(a_o + 0.3))
+    assert part["FLOOR_E_Z4"].t_range[1] == pytest.approx(a_o + 0.3)
+    # 개구부 시작: 바깥면 a + 0.7 → a_o + 0.3 (차 0.6) 을 개구부 안으로 2 × 0.6 = 1.2 사선
+    w = sorted(wl.pieces, key=lambda q: q.u0)
+    assert w[0].u0 == pytest.approx(u_re) and w[-1].u1 == pytest.approx(u_re + 1.2)
+    assert w[0].tb0 == pytest.approx(a + 0.7) and w[-1].tb1 == pytest.approx(a_o + 0.3)
+    assert all(q.ta0 == pytest.approx(a_o + 0.3) for q in w)
+    for code in ("FLOOR_E_Z4", "FLOOR_S_Z4"):                                                # 바닥 슬래브 바깥면도
+        assert part[code].pieces and max(q.u1 for q in part[code].pieces) == pytest.approx(u_re + 1.2)
+    # 두께 구간 경계(0.9 → 0.8, u 14): 두꺼운 쪽 바깥면이 얇은 구간 안으로 2 × 0.1 (측벽·바닥·천장)
+    for code in ("WALL_L_Z2", "ROOF_Z2", "FLOOR_S_Z2"):
+        z2 = part[code].pieces
+        assert min(q.u0 for q in z2) == pytest.approx(14.0) and max(q.u1 for q in z2) == pytest.approx(14.2)
+    assert not part["WALL_L_Z1"].pieces and not part["PARAPET"].pieces
+    # 계단: 개구부 쪽 조각은 벽 쪽(−t) 변이 축소된 내공면, 천장 구간은 계단 구역 전체 폭
+    s0, s1 = lay.spec.zones()["stair"]
+    for p in lay.stair.parts:
+        t = p.t_range if p.t_range is not None else (s0, s1)
+        assert t == pytest.approx((-a_o, s1) if p.strips[0].s0 >= u_re - 1e-9 else (s0, s1))
+        assert all(st.s1 <= u_re + 1e-9 for st in p.strips) or all(st.s0 >= u_re - 1e-9 for st in p.strips)
+    plain = lay_of(cfg_with({"thickness_zones": ZONES, "wall_t": 0.7}))                     # 기본값: 예전과 같음 (직각 계단, 축소 없음)
+    assert not any(p.pieces for p in plain.box_parts) and "WALL_L_Z4" not in {p.code for p in plain.box_parts}
+
+
+def test_opening_narrow_finish_overlap_and_volumes(tmp_path):
+    import random
+    eng = StationCADEngine(_fin_cfg(**OPEN))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    a, fin = lay.spec.inner_width / 2, lay.spec_stair_finish
+    a_o, u_re, face = a - 0.2, lay.u["roof_end"], lay.finish_type.face
+    nos = sorted(f.t_range for f in lay.stair.finish if f.code == "NOSING")                 # 논슬립 벽 쪽 끝 = 벽 면 + nosing_end
+    assert [r[0] for r in nos] == pytest.approx(sorted([-a + fin.nosing_end, -a_o + fin.nosing_end]))
+    wf = {c: (t, s) for c, k, m, t, s in lay.finish}
+    assert wf["FIN_WALL_L_O"][0][0] == pytest.approx(a_o - face)                             # 개구부 벽 마감 표면
+    assert wf["FIN_WALL_L_RET"][1][0].s0 == pytest.approx(u_re - face)                       # 꺾임 패널: 개구부 벽 끝면 앞
+    assert wf["FIN_WALL_L"][1][-1].s1 == pytest.approx(u_re - face)
+    members = [(n, m) for n, m in eng.entrances.strip_members(ent) if "_ESC" not in n]
+    boxes = [(n, m.t_range, s) for n, m in members for s in m.shape.strips]
+    tapers = [(n, q) for n, m in members for q in getattr(m, "pieces", []) if hasattr(q, "ta0")]
+    assert tapers
+    rng = random.Random(4)
+    samples = []
+    for n, m in members:
+        t0, t1 = m.t_range
+        for st in m.shape.strips:
+            for _ in range(3):
+                u = rng.uniform(st.s0, st.s1)
+                if st.zt_at(u) - st.zb_at(u) > 1e-6:
+                    samples.append((n, u, rng.uniform(t0, t1), rng.uniform(st.zb_at(u), st.zt_at(u))))
+    for n, q in tapers:
+        for _ in range(20):
+            u = rng.uniform(q.u0, q.u1)
+            f = (u - q.u0) / (q.u1 - q.u0)
+            ta, tb = q.ta0 + (q.ta1 - q.ta0) * f, q.tb0 + (q.tb1 - q.tb0) * f
+            zb, zt = q.zb0 + (q.zb1 - q.zb0) * f, q.zt0 + (q.zt1 - q.zt0) * f
+            if tb - ta > 1e-6 and zt - zb > 1e-6:
+                samples.append((n + "#taper", u, rng.uniform(ta, tb), rng.uniform(zb, zt)))
+    for n, u, t, z in samples:                                                               # 서로 겹치지 않음 (쐐기 포함)
+        for n2, (a0, a1), s2 in boxes:
+            if n2 == n or not (a0 + 1e-9 < t < a1 - 1e-9 and s2.s0 + 1e-9 < u < s2.s1 - 1e-9):
+                continue
+            assert not (s2.zb_at(u) + 1e-7 < z < s2.zt_at(u) - 1e-7), (n, n2, u, t, z)
+        for n2, q in tapers:
+            if n2 + "#taper" != n and q.u0 + 1e-9 < u < q.u1 - 1e-9:
+                assert not _in_taper(q, u, t, z), (n, n2, u, t, z)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "o.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for name, m in eng.entrances.strip_members(ent):                                         # 체적: 공식 = 메쉬 = IFC
+        formula = m.shape.volume + sum(p.volume for p in getattr(m, "pieces", []))
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m)) + \
+            sum(PM.mesh_volume(p.faces()) for p in getattr(m, "pieces", []))
+        assert mesh == pytest.approx(formula, rel=1e-7, abs=1e-8)
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
+    wedge = sum(q.volume for n, q in tapers if n == "EN1_WALL_L_Z4")                         # 쐐기 체적 = 삼각 평면 × 높이 (평균)
+    assert wedge > 0
+
+
+def test_opening_narrow_rules_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    with pytest.raises(ValueError, match="트러스 옆 여유"):
+        lay_of(cfg_with({"open_narrow": 0.9}))
+    with pytest.raises(ValueError, match="개구부 벽 두께"):
+        lay_of(cfg_with({"open_wall_t": 0.0}))
+    with pytest.raises(ValueError, match="바깥면 전이"):
+        lay_of(cfg_with({"taper_ratio": -1.0}))
+    sp = EntranceDraft(passage="EX1").to_spec("출입구")
+    assert sp.taper_ratio == 2.0 and sp.open_wall_t is None and sp.open_narrow == 0.0        # 화면 기본 = 실무 평면도 기울기
+    sp = EntranceDraft(passage="EX1", open_narrow="0.2", open_wall_t="0.3").to_spec("출입구")
+    assert (sp.open_narrow, sp.open_wall_t) == (0.2, 0.3)
+    with pytest.raises(ValueError, match="개구부 벽 두께"):
+        EntranceDraft(passage="EX1", open_wall_t="-1").to_spec("출입구")
+
+
+# ===================================================== 실무 상세 "a": 앞마당 접속 슬래브 (상부 승강구 높임 + 바깥 = forecourt)
+FORE = {"top_rise": 0.165, "outdoor": "forecourt", "fc_flat": 1.243, "open_narrow": 0.2, "open_wall_t": 0.3, "wall_t": 0.3}
+
+
+def test_forecourt_matches_detail_a(tmp_path):
+    import random
+    eng = StationCADEngine(cfg_with(FORE))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    G, u0 = lay.ground, lay.u["end"]
+    part = {p.code: p for p in lay.box_parts}
+    assert not [c for c in part if c.startswith("OUT_")]                                     # 경사로·계단 대신 앞마당
+    a_o = lay.spec.inner_width / 2 - 0.2
+    assert all(part[c].t_range == pytest.approx((-a_o, a_o)) for c in ("FC_PAVE", "FC_SLAB", "FC_BEAM", "FC_LEAN", "FC_FOOT"))
+
+    def rel(st):
+        return (st.s0 - u0, st.s1 - u0, st.zb0 - G, st.zb1 - G, st.zt - G, st.zt_end - G)
+    # 실무 상세 치수 (끝벽 바깥면·지표 기준): 포장 GL+165 평탄 1,243 → 기울기 1/12, 끝단 보 바깥면 3,150 에서 슬래브 윗면 −94
+    assert [x for s in part["FC_PAVE"].strips for x in rel(s)] == pytest.approx(
+        [0, 1.243, 0.065, 0.065, 0.165, 0.165, 1.243, 3.15, 0.065, 0.065 - 1.907 / 12, 0.165, 0.165 - 1.907 / 12])
+    assert rel(part["FC_SLAB"].strips[0]) == pytest.approx((0, 1.243, -0.235, -0.235, 0.065, 0.065))
+    beam = [rel(s) for s in part["FC_BEAM"].strips]
+    assert beam[0][:2] == pytest.approx((2.56, 2.85)) and beam[0][4] - beam[0][2] == pytest.approx(0.0)   # 헌치 (삼각)
+    assert beam[1][:4] == pytest.approx((2.85, 3.15, -0.77, -0.77))                          # 보 하면 = 평탄 슬래브 하면 − 535
+    (foot,) = part["FC_FOOT"].strips
+    assert rel(foot) == pytest.approx((2.695, 3.305, -0.91, -0.91, -0.77, -0.77))
+    assert rel(part["FC_LEAN"].strips[0]) == pytest.approx((0, 1.243, -0.375, -0.375, -0.235, -0.235))
+    assert part["FC_LEAN"].strips[-1].s1 - u0 == pytest.approx(2.85)                        # 버림 = 헌치 따라 보 안쪽 면까지
+    # 서로 겹치지 않음 (앞마당 부재끼리 + 박스)
+    fc = [(p.code, p.t_range, s) for p in lay.box_parts for s in p.strips]
+    rng = random.Random(7)
+    for code, (t0, t1), st in fc:
+        if not code.startswith("FC_"):
+            continue
+        for _ in range(30):
+            u = rng.uniform(st.s0, st.s1)
+            if st.zt_at(u) - st.zb_at(u) < 1e-6:
+                continue
+            t, z = rng.uniform(t0, t1), rng.uniform(st.zb_at(u), st.zt_at(u))
+            for c2, (a0, a1), s2 in fc:
+                if c2 != code and a0 + 1e-9 < t < a1 - 1e-9 and s2.s0 + 1e-9 < u < s2.s1 - 1e-9:
+                    assert not (s2.zb_at(u) + 1e-7 < z < s2.zt_at(u) - 1e-7), (code, c2, u, t, z)
+    # 출력: 포장 = 바닥 마감 레이어·IfcCovering(FLOORING, 화강석), 보 = IfcWall, 버림 = IfcSlab BASESLAB, 체적 공식 = 메쉬 = IFC
+    els = {e.code: e for e in ent.elements}
+    assert els["FC_PAVE"].material == "화강석" and els["FC_LEAN"].material == "Lean_Concrete"
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "fc.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    assert by_name["EN1_FC_PAVE"].is_a("IfcCovering") and by_name["EN1_FC_PAVE"].PredefinedType == "FLOORING"
+    assert by_name["EN1_FC_BEAM"].is_a("IfcWall") and by_name["EN1_FC_FOOT"].PredefinedType == "BASESLAB"
+    for code in ("FC_PAVE", "FC_SLAB", "FC_BEAM", "FC_LEAN", "FC_FOOT"):
+        m = els[code]
+        formula = m.shape.volume
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m))
+        assert mesh == pytest.approx(formula, rel=1e-7)
+        assert ifc_world_volume(by_name[m.name]) == pytest.approx(formula, rel=1e-6)
+    w = 2 * a_o
+    assert els["FC_PAVE"].shape.volume == pytest.approx(w * 0.1 * 3.15)                       # 연직 두께 일정
+    assert els["FC_SLAB"].shape.volume == pytest.approx(w * 0.3 * 3.15)
+    eng.build_3d_doc()
+    assert {e.dxf.layer for e in els["FC_PAVE"].source_element} == {"FIN_FLOOR"}                # 포장 = 바닥 마감 레이어
+
+
+def test_forecourt_rules_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    auto = lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt"}))                     # 평탄 길이 자동: 끝에서 지표
+    pave = {p.code: p for p in auto.box_parts}["FC_PAVE"]
+    assert pave.strips[0].s1 - auto.u["end"] == pytest.approx(3.15 - 0.165 * 12)
+    assert pave.strips[-1].zt_end == pytest.approx(auto.ground)
+    with pytest.raises(ValueError, match="지표보다 .* 높습니다"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt", "fc_flat": 2.0}))
+    with pytest.raises(ValueError, match="지표보다 .* 낮습니다"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt", "fc_flat": 0.5}))
+    with pytest.raises(ValueError, match="끝단 보 깊이"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt", "fc_beam_h": 0.1}))
+    with pytest.raises(ValueError, match="바깥 접근 형식"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "plaza"}))
+    sp = EntranceDraft(passage="EX1").to_spec("출입구")
+    assert sp.outdoor == "forecourt" and sp.fc_flat is None and sp.fc_length == 3.15        # 화면 기본 = 실무 상세 앞마당
+    sp = EntranceDraft(passage="EX1", outdoor="경사로·계단", fc_flat="0").to_spec("출입구")
+    assert sp.outdoor == "steps" and sp.fc_flat == 0.0
+    with pytest.raises(ValueError, match="앞마당 평탄 길이"):
+        EntranceDraft(passage="EX1", fc_flat="-1").to_spec("출입구")
+
+
+# ===================================================== 승강구 구조 (실무 종단·상세 "a") · 파라펫 두께 (상세 "d")
+def _no_overlap(parts, seed=11, n=25):
+    import random
+    rng = random.Random(seed)
+    boxes = [(p.code, p.t_range, s) for p in parts for s in p.strips]
+    for code, (t0, t1), st in boxes:
+        for _ in range(n):
+            u = rng.uniform(st.s0, st.s1)
+            if st.zt_at(u) - st.zb_at(u) < 1e-6:
+                continue
+            t, z = rng.uniform(t0, t1), rng.uniform(st.zb_at(u), st.zt_at(u))
+            for c2, (a0, a1), s2 in boxes:
+                if c2 != code and a0 + 1e-9 < t < a1 - 1e-9 and s2.s0 + 1e-9 < u < s2.s1 - 1e-9:
+                    assert not (s2.zb_at(u) + 1e-7 < z < s2.zt_at(u) - 1e-7), (code, c2, u, t, z)
+
+
+def test_landing_structure_matches_detail(tmp_path):
+    eng = StationCADEngine(cfg_with(dict(FORE, top_ffl=0.1)))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    G, Gt, D = lay.ground, lay.top_level, lay.spec.esc_truss_depth
+    u_hi, u_top, end = lay.u["truss_hi"], lay.u["top"], lay.u["end"]
+    part = {p.code: p for p in lay.box_parts}
+    (ls,) = part["LANDING_E"].strips                                                         # 승강구 슬래브 200, 윗면 GL+65
+    assert (ls.s0, ls.s1, ls.zb0 - G, ls.zt - G) == pytest.approx((u_hi, u_top, -0.135, 0.065))
+    (fe,) = part["FIN_TOP_E"].strips
+    assert (fe.zb0 - G, fe.zt - G) == pytest.approx((0.065, 0.165))                         # 승강구 마감 100 → 걷는 면 GL+165
+    (fw,) = part["FIN_TOP_W"].strips
+    assert (fw.s0, fw.s1, fw.zb0, fw.zt) == pytest.approx((u_top, end, Gt - 0.1, Gt))        # 상단 끝벽 위 마감
+    assert all(s.zt_end == pytest.approx(Gt - 0.1) for c in ("END_WALL_S", "END_WALL_E") for s in part[c].strips)
+    assert part["END_WALL_E"].strips[0].zb0 == pytest.approx(Gt - D)                         # 끝벽 = 바닥(트러스 하면 높이)부터
+    flo = [s for p in lay.box_parts if p.code.startswith("FLOOR_E") for s in p.strips if s.s0 >= u_hi - 1e-9]
+    assert flo and all(s.zt == pytest.approx(Gt - D) and s.zt_end == pytest.approx(Gt - D) for s in flo)   # 아래 빈 공간
+    _no_overlap(lay.box_parts)
+    els = {e.code: e for e in ent.elements}
+    assert els["FIN_TOP_E"].material == "화강석"
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "land.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    assert by_name["EN1_LANDING_E"].is_a("IfcSlab") and by_name["EN1_LANDING_E"].PredefinedType == "LANDING"
+    assert by_name["EN1_FIN_TOP_E"].is_a("IfcCovering") and by_name["EN1_FIN_TOP_W"].PredefinedType == "FLOORING"
+    for code in ("LANDING_E", "FIN_TOP_E", "FIN_TOP_W", "END_WALL_E", max(c for c in els if c.startswith("FLOOR_E"))):
+        m = els[code]
+        formula = m.volume
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m)) + sum(PM.mesh_volume(p.faces()) for p in m.pieces)
+        assert mesh == pytest.approx(formula, rel=1e-7)
+        assert ifc_world_volume(by_name[m.name]) == pytest.approx(formula, rel=1e-6)
+    eng.build_3d_doc()
+    assert {e.dxf.layer for e in els["FIN_TOP_E"].source_element} == {"FIN_FLOOR"}
+    # 마감 두께 0 (모델 기본): 슬래브 윗면 = 승강구, 마감 부재 없음, 끝벽 = 승강구 높이
+    plain = lay_of(cfg_with({"top_rise": 0.165}))
+    pp = {p.code: p for p in plain.box_parts}
+    assert "FIN_TOP_E" not in pp and pp["LANDING_E"].strips[0].zt == pytest.approx(plain.top_level)
+    with pytest.raises(ValueError, match="트러스 높이"):
+        lay_of(cfg_with({"top_ffl": 0.5, "landing_t": 0.8}))
+
+
+def test_parapet_thickness_and_ground_reference(tmp_path):
+    from gui.entrance_draft import EntranceDraft
+    eng = StationCADEngine(cfg_with(dict(OPEN, parapet_t=0.25, parapet=0.5)))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    G, u_re, u_top = lay.ground, lay.u["roof_end"], lay.u["top"]
+    a_o = lay.spec.inner_width / 2 - 0.2
+    part = {p.code: p for p in lay.box_parts}
+    par = part["PARAPET"]                                                                    # 천장 끝 가로 파라펫 = 끝면에서 안쪽 0.25
+    assert (par.strips[0].s0, par.strips[-1].s1) == pytest.approx((u_re - 0.25, u_re)) and par.thick == 0.25
+    assert all(s.zt == pytest.approx(G + 0.5) for s in par.strips)                          # 윗면 = 지표 + 파라펫
+    for code, rng in (("PARAPET_L", (a_o, a_o + 0.25)), ("PARAPET_R", (-a_o - 0.25, -a_o))):   # 측벽 지표 위 = 얇은 파라펫 (내공면 고정)
+        p = part[code]
+        assert p.t_range == pytest.approx(rng)
+        assert [(s.s0, s.s1, s.zb0, s.zt) for s in p.strips] == [pytest.approx((u_re, u_top, G, G + 0.5))]
+    op = [s for p in lay.box_parts if p.code.startswith("WALL_L") for s in p.strips if s.s0 >= u_re - 1e-9]
+    assert op and all(s.zt_end == pytest.approx(G) for s in op)                              # 개구부 벽 = 지표까지
+    end_par = part["PARAPET_END"]                                                            # 높임 없음: 끝벽 지표 위도 파라펫
+    assert (end_par.strips[0].s0, end_par.strips[0].s1) == pytest.approx((u_top, u_top + 0.25))
+    _no_overlap(lay.box_parts, n=8)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "par.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for e in ent.elements:
+        if e.code.startswith("PARAPET"):
+            assert by_name[e.name].is_a("IfcWall")
+            assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=1e-6)
+    # 비우면 예전 (가로 파라펫 = 천장 끝 두께, 측벽 파라펫 없음), 높이는 지표 기준
+    plain = lay_of(cfg_with({"top_rise": 0.165}))
+    pp = {p.code: p for p in plain.box_parts}
+    assert "PARAPET_L" not in pp and pp["PARAPET"].thick == pytest.approx(plain.spec.thick_at(plain.u["roof_end"]))
+    assert all(s.zt == pytest.approx(plain.ground + plain.spec.parapet) for s in pp["PARAPET"].strips)
+    with pytest.raises(ValueError, match="파라펫 두께"):
+        lay_of(cfg_with(dict(OPEN, parapet_t=0.5)))
+    with pytest.raises(ValueError, match="파라펫 높이"):
+        lay_of(cfg_with({"top_rise": 0.4, "parapet": 0.3}))
+    sp = EntranceDraft(passage="EX1").to_spec("출입구")
+    assert sp.parapet_t is None and sp.top_ffl == 0.1 and sp.landing_t == 0.2                # 화면 기본 = 실무 상세 승강구 마감
+    assert EntranceDraft(passage="EX1", parapet_t="0.3").to_spec("출입구").parapet_t == 0.3
+
+
+# ===================================================== 캐노피 (철골 + 평판 유리 지붕) · 앞 출구 사인
+CANOPY = dict(FORE, top_ffl=0.1, parapet_t=0.3, canopy=True, exit_number="3", line_name="GTX A")
+
+
+def test_canopy_layout_and_outputs(tmp_path):
+    eng = StationCADEngine(cfg_with(CANOPY))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    sp, G, Gt = lay.spec, lay.ground, lay.top_level
+    u_re, u_top, end = lay.u["roof_end"], lay.u["top"], lay.u["end"]
+    cp = {p.code: p for p in lay.canopy}
+    a_o = sp.inner_width / 2 - 0.2
+    t_post = a_o + 0.15                                                                       # 파라펫(0.3) 두께 가운데
+    posts = sorted((p.strips[0].s0 + p.strips[0].s1) / 2 for c, p in cp.items() if c.startswith("CP_POST_L"))
+    assert posts[0] == pytest.approx(u_re + 0.1) and posts[-1] == pytest.approx(u_top - 0.1)
+    assert max(b - a for a, b in zip(posts, posts[1:])) <= sp.cp_spacing + 1e-9               # 간격 ≤ 상한, 고르게
+    zb = lambda u: Gt + sp.cp_height - sp.cp_slope * (end + sp.cp_front - u)
+    for c, p in cp.items():
+        if c.startswith("CP_POST"):
+            s = p.strips[0]
+            assert abs(abs(sum(p.t_range) / 2) - t_post) < 1e-9
+            assert s.zb0 == pytest.approx(G + sp.parapet) and s.zt == pytest.approx(zb(s.s0))   # 파라펫 윗면 ~ 보 하면
+    bl = cp["CP_BEAM_L"].strips[0]
+    assert (bl.s0, bl.s1) == pytest.approx((u_re - 0.3, end + sp.cp_front))                  # 가로 파라펫 바깥면 ~ 앞 내밈
+    assert (bl.zb0, bl.zb1) == pytest.approx((zb(bl.s0), zb(bl.s1)))
+    gl = cp["CP_GLASS"]
+    assert gl.t_range == pytest.approx((-(t_post + sp.cp_side), t_post + sp.cp_side))
+    assert gl.strips[0].zb0 == pytest.approx(zb(bl.s0) + sp.cp_beam_h)
+    walls = [p for c, p in cp.items() if c.startswith("CP_WALL")]                           # 외부 차단 유리벽: 옆·뒤, 앞은 열림
+    side = sorted((p.strips[0].s0, p.strips[0].s1) for c, p in cp.items() if c.startswith("CP_WALL_L"))
+    assert side[0] == pytest.approx((u_re - 0.3, u_re)) and len(side) == len(posts)          # 뒤 끝 ~ 첫 기둥, 기둥 사이
+    assert all(b - a == pytest.approx(posts[1] - posts[0] - sp.cp_post) for a, b in side[1:])
+    assert max(s1 for _, s1 in side) <= u_top + 1e-9                                         # 앞(출구) 쪽엔 없음
+    wb = cp["CP_WALL_B"].strips[0]
+    assert (wb.s0 + wb.s1) / 2 == pytest.approx(u_re - 0.3 + sp.cp_beam_w / 2)
+    for p in walls:
+        s = p.strips[0]
+        assert s.zb0 == pytest.approx(G + sp.parapet) and s.zt == pytest.approx(zb(s.s0))
+    sg = cp["CP_SIGN"]
+    assert sg.t_range == pytest.approx((-1.5, 1.5)) and sg.strips[-1].s1 == pytest.approx(end + sp.cp_front)
+    assert sg.strips[0].zb0 - Gt >= 2.1 - 1e-9
+    _no_overlap(lay.canopy + lay.box_parts, n=10)
+    # IFC: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 사인 IfcBuildingElementProxy(SIGNAGE), 체적 공식 = 메쉬 = IFC
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "cp.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    kinds = {"CP_POST": "IfcColumn", "CP_BEAM": "IfcBeam", "CP_GLASS": "IfcPlate", "CP_SIGN": "IfcBuildingElementProxy",
+             "CP_WALL": "IfcPlate"}
+    for e in ent.canopy:
+        el = by_name[e.name]
+        assert el.is_a(kinds[e.kind])
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, e))
+        assert mesh == pytest.approx(e.volume, rel=1e-7)
+        assert ifc_world_volume(el) == pytest.approx(e.volume, rel=1e-6)
+    assert by_name["EN1_CP_WALL_B"].PredefinedType == "CURTAIN_PANEL"
+    sign = by_name["EN1_CP_SIGN"]
+    assert sign.ObjectType == "SIGNAGE" and sign.Description == "출입구 3 GTX A"
+    # 3D 레이어 · 사인 이미지 (DAE textures/entrance_sign_001.png)
+    eng.build_3d_doc()
+    layers = {e.kind: {x.dxf.layer for x in e.source_element} for e in ent.canopy}
+    assert layers["CP_POST"] == {"STRUCT_CANOPY"} and layers["CP_GLASS"] == layers["CP_WALL"] == {"STRUCT_CANOPY_GLASS"}
+    assert layers["CP_SIGN"] == {"STRUCT_SIGN", "STRUCT_SIGN_FACE"}
+    (name, img, frame, faces), = eng.entrances.sign_images()
+    assert img.size[0] / img.size[1] == pytest.approx(3.0 / 0.45, rel=0.02) and frame[3:5] == pytest.approx((3.0, 0.45))
+    eng.generate_dae(str(tmp_path / "d" / "m.dae"))
+    assert (tmp_path / "d" / "textures" / "entrance_sign_001.png").exists()
+
+
+def test_canopy_rules_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    assert not lay_of(cfg_with(FORE)).canopy                                                  # 모델 기본 = 없음
+    with pytest.raises(ValueError, match="2.1m"):
+        lay_of(cfg_with(dict(CANOPY, cp_height=2.4)))
+    with pytest.raises(ValueError, match="보 사이"):
+        lay_of(cfg_with(dict(CANOPY, cp_sign_w=6.0)))
+    with pytest.raises(ValueError, match="보 폭"):
+        lay_of(cfg_with(dict(CANOPY, cp_beam_w=0.3)))
+    nos = lay_of(cfg_with(dict(CANOPY, cp_sign=False, cp_wall=False)))
+    assert not {p.code for p in nos.canopy if p.code.startswith(("CP_SIGN", "CP_WALL"))}
+    with pytest.raises(ValueError, match="유리벽 두께"):
+        lay_of(cfg_with(dict(CANOPY, cp_wall_t=0.2)))
+    eng = StationCADEngine(cfg_with(dict(CANOPY, exit_number="")))
+    assert eng.entrances.entrances[0].exit_number == "1"                                      # 비우면 통로 순번
+    sp = EntranceDraft(passage="EX1", exit_number="2", line_name="GTX A", sign_bg="9a1e5b").to_spec("출입구")
+    assert sp.canopy and sp.cp_wall and sp.arch_wall and (sp.exit_number, sp.line_name, sp.sign_bg) == ("2", "GTX A", "#9A1E5B")
+    assert EntranceDraft(passage="EX1").to_spec("출입구").sign_bg == "#3C3F45"                # 화면 기본 = 캐노피·건축 벽체 있음
+    with pytest.raises(ValueError, match="배경색"):
+        EntranceDraft(passage="EX1", sign_bg="red").to_spec("출입구")
+
+
+# ===================================================== 건축 마감 벽체 (파라펫 위 화강석 벽) · 천장 끝면 마감 · 출입구 사인 양식
+ARCH = dict(CANOPY, arch_wall=True)
+
+
+def test_arch_wall_canopy_on_top_and_roof_end_finish(tmp_path):
+    from types import SimpleNamespace
+    eng = StationCADEngine(_fin_cfg(**ARCH))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    sp, G = lay.spec, lay.ground
+    u_re, u_top = lay.u["roof_end"], lay.u["top"]
+    a_o = sp.inner_width / 2 - 0.2
+    part = {p.code: p for p in lay.box_parts}
+    za = G + 1.1
+
+    def box(code):
+        (s,) = part[code].strips
+        return part[code].t_range, (s.s0, s.s1), (s.zb0, s.zt)
+    assert box("ARCH_L") == (pytest.approx((a_o, a_o + 0.45)), pytest.approx((u_re, u_top)), pytest.approx((G + 0.3, za)))
+    assert box("ARCH_L_LO") == (pytest.approx((a_o + 0.3, a_o + 0.45)), pytest.approx((u_re, u_top)), pytest.approx((G, G + 0.3)))
+    assert box("ARCH_B")[1] == pytest.approx((u_re - 0.45, u_re))                            # 뒤: 가로 파라펫 위
+    assert "ARCH_B_LO" in part and not [c for c in part if c.startswith("ARCH_F")]          # 앞(출구) 없음
+    cp = {p.code: p for p in lay.canopy}
+    post = cp["CP_POST_L1"]
+    assert post.strips[0].zb0 == pytest.approx(za) and sum(post.t_range) / 2 == pytest.approx(a_o + 0.225)   # 벽체 윗면·가운데
+    assert cp["CP_BEAM_L"].strips[0].s0 == pytest.approx(u_re - 0.45)
+    assert all(s.zb0 == pytest.approx(za) for c, p in cp.items() if c.startswith("CP_WALL") for s in p.strips)
+    # 실내 마감: 개구부 벽 마감 = 건축 벽체 윗면까지, 천장 끝면 패널 + 천장판 연장
+    ft = lay.finish_type
+    fin = {c: SimpleNamespace(code=c, t_range=t, strips=st) for c, k, m, t, st in lay.finish}
+    (re_,) = fin["FIN_ROOF_END"].strips
+    assert re_.s1 == pytest.approx(u_re + ft.face) and re_.zt == pytest.approx(za)
+    assert fin["FIN_ROOF_END"].t_range == pytest.approx((-(a_o - ft.face), a_o - ft.face))
+    op = [s for c, f in fin.items() if c.startswith("FIN_WALL") for s in f.strips if s.s0 >= u_re - 1e-9]
+    assert op and all(s.zt_end == pytest.approx(za) for s in op)
+    assert "FIN_CEILING_E" in fin
+    _no_overlap(list(lay.box_parts) + list(lay.canopy) + list(fin.values()), n=6)
+    # 출력: 건축 벽체 = IfcWall PARAPET (화강석), 3D FIN_WALL, 체적 공식 = 메쉬 = IFC
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "arch.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    archs = [e for e in ent.elements if e.kind == "ARCH"]
+    assert archs and all(e.material == "화강석" for e in archs)
+    for e in archs:
+        el = by_name[e.name]
+        assert el.is_a("IfcWall") and el.PredefinedType == "PARAPET"
+        assert ifc_world_volume(el) == pytest.approx(e.volume, rel=1e-6)
+        assert sum(PM.mesh_volume(q) for q in part_faces(ent.frame, e)) == pytest.approx(e.volume, rel=1e-7)
+    eng.build_3d_doc()
+    assert {x.dxf.layer for e in archs for x in e.source_element} == {"FIN_WALL"}
+    with pytest.raises(ValueError, match="건축 벽체 두께"):
+        lay_of(cfg_with(dict(ARCH, arch_t=0.2)))
+    with pytest.raises(ValueError, match="건축 벽체 높이"):
+        lay_of(cfg_with(dict(ARCH, arch_h=0.3)))
+
+
+def test_entrance_sign_style():
+    from signs.nameplate import render_entrance_sign
+    img = render_entrance_sign(3.0, 0.45, "GTX A", "킨텍스", "Kintex", "韓国国際会展中心", "キンテックス", "1", "#9A1E5B", "#9A1E5B")
+    assert img.size[0] / img.size[1] == pytest.approx(3.0 / 0.45, rel=0.01)
+    assert img.getpixel((2, 2)) == (0x9A, 0x1E, 0x5B)                                       # 배경색 = 입력
+    w, h = img.size
+    box = img.getpixel((w - 20 * w // 667, h // 2 - 25 * h // 100))                         # 오른쪽 노란 번호 상자
+    assert box == (255, 200, 0)
+    eng = StationCADEngine(cfg_with(ARCH))
+    eng.build_3d_doc()
+    (name, im, frame, faces), = eng.entrances.sign_images()
+    assert im.getpixel((2, 2)) == (0x3C, 0x3F, 0x45) and faces                                 # 기본 배경 = 짙은 회색

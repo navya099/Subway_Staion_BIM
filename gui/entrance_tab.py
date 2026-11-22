@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.entrance_draft import NUM_FIELDS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
+from gui.entrance_draft import NUM_FIELDS, OUTDOORS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -81,6 +81,10 @@ class EntranceTab:
         self.drafts.items[idx].side = label
         self.refresh_info()
 
+    def set_outdoor(self, idx, label: str):
+        self.drafts.items[idx].outdoor = label
+        self.refresh_info()
+
     def render(self):
         pos = self.canvas.yview()[0]
         for w in self.body.winfo_children():
@@ -127,17 +131,66 @@ class EntranceTab:
             obj.escalator = v.get()
             self.refresh_info()
         var.trace_add("write", on_esc)
-        tk.Checkbutton(row, text="에스컬레이터", variable=var, font=FONT).pack(side="left")
+        svar = tk.BooleanVar(value=getattr(it, "stair", True))
+        self._vars[(i, "stair")] = svar
+
+        def on_stair(*_, obj=it, v=svar):
+            obj.stair = v.get()
+            self.refresh_info()
+        svar.trace_add("write", on_stair)
+        tk.Checkbutton(row, text="계단", variable=svar, font=FONT).pack(side="left")
+        tk.Checkbutton(row, text="에스컬레이터", variable=var, font=FONT).pack(side="left", padx=(6, 0))
+        self._entry(row, it, "escalator_count", (i, "escalator_count"), 3).pack(side="left", padx=(2, 0))
+        tk.Label(row, text="대", font=FONT).pack(side="left")
         tk.Label(row, text="쪽", font=FONT).pack(side="left", padx=(8, 0))
         c = ttk.Combobox(row, values=SIDES, state="readonly", width=10, font=FONT)
         c.set(it.side if it.side in SIDES else SIDES[0])
         c.bind("<<ComboboxSelected>>", lambda e, cc=c, k=i: self.set_side(k, cc.get()))
         c.pack(side="left", padx=(2, 0))
         self._combos[(i, "side")] = c
+        tk.Label(row, text="바깥", font=FONT).pack(side="left", padx=(8, 0))
+        oc = ttk.Combobox(row, values=OUTDOORS, state="readonly", width=11, font=FONT)
+        oc.set(it.outdoor if it.outdoor in OUTDOORS else OUTDOORS[0])
+        oc.bind("<<ComboboxSelected>>", lambda e, cc=oc, k=i: self.set_outdoor(k, cc.get()))
+        oc.pack(side="left", padx=(2, 0))
+        self._combos[(i, "outdoor")] = oc
         tk.Button(row, text="두께 구간…", font=FONT, command=lambda k=i: self.open_zones(k)).pack(side="left", padx=(12, 0))
         zl = tk.Label(row, text=zones_summary(it), font=FONT, fg="#455A64")
         zl.pack(side="left", padx=(4, 0))
         self._zone_labels[i] = zl
+
+        row2 = tk.Frame(box)                              # 캐노피 · 출구 사인
+        row2.pack(fill="x", pady=(4, 0))
+        cvar = tk.BooleanVar(value=getattr(it, "canopy", True))
+        self._vars[(i, "canopy")] = cvar
+
+        def on_canopy(*_, obj=it, v=cvar):
+            obj.canopy = v.get()
+            self.refresh_info()
+        cvar.trace_add("write", on_canopy)
+        tk.Checkbutton(row2, text="캐노피 (출구 사인)", variable=cvar, font=FONT).pack(side="left")
+        wvar = tk.BooleanVar(value=getattr(it, "cp_wall", True))
+        self._vars[(i, "cp_wall")] = wvar
+
+        def on_wall(*_, obj=it, v=wvar):
+            obj.cp_wall = v.get()
+            self.refresh_info()
+        wvar.trace_add("write", on_wall)
+        tk.Checkbutton(row2, text="유리벽", variable=wvar, font=FONT).pack(side="left", padx=(4, 0))
+        tk.Label(row2, text="출구 번호", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "exit_number", (i, "exit_number"), 4).pack(side="left", padx=(2, 0))
+        tk.Label(row2, text="노선명", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "line_name", (i, "line_name"), 7).pack(side="left", padx=(2, 0))
+        tk.Label(row2, text="사인 배경색", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "sign_bg", (i, "sign_bg"), 8).pack(side="left", padx=(2, 0))
+        avar = tk.BooleanVar(value=getattr(it, "arch_wall", True))
+        self._vars[(i, "arch_wall")] = avar
+
+        def on_arch(*_, obj=it, v=avar):
+            obj.arch_wall = v.get()
+            self.refresh_info()
+        avar.trace_add("write", on_arch)
+        tk.Checkbutton(row2, text="건축 벽체", variable=avar, font=FONT).pack(side="left", padx=(8, 0))
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))

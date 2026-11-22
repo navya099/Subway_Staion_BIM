@@ -10,6 +10,7 @@
 - 천장: 천장 슬래브 하면과 나란한 경사 천장 — 천장판 하면 = 천장 슬래브 하면 − raise (layout 이 그만큼 천장 슬래브를 올려 머리 높이 유지),
   천장판 위 천장틀 (바 = 축에 직각, u 방향 bar_spacing / 캐링 = 축 방향, t 방향 carrier_spacing). 천장은 벽 마감 표면 사이
 - 막이: 이음면(u=0)에서 천장판 위 ~ (통로 천장판 하면 또는 천장 슬래브 하면), 개구부 쪽 천장 끝에서 천장판 위 ~ 천장 슬래브 하면 (천장 속 가림)
+- 천장 끝면 FIN_ROOF_END: 개구부를 향한 천장 슬래브 끝면·가로 파라펫 안쪽 면 (천장판 하면 ~ 개구부 벽 마감 윗면) + 천장판 연장 FIN_CEILING_E
 - 상단 끝벽 안쪽 면: 지표 ~ 지표 + 파라펫
 """
 import math
@@ -52,13 +53,15 @@ def _ends(f, a, b, e):
 
 
 def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, surfaces, u_top, u_re, truss_lo,
-                           nose_at, nose_breaks, ceil_pl, roof_pl, joint_top) -> list:
+                           nose_at, nose_breaks, ceil_pl, roof_pl, joint_top, a_open=None, ground=None) -> list:
     """[(코드, 종류, 재질, t 범위, 띠 목록)]. 종류 = FLOOR / FILL / WALL / CEILING / FRAME.
     ceil_pl = 천장판 하면 PL (천장 없으면 None), roof_pl = 천장 슬래브 하면 PL, joint_top = 이음면 막이 윗면 표고,
     surfaces = 계단 디딤판·계단참 [(u0, u1, 윗면)] (출입구 좌표), nose_at(u) = 스텝 코 선.
     a_p = 통로 내공 반폭, T = 이음벽 두께: 출입구가 통로보다 넓으면 이음벽(u 0 ~ T, |t| a_p ~ a)이 있어 — 바닥은 그 밖 u ≥ T,
     측벽 마감은 이음벽 면 마감 뒤부터, 이음벽 면(u = T)에 마감 패널, 천장은 이음벽 면 마감 표면(u = T + face)부터 전폭,
-    그 앞(통로와 이어지는 곳)은 통로 폭(벽 마감 표면 사이)만"""
+    그 앞(통로와 이어지는 곳)은 통로 폭(벽 마감 표면 사이)만.
+    a_open = 개구부(u_re 뒤) 내공 반폭 (내공 축소, None = 같음): 측벽 마감은 천장 구간 패널 → 꺾임 패널(u = u_re − face, 개구부 벽
+    끝면 앞) → 개구부 패널 (마감 표면 = 구조 내공 윤곽을 face 만큼 띄운 선)"""
     out = []
     face = ft.face if ft.wall_t > 0 else 0.0
     c = a - face                                         # 벽 마감 표면 (천장 반폭)
@@ -79,6 +82,8 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
         regions = []
         if esc is None:
             regions.append(((-a, a), u_s0))
+        elif "stair" not in zones:                         # 에스컬레이터만
+            regions.append((esc, truss_lo))
         else:
             other = (-a, esc[0]) if e_side > 0 else (esc[1], a)
             regions += [(other, u_s0), (esc, truss_lo)]
@@ -94,7 +99,9 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
             add(f"FIN_FLOOR{k}", "FLOOR", ft.floor_material, t_rng, [Strip(u_beg, u_end, mat0, mat0, zl)])
 
     # ---- 천장 위 끝 (천장 구간 = 천장판 하면, 개구부 = 지표 + 파라펫)
-    top_open = G + spec.parapet
+    g0 = G if ground is None else ground
+    top_par = g0 + spec.parapet                       # 파라펫 윗면 = 지표(GL) + 파라펫
+    top_open = g0 + spec.arch_h if getattr(spec, "arch_wall", False) else top_par   # 개구부 벽 마감 윗면 (건축 벽체 윗면까지)
 
     def wall_top(u):
         if u >= u_re:
@@ -107,21 +114,42 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
         stair_bot = _stair_bottom(zl, G, u_s0, surfaces, u_top)
         for code, sgn in (("FIN_WALL_L", 1), ("FIN_WALL_R", -1)):
             t_rng = tuple(sorted((sgn * c, sgn * (c + ft.wall_t))))
-            on_esc = "escalator" in zones and (sgn > 0) == (e_side > 0)
+            on_esc = "escalator" in zones and ("stair" not in zones or (sgn > 0) == (e_side > 0))
             if on_esc:
                 bot = lambda u: zl if u < truss_lo else nose_at(u)
                 br = [truss_lo] + list(nose_breaks)
             else:
                 bot, br = stair_bot
-            add(code, "WALL", ft.wall_material, t_rng, _strips(bot, wall_top, u_j - ft.wall_t if joint else 0.0, u_top,
-                                                               list(br) + top_breaks))
+            u_beg = u_j - ft.wall_t if joint else 0.0
+            if a_open is None:
+                add(code, "WALL", ft.wall_material, t_rng, _strips(bot, wall_top, u_beg, u_top, list(br) + top_breaks))
+            else:                                        # 개구부 내공 축소: 천장 구간 | 꺾임 | 개구부 패널
+                co = a_open - face
+                uk = u_re - face                          # 꺾임 패널 마감 표면 (개구부 벽 끝면에서 face)
+                brs = list(br) + top_breaks + [uk, uk + ft.wall_t]
+                add(code, "WALL", ft.wall_material, t_rng, _strips(bot, wall_top, u_beg, uk, brs))
+                add(f"{code}_RET", "WALL", ft.wall_material, tuple(sorted((sgn * (co + ft.wall_t), sgn * (c + ft.wall_t)))),
+                    _strips(bot, wall_top, uk, uk + ft.wall_t, brs))
+                add(f"{code}_O", "WALL", ft.wall_material, tuple(sorted((sgn * co, sgn * (co + ft.wall_t)))),
+                    _strips(bot, wall_top, uk, u_top, brs))
             if joint:                                    # 이음벽 면 (u = T) 마감: 통로 벽 마감 표면 ~ 출입구 벽 마감 표면
                 jt = tuple(sorted((sgn * cp, sgn * c)))
                 add(f"FIN_JOINT_{code[-1]}", "WALL", ft.wall_material, jt,
                     _strips(lambda u: zl, wall_top, u_j - ft.wall_t, u_j, top_breaks))
-        # 상단 끝벽 안쪽 면 (지표 ~ 파라펫, 개구부)
-        e0 = u_top - face
-        add("FIN_END_WALL", "WALL", ft.wall_material, (-c, c), [Strip(e0, e0 + ft.wall_t, G, G, top_open)])
+        # 상단 끝벽 안쪽 면 (지표 ~ 파라펫, 개구부) — 상부 승강구를 높이면 앞면이 열려(출구) 끝벽 마감 없음
+        if getattr(spec, "top_rise", 0.0) <= 0:
+            e0 = u_top - face
+            ce = c if a_open is None else a_open - face
+            add("FIN_END_WALL", "WALL", ft.wall_material, (-ce, ce), [Strip(e0, e0 + ft.wall_t, G, G, top_par)])
+        # 천장 끝면 (개구부를 향한 천장 슬래브 끝면 + 가로 파라펫 안쪽 면): 천장판 하면(천장 없으면 슬래브 하면) ~ 개구부 벽 마감 윗면,
+        # 마감 표면 = 끝면 + face. 천장판은 그 패널 뒷면까지 늘림 (사이 틈 가림)
+        ce_ = c if a_open is None else a_open - face
+        z_lo = ceil_pl.at(u_re) if ceil else roof_pl.at(u_re)
+        e1 = u_re + face
+        add("FIN_ROOF_END", "WALL", ft.wall_material, (-ce_, ce_), [Strip(e1 - ft.wall_t, e1, z_lo, z_lo, top_open)])
+        if ceil and e1 - ft.wall_t - u_re > 1e-6:
+            add("FIN_CEILING_E", "CEILING", ft.ceiling_material, (-ce_, ce_),
+                [Strip(u_re, e1 - ft.wall_t, z_lo, z_lo, z_lo + ft.board_t)])
 
     # ---- 천장판·천장틀·막이
     if ceil:

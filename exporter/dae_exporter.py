@@ -103,7 +103,9 @@ def element_materials(engine) -> dict:
     stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
     pfin = getattr(engine, "passage_finishes", None)
     ents_ = getattr(engine, "entrances", None)
-    ent_fin = [f for en in (ents_.entrances if ents_ is not None else []) for f in en.stair.finishes + en.finishes]   # 출입구 계단·내부 마감
+    ent_fin = [f for en in (ents_.entrances if ents_ is not None else [])
+               for f in (en.stair.finishes if en.stair is not None else []) + en.finishes
+               + [e for e in en.elements if e.kind in ("PAVE", "LANDFIN", "ARCH")]]   # 출입구 계단·내부 마감·앞마당 포장·승강구 마감
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
@@ -115,7 +117,7 @@ def element_materials(engine) -> dict:
         put(e, railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material))
     escs = getattr(engine, "escalators", None)
     ents = getattr(engine, "entrances", None)
-    ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
+    ent_escs = [x for e in (ents.entrances if ents is not None else []) for x in e.escalators]
     for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:   # 핸드레일 검정·스텝·승강판 텍스처·볼라드
         for e in list(esc.parts) + list(esc.bollards):
             m = ESC_MATERIALS.get(e.material)
@@ -142,11 +144,11 @@ def stair_face_frames(engine) -> dict:
     out = {}
     stairs = getattr(engine, "stairs", None)
     ents = getattr(engine, "entrances", None)
-    ent_fin = [f for en in (ents.entrances if ents is not None else []) for f in en.stair.finishes]   # 출입구 계단 마감
+    ent_fin = [f for en in (ents.entrances if ents is not None else []) for f in (en.stair.finishes if en.stair is not None else [])]   # 출입구 계단 마감
     for fe in (stairs.finish_elements() if stairs is not None else []) + ent_fin:
         out.update(getattr(fe, "face_frames", None) or {})
     escs = getattr(engine, "escalators", None)
-    ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
+    ent_escs = [x for e in (ents.entrances if ents is not None else []) for x in e.escalators]
     for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:
         for stp in esc.steps:
             out.update(stp.face_frames or {})
@@ -233,6 +235,17 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             signs.image(e).save(img_path)
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
+                mat_of[ent.dxf.handle] = m
+    ents_e = getattr(engine, "entrances", None)
+    extra = ents_e.sign_images() if ents_e is not None else []
+    if extra:                                                        # 출입구 캐노피 출구 사인
+        tex_dir = path.parent / TEXTURE_FOLDER
+        tex_dir.mkdir(exist_ok=True)
+        for k, (name, img, frame, faces) in enumerate(extra, start=1):
+            img_path = tex_dir / f"entrance_sign_{k:03d}.png"
+            img.save(img_path)
+            m = RenderMaterial(name, (1.0, 1.0, 1.0), image=str(img_path), frame=frame)
+            for ent in faces:
                 mat_of[ent.dxf.handle] = m
     handles = {}
     groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"}, handles)

@@ -18,7 +18,9 @@ from slabs.slab_shape_type import SlabKind
 from entrances.entrance_engine import EntranceEngine
 from escalators.escalator_engine import EscalatorEngine
 from escalators.escalator_type import EscalatorPartKind
-from helper.strip_member import Strip, StripShape, _fan, part_faces
+from helper.strip_member import Strip, StripShape, _fan, part_faces, strip_faces
+from helper.taper_piece import TaperPiece
+from entrances.entrance_layout import EntranceFrame
 from passages.passage_engine import PassageEngine
 from passages.passage_type import PassagePartKind
 from rooms.room_engine import RoomEngine
@@ -476,39 +478,34 @@ class IFCExporter:
                 ObjectPlacement=self._frame_placement(ent.frame), PredefinedType="USERDEFINED")
             members = []
             for e in ent.elements:
-                items = self._frame_strip_solids(e, "EntranceProfile") + \
-                    [self._box_piece_solid(dataclasses.replace(p, ox=0.0, oy=0.0, ux=1.0, uy=0.0), "EntranceHaunchProfile")
-                     for p in e.pieces]
-                if e.kind == "WALL":
-                    el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL")
+                rep = "SweptSolid"
+                local = [dataclasses.replace(p, ox=0.0, oy=0.0, ux=1.0, uy=0.0) for p in e.pieces]
+                if any(isinstance(p, TaperPiece) for p in e.pieces):    # 바깥면 사선 전이 쐐기: 부재 전체를 면 집합 (출입구 좌표)
+                    rep = "Tessellation"
+                    t0, t1 = e.t_range
+                    items = [self._face_set(strip_faces(self._LOCAL_FRAME, st, t0, t1)) for st in e.shape.strips] + \
+                        [self._face_set(p.faces()) for p in local]
                 else:
-                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"))
+                    items = self._frame_strip_solids(e, "EntranceProfile") + \
+                        [self._box_piece_solid(p, "EntranceHaunchProfile") for p in local]
+                if e.kind == "WALL":
+                    el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL", rep=rep)
+                elif e.kind == "ARCH":                         # 건축 마감 벽체 (파라펫 위 화강석 벽)
+                    el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="PARAPET", rep=rep)
+                elif e.kind == "RAMP":                         # 바깥 경사로·계단 (박스 앞, 상부 승강구 ~ 지표)
+                    el = self._frame_element("IfcRampFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
+                elif e.kind in ("PAVE", "LANDFIN"):            # 앞마당 포장·승강구 바닥 마감
+                    el = self._frame_element("IfcCovering", e, ent.frame, items, PredefinedType="FLOORING", rep=rep)
+                elif e.kind == "STEPS":
+                    el = self._frame_element("IfcStairFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
+                else:
+                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB", "LANDING": "LANDING"}.get(e.kind, "ROOF"), rep=rep)
                 members.append(el)
             st = ent.stair
-            ifc_stair = self.file.create_entity(
-                "IfcStair", GlobalId=ifcopenshell.guid.compress(uuid.UUID(st.guid).hex), Name=st.name,
-                ObjectType=st.type_name, PredefinedType="STRAIGHT_RUN_STAIR", ObjectPlacement=self._frame_placement(ent.frame))
-            flights = []
-            for p in st.parts:
-                items = self._frame_strip_solids(p, "StairProfile")
-                if p.kind == StairPartKind.FLIGHT:
-                    flights.append(self._frame_element("IfcStairFlight", p, ent.frame, items, PredefinedType="STRAIGHT",
-                                                       NumberOfRisers=p.n_risers, NumberOfTreads=p.n_treads,
-                                                       RiserHeight=float(st.riser), TreadLength=float(st.tread)))
-                else:
-                    flights.append(self._frame_element("IfcSlab", p, ent.frame, items, PredefinedType="LANDING"))
-            self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_stair,
-                                    RelatedObjects=flights)
-            members.append(ifc_stair)
-            covers = []
-            for fe in st.finishes:                             # 계단 마감 (정거장 계단과 같음)
-                from stairs.stair_finish import CODES as STAIR_FIN_CODES
-                covers.append(self._frame_element("IfcCovering", fe, ent.frame, self._frame_strip_solids(fe, "StairFinishProfile"),
-                                                  PredefinedType=STAIR_FIN_CODES[fe.code][1]))
-            if covers:
-                self.file.create_entity("IfcRelCoversBldgElements", GlobalId=ifcopenshell.guid.new(),
-                                        RelatingBuildingElement=ifc_stair, RelatedCoverings=covers)
-                members += covers
+            if st is not None:
+                self._entrance_stair(ent, st, members)
+            for esc in ent.escalators:
+                self._entrance_escalator(ent, esc, members)
             for fe in ent.finishes:                            # 내부 마감: IfcCovering (바닥·벽·천장) / 천장틀 IfcMember
                 items = self._frame_strip_solids(fe, "EntranceFinishProfile")
                 if fe.kind == "FRAME":
@@ -516,36 +513,80 @@ class IFCExporter:
                 else:
                     pre = {"FLOOR": "FLOORING", "FILL": "FLOORING", "WALL": "CLADDING", "CEILING": "CEILING"}[fe.kind]
                     members.append(self._frame_element("IfcCovering", fe, ent.frame, items, PredefinedType=pre))
-            if ent.escalator:
-                esc = ent.escalator
-                ifc_esc = self.file.create_entity(
-                    "IfcTransportElement", GlobalId=ifcopenshell.guid.compress(uuid.UUID(esc.guid).hex), Name=esc.name,
-                    ObjectType=esc.type_name, PredefinedType="ESCALATOR", ObjectPlacement=self._frame_placement(ent.frame))
-                eparts = []
-                for p in esc.parts:
-                    entity, predefined = self._ESC_ENTITY[p.kind]
-                    eparts.append(self._frame_element(entity, p, ent.frame, self._frame_strip_solids(p, "EscalatorProfile"),
-                                                      PredefinedType=predefined, ObjectType=p.kind.value))
-                for stp in esc.steps:                          # 개별 스텝 (정거장 에스컬레이터와 같은 속성)
-                    el = self._frame_element("IfcBuildingElementPart", stp, ent.frame,
-                                             self._frame_strip_solids(stp, "EscalatorStepProfile"),
-                                             PredefinedType="USERDEFINED", ObjectType="STEP")
-                    props = [self.file.create_entity("IfcPropertySingleValue", Name="Index",
-                                                     NominalValue=self.file.create_entity("IfcInteger", stp.index)),
-                             self.file.create_entity("IfcPropertySingleValue", Name="ChainU",
-                                                     NominalValue=self.file.create_entity("IfcLengthMeasure", float(stp.chain_u)))]
-                    pset = self.file.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(),
-                                                   Name="SSBIM_EscalatorStep", HasProperties=props)
-                    self.file.create_entity("IfcRelDefinesByProperties", GlobalId=ifcopenshell.guid.new(),
-                                            RelatedObjects=[el], RelatingPropertyDefinition=pset)
-                    eparts.append(el)
-                self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_esc,
-                                        RelatedObjects=eparts)
-                members.append(ifc_esc)
+            for ce in ent.canopy:                              # 캐노피: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 출구 사인
+                items = self._frame_strip_solids(ce, "EntranceCanopyProfile")
+                if ce.kind == "CP_POST":
+                    members.append(self._frame_element("IfcColumn", ce, ent.frame, items, PredefinedType="COLUMN"))
+                elif ce.kind == "CP_BEAM":
+                    members.append(self._frame_element("IfcBeam", ce, ent.frame, items, PredefinedType="BEAM"))
+                elif ce.kind == "CP_GLASS":
+                    members.append(self._frame_element("IfcPlate", ce, ent.frame, items, PredefinedType="USERDEFINED"))
+                elif ce.kind == "CP_WALL":                     # 외부 차단 유리벽
+                    members.append(self._frame_element("IfcPlate", ce, ent.frame, items, PredefinedType="CURTAIN_PANEL"))
+                else:
+                    text = f"출입구 {ent.exit_number}" + (f" {ent.layout.spec.line_name}" if ent.layout.spec.line_name else "")
+                    el = self._frame_element("IfcBuildingElementProxy", ce, ent.frame, items, PredefinedType="USERDEFINED",
+                                             Description=text)
+                    el.ObjectType = "SIGNAGE"
+                    members.append(el)
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm,
                                     RelatedObjects=members)
             self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                     RelatingStructure=storey, RelatedElements=[asm])
+
+    def _entrance_stair(self, ent, st, members):
+        """출입구 계단: IfcStair ⊃ 런·계단참, 계단 마감 IfcCovering → IfcRelCoversBldgElements"""
+        ifc_stair = self.file.create_entity(
+            "IfcStair", GlobalId=ifcopenshell.guid.compress(uuid.UUID(st.guid).hex), Name=st.name,
+            ObjectType=st.type_name, PredefinedType="STRAIGHT_RUN_STAIR", ObjectPlacement=self._frame_placement(ent.frame))
+        flights = []
+        for p in st.parts:
+            items = self._frame_strip_solids(p, "StairProfile")
+            if p.kind == StairPartKind.FLIGHT:
+                flights.append(self._frame_element("IfcStairFlight", p, ent.frame, items, PredefinedType="STRAIGHT",
+                                                   NumberOfRisers=p.n_risers, NumberOfTreads=p.n_treads,
+                                                   RiserHeight=float(st.riser), TreadLength=float(st.tread)))
+            else:
+                flights.append(self._frame_element("IfcSlab", p, ent.frame, items, PredefinedType="LANDING"))
+        self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_stair,
+                                RelatedObjects=flights)
+        members.append(ifc_stair)
+        covers = []
+        from stairs.stair_finish import CODES as STAIR_FIN_CODES
+        for fe in st.finishes:                                 # 계단 마감 (정거장 계단과 같음)
+            covers.append(self._frame_element("IfcCovering", fe, ent.frame, self._frame_strip_solids(fe, "StairFinishProfile"),
+                                              PredefinedType=STAIR_FIN_CODES[fe.code][1]))
+        if covers:
+            self.file.create_entity("IfcRelCoversBldgElements", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingBuildingElement=ifc_stair, RelatedCoverings=covers)
+            members += covers
+
+    def _entrance_escalator(self, ent, esc, members):
+        """출입구 에스컬레이터 1대: IfcTransportElement ⊃ 부재·스텝"""
+        ifc_esc = self.file.create_entity(
+            "IfcTransportElement", GlobalId=ifcopenshell.guid.compress(uuid.UUID(esc.guid).hex), Name=esc.name,
+            ObjectType=esc.type_name, PredefinedType="ESCALATOR", ObjectPlacement=self._frame_placement(ent.frame))
+        eparts = []
+        for p in esc.parts:
+            entity, predefined = self._ESC_ENTITY[p.kind]
+            eparts.append(self._frame_element(entity, p, ent.frame, self._frame_strip_solids(p, "EscalatorProfile"),
+                                              PredefinedType=predefined, ObjectType=p.kind.value))
+        for stp in esc.steps:                                  # 개별 스텝 (정거장 에스컬레이터와 같은 속성)
+            el = self._frame_element("IfcBuildingElementPart", stp, ent.frame,
+                                     self._frame_strip_solids(stp, "EscalatorStepProfile"),
+                                     PredefinedType="USERDEFINED", ObjectType="STEP")
+            props = [self.file.create_entity("IfcPropertySingleValue", Name="Index",
+                                             NominalValue=self.file.create_entity("IfcInteger", stp.index)),
+                     self.file.create_entity("IfcPropertySingleValue", Name="ChainU",
+                                             NominalValue=self.file.create_entity("IfcLengthMeasure", float(stp.chain_u)))]
+            pset = self.file.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(),
+                                           Name="SSBIM_EscalatorStep", HasProperties=props)
+            self.file.create_entity("IfcRelDefinesByProperties", GlobalId=ifcopenshell.guid.new(),
+                                    RelatedObjects=[el], RelatingPropertyDefinition=pset)
+            eparts.append(el)
+        self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=ifc_esc,
+                                RelatedObjects=eparts)
+        members.append(ifc_esc)
 
     def _frame_placement(self, frame):
         """출입구 좌표계 배치: 원점 = 통로 끝(표고 0), 로컬 X = 출입구 진행 방향, Y = 왼쪽(t), Z = 위"""
@@ -566,14 +607,16 @@ class IFCExporter:
             out.append(self._profile_solid(pts, t1 - t0, profile_name, origin=(st.s0, t0, zmin)))
         return out
 
-    def _frame_element(self, entity, m, frame, items, **attrs):
+    def _frame_element(self, entity, m, frame, items, rep="SweptSolid", **attrs):
         el = self.file.create_entity(
             entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(m.guid).hex), Name=m.name,
-            ObjectPlacement=self._frame_placement(frame), Representation=self._product_shape(items, "SweptSolid"),
+            ObjectPlacement=self._frame_placement(frame), Representation=self._product_shape(items, rep),
             **({"ObjectType": m.type_name} | attrs))
         if m.material:
             self._assign_material(el, m.material)
         return el
+
+    _LOCAL_FRAME = EntranceFrame(0.0, 0.0, 1.0, 0.0)            # 출입구 좌표 그대로 (부재 배치 = 출입구 좌표계)
 
     _PASSAGE_ENTITY = {PassagePartKind.FLOOR: ("IfcSlab", "FLOOR"), PassagePartKind.ROOF: ("IfcSlab", "ROOF"),
                        PassagePartKind.WALL: ("IfcWall", "SOLIDWALL")}

@@ -5,15 +5,19 @@ from bim_data.common_bim_data import CommonBIMData
 from helper.strip_member import StripShape
 
 
+FLOOR_FINISH_KINDS = ("PAVE", "LANDFIN")      # 박스 부재 중 바닥 마감 (앞마당 포장·승강구 바닥 마감): FIN_FLOOR·IfcCovering
+FINISH_LAYER = {"PAVE": "FIN_FLOOR", "LANDFIN": "FIN_FLOOR", "ARCH": "FIN_WALL"}   # 박스 부재 중 마감 (+ 건축 마감 벽체)
+
+
 @dataclass
 class EntranceElementData(CommonBIMData):
     """출입구 박스 부재 1개 (바닥·천장 슬래브, 측벽·끝벽·이음벽·칸막이벽). IFC: IfcSlab / IfcWall
     Attributes:
-        kind: FLOOR / ROOF / WALL
+        kind: FLOOR / ROOF / WALL / LEAN / RAMP / STEPS / LANDING / PAVE / LANDFIN
         code: 부재 코드 (FLOOR_S, ROOF, WALL_L, END_WALL_E, JOINT_WALL_R, PARTITION ...)
         t_range: 출입구 좌표 t 범위
         shape: 띠 부재 형상 (출입구 좌표 s = u)
-        pieces: 띠 외 곧은 조각 (천장 헌치, BoxPiece 세계 좌표)
+        pieces: 띠 외 조각 (천장 헌치 BoxPiece · 바깥면 사선 전이 쐐기 TaperPiece, 세계 좌표)
     """
     kind: str = "WALL"
     code: str = ""
@@ -46,7 +50,8 @@ class EntranceData(CommonBIMData):
     level = 이어 붙은 출구통로의 층 이름
     Attributes:
         passage: 출구통로 이름, frame: 출입구 좌표계(EntranceFrame), layout: 배치 계산 결과(EntranceLayout)
-        elements: 박스 부재, stair: StairData(출입구 좌표 띠), escalator: EscalatorData 또는 None
+        elements: 박스 부재, stair: StairData(출입구 좌표 띠, 계단 없으면 None), escalator: 첫 EscalatorData 또는 None,
+        escalators: 에스컬레이터 대마다 EscalatorData
     """
     passage: str = ""
     floor: int = 1
@@ -55,8 +60,11 @@ class EntranceData(CommonBIMData):
     elements: list = field(default_factory=list)
     stair: object = None
     escalator: object = None
+    escalators: list = field(default_factory=list)
 
     finishes: list = field(default_factory=list)       # EntranceFinishData (내부 마감, 마감 끔 = [])
+    canopy: list = field(default_factory=list)         # 캐노피 EntranceElementData (CP_POST·CP_BEAM·CP_GLASS·CP_SIGN)
+    exit_number: str = ""                              # 캐노피 출구 사인 번호
 
     def element(self, code: str) -> EntranceElementData:
         return next(e for e in self.elements if e.code == code)

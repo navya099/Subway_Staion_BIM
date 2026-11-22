@@ -242,3 +242,39 @@ def render_exit(w_m: float, h_m: float, number: str, destinations: str) -> Image
     for k, ln in enumerate(lines):
         c.text(ln, 124, 54 + k * 22, _fit(ln, "KR", 18, W - 140), "KR", (0, 0, 0))
     return c.img
+
+
+def render_entrance_sign(w_m: float, h_m: float, line: str, kname: str, ename: str, cname: str, jname: str, number: str,
+                         bg: str = "#3C3F45", rgb: str = "#0052A4") -> Image.Image:
+    """출입구 캐노피 앞 사인 (실무 사진 양식): 왼쪽 노선 배지(노선색 원 + 노선명), 역명(한글 크게 + 영문·한자·일문 작게),
+    오른쪽 '출입구 Entrance' + 노란 번호 상자. 배경색 bg (글자색은 배경 밝기로 자동)"""
+    H = 100.0
+    W = H * w_m / h_m
+    bgc = hex_rgb(bg, (60, 63, 69))
+    fg = fg_on(bgc)
+    c = Canvas(W, H, bgc)
+    x = 16.0
+    if line:                                       # 노선 배지
+        lc = hex_rgb(rgb)
+        c.circle(x + 32, 50, 32, (255, 255, 255))
+        c.circle(x + 32, 50, 28, lc)
+        size = _fit(line, "EN_B", 18, 48)
+        c.text(line, x + 32, 50 - size * 0.62, size, "EN_B", fg_on(lc), "center")
+        x += 84
+    bx = W - 16 - 70                               # 번호 상자
+    c.rect(bx, 15, 70, 70, (255, 200, 0))
+    ns = _fit(number or "?", "EN_B", 52, 60)
+    c.text(number or "?", bx + 35, 50 - ns * 0.62, ns, "EN_B", (0, 0, 0), "center")
+    c.text("출입구", bx - 12, 26, 22, "KR_B", fg, "right")
+    c.text("Entrance", bx - 12, 56, 14, "EN", fg, "right")
+    lw = max(text_width("KR_B", 22, "출입구"), text_width("EN", 14, "Entrance"))
+    room = bx - 12 - lw - 24 - x                   # 역명 자리
+    small = [s for s in (ename, " ".join(v for v in (cname, jname if jname != cname else "") if v)) if s]
+    sw = max([text_width("EN", 16, s) for s in small] + [0.0])
+    ks = _fit(kname, "KR_B", 48, max(room - sw - 16, 40))
+    c.text(kname, x, 50 - ks * 0.66, ks, "KR_B", fg)
+    sx = x + text_width("KR_B", ks, kname) + 16
+    for k, s_ in enumerate(small):
+        name = "EN" if k == 0 else "CN"
+        c.text(s_, sx, 30 + k * 24, _fit(s_, name, 16, max(bx - 12 - lw - 16 - sx, 20)), name, fg)
+    return c.img

@@ -27,7 +27,8 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("fc_pave_t", "앞마당 포장 두께", "nonneg"), ("parapet_t", "파라펫 두께", "opt"),
               ("top_ffl", "승강구 마감 두께", "nonneg"), ("landing_t", "승강구 슬래브", "pos"),
               ("cp_height", "캐노피 높이", "pos"), ("cp_slope", "캐노피 기울기", "nonneg"), ("cp_front", "캐노피 앞 내밈", "nonneg"),
-              ("cp_spacing", "캐노피 기둥 간격", "pos"), ("cp_sign_w", "출구 사인 폭", "pos"), ("cp_sign_h", "출구 사인 높이", "pos")]
+              ("cp_spacing", "캐노피 기둥 간격", "pos"), ("cp_sign_w", "출구 사인 폭", "pos"), ("cp_sign_h", "출구 사인 높이", "pos"),
+              ("arch_h", "건축 벽체 높이", "pos"), ("arch_t", "건축 벽체 두께", "opt")]
 
 OUTDOOR_FORECOURT = "앞마당 슬래브"
 OUTDOOR_STEPS = "경사로·계단"
@@ -88,7 +89,11 @@ class EntranceDraft:
     cp_sign_w: str = f"{_SPEC.cp_sign_w:g}"
     cp_sign_h: str = f"{_SPEC.cp_sign_h:g}"
     exit_number: str = ""                 # 비우면 사인 설정 출구 안내 / 통로 순번
-    exit_dest: str = ""                   # 목적지 ('/' 로 줄 나눔)
+    line_name: str = ""                   # 출구 사인 노선명
+    sign_bg: str = _SPEC.sign_bg          # 출구 사인 배경색 (#RRGGBB)
+    arch_wall: bool = True                # 건축 마감 벽체 (화면 기본 켬, 모델 끔)
+    arch_h: str = f"{_SPEC.arch_h:g}"
+    arch_t: str = ""                      # 비우면 파라펫 두께 + 0.15
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 
@@ -102,6 +107,14 @@ class EntranceDraft:
             w = f"{where} 두께 구간 {k}"
             out.append((_num(u, w, "시작 위치", nonneg=True), _num(t, w, "두께", positive=True)))
         return sorted(out)
+
+    def _color(self, where: str) -> str:
+        """배경색 '#RRGGBB' (비우면 기본)"""
+        v = str(self.sign_bg).strip() or _SPEC.sign_bg
+        h = v.lstrip("#")
+        if len(h) != 6 or any(ch not in "0123456789abcdefABCDEF" for ch in h):
+            raise ValueError(f"{where}: 출구 사인 배경색은 #RRGGBB 형식이어야 합니다 ('{v}')")
+        return "#" + h.upper()
 
     def to_spec(self, where: str) -> EntranceSpec:
         if self.side not in _SIDE:
@@ -130,7 +143,8 @@ class EntranceDraft:
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
                             stair=bool(self.stair), escalator_count=n_esc, outdoor=_OUTDOOR[self.outdoor],
                             canopy=bool(self.canopy), cp_wall=bool(self.cp_wall), exit_number=str(self.exit_number).strip(),
-                            exit_dest="\n".join(x.strip() for x in str(self.exit_dest).split("/") if x.strip()),
+                            line_name=str(self.line_name).strip(), sign_bg=self._color(where),
+                            arch_wall=bool(self.arch_wall),
                             stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
                             finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
 

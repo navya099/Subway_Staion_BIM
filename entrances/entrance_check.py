@@ -53,6 +53,11 @@ def check_entrance_spec(spec, name: str):
             raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
     check_landing(spec, name)
     check_canopy(spec, name)
+    if spec.arch_wall:
+        if spec.arch_t is not None and not spec.arch_t > 0:
+            raise ValueError(f"출입구 {name}: 건축 벽체 두께는 0 보다 커야 합니다 ({spec.arch_t:g})")
+        if spec.arch_h <= max(spec.parapet, spec.top_rise) + 1e-6:
+            raise ValueError(f"출입구 {name}: 건축 벽체 높이({spec.arch_h:g}m, 지표 위)가 파라펫·상부 승강구보다 높아야 합니다")
     for label, v in (("개구부 내공 축소", spec.open_narrow), ("바깥면 전이 기울기", spec.taper_ratio)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")

@@ -6,6 +6,7 @@ from helper.strip_member import StripShape
 
 
 FLOOR_FINISH_KINDS = ("PAVE", "LANDFIN")      # 박스 부재 중 바닥 마감 (앞마당 포장·승강구 바닥 마감): FIN_FLOOR·IfcCovering
+FINISH_LAYER = {"PAVE": "FIN_FLOOR", "LANDFIN": "FIN_FLOOR", "ARCH": "FIN_WALL"}   # 박스 부재 중 마감 (+ 건축 마감 벽체)
 
 
 @dataclass
@@ -63,8 +64,7 @@ class EntranceData(CommonBIMData):
 
     finishes: list = field(default_factory=list)       # EntranceFinishData (내부 마감, 마감 끔 = [])
     canopy: list = field(default_factory=list)         # 캐노피 EntranceElementData (CP_POST·CP_BEAM·CP_GLASS·CP_SIGN)
-    exit_number: str = ""                              # 캐노피 출구 사인 번호·목적지
-    exit_dest: str = ""
+    exit_number: str = ""                              # 캐노피 출구 사인 번호
 
     def element(self, code: str) -> EntranceElementData:
         return next(e for e in self.elements if e.code == code)

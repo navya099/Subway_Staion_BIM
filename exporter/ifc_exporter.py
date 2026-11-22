@@ -490,6 +490,8 @@ class IFCExporter:
                         [self._box_piece_solid(p, "EntranceHaunchProfile") for p in local]
                 if e.kind == "WALL":
                     el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL", rep=rep)
+                elif e.kind == "ARCH":                         # 건축 마감 벽체 (파라펫 위 화강석 벽)
+                    el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="PARAPET", rep=rep)
                 elif e.kind == "RAMP":                         # 바깥 경사로·계단 (박스 앞, 상부 승강구 ~ 지표)
                     el = self._frame_element("IfcRampFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
                 elif e.kind in ("PAVE", "LANDFIN"):            # 앞마당 포장·승강구 바닥 마감
@@ -522,7 +524,7 @@ class IFCExporter:
                 elif ce.kind == "CP_WALL":                     # 외부 차단 유리벽
                     members.append(self._frame_element("IfcPlate", ce, ent.frame, items, PredefinedType="CURTAIN_PANEL"))
                 else:
-                    text = f"{ent.exit_number} 출구" + (": " + " / ".join(ent.exit_dest.splitlines()) if ent.exit_dest else "")
+                    text = f"출입구 {ent.exit_number}" + (f" {ent.layout.spec.line_name}" if ent.layout.spec.line_name else "")
                     el = self._frame_element("IfcBuildingElementProxy", ce, ent.frame, items, PredefinedType="USERDEFINED",
                                              Description=text)
                     el.ObjectType = "SIGNAGE"

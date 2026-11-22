@@ -1012,7 +1012,7 @@ def test_parapet_thickness_and_ground_reference(tmp_path):
 
 
 # ===================================================== 캐노피 (철골 + 평판 유리 지붕) · 앞 출구 사인
-CANOPY = dict(FORE, top_ffl=0.1, parapet_t=0.3, canopy=True, exit_number="3", exit_dest="검단신도시\n시청")
+CANOPY = dict(FORE, top_ffl=0.1, parapet_t=0.3, canopy=True, exit_number="3", line_name="GTX A")
 
 
 def test_canopy_layout_and_outputs(tmp_path):
@@ -1050,7 +1050,7 @@ def test_canopy_layout_and_outputs(tmp_path):
         s = p.strips[0]
         assert s.zb0 == pytest.approx(G + sp.parapet) and s.zt == pytest.approx(zb(s.s0))
     sg = cp["CP_SIGN"]
-    assert sg.t_range == pytest.approx((-1.2, 1.2)) and sg.strips[-1].s1 == pytest.approx(end + sp.cp_front)
+    assert sg.t_range == pytest.approx((-1.5, 1.5)) and sg.strips[-1].s1 == pytest.approx(end + sp.cp_front)
     assert sg.strips[0].zb0 - Gt >= 2.1 - 1e-9
     _no_overlap(lay.canopy + lay.box_parts, n=10)
     # IFC: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 사인 IfcBuildingElementProxy(SIGNAGE), 체적 공식 = 메쉬 = IFC
@@ -1066,14 +1066,14 @@ def test_canopy_layout_and_outputs(tmp_path):
         assert ifc_world_volume(el) == pytest.approx(e.volume, rel=1e-6)
     assert by_name["EN1_CP_WALL_B"].PredefinedType == "CURTAIN_PANEL"
     sign = by_name["EN1_CP_SIGN"]
-    assert sign.ObjectType == "SIGNAGE" and sign.Description == "3 출구: 검단신도시 / 시청"
+    assert sign.ObjectType == "SIGNAGE" and sign.Description == "출입구 3 GTX A"
     # 3D 레이어 · 사인 이미지 (DAE textures/entrance_sign_001.png)
     eng.build_3d_doc()
     layers = {e.kind: {x.dxf.layer for x in e.source_element} for e in ent.canopy}
     assert layers["CP_POST"] == {"STRUCT_CANOPY"} and layers["CP_GLASS"] == layers["CP_WALL"] == {"STRUCT_CANOPY_GLASS"}
     assert layers["CP_SIGN"] == {"STRUCT_SIGN", "STRUCT_SIGN_FACE"}
     (name, img, frame, faces), = eng.entrances.sign_images()
-    assert img.size[0] / img.size[1] == pytest.approx(2.4 / 0.6, rel=0.02) and frame[3:5] == pytest.approx((2.4, 0.6))
+    assert img.size[0] / img.size[1] == pytest.approx(3.0 / 0.45, rel=0.02) and frame[3:5] == pytest.approx((3.0, 0.45))
     eng.generate_dae(str(tmp_path / "d" / "m.dae"))
     assert (tmp_path / "d" / "textures" / "entrance_sign_001.png").exists()
 
@@ -1091,7 +1091,79 @@ def test_canopy_rules_and_draft():
     assert not {p.code for p in nos.canopy if p.code.startswith(("CP_SIGN", "CP_WALL"))}
     with pytest.raises(ValueError, match="유리벽 두께"):
         lay_of(cfg_with(dict(CANOPY, cp_wall_t=0.2)))
-    eng = StationCADEngine(cfg_with(dict(CANOPY, exit_number="", exit_dest="")))
+    eng = StationCADEngine(cfg_with(dict(CANOPY, exit_number="")))
     assert eng.entrances.entrances[0].exit_number == "1"                                      # 비우면 통로 순번
-    sp = EntranceDraft(passage="EX1", exit_number="2", exit_dest="시청 / 공원").to_spec("출입구")
-    assert sp.canopy and sp.cp_wall and sp.exit_number == "2" and sp.exit_dest == "시청\n공원"                # 화면 기본 = 캐노피 있음
+    sp = EntranceDraft(passage="EX1", exit_number="2", line_name="GTX A", sign_bg="9a1e5b").to_spec("출입구")
+    assert sp.canopy and sp.cp_wall and sp.arch_wall and (sp.exit_number, sp.line_name, sp.sign_bg) == ("2", "GTX A", "#9A1E5B")
+    assert EntranceDraft(passage="EX1").to_spec("출입구").sign_bg == "#3C3F45"                # 화면 기본 = 캐노피·건축 벽체 있음
+    with pytest.raises(ValueError, match="배경색"):
+        EntranceDraft(passage="EX1", sign_bg="red").to_spec("출입구")
+
+
+# ===================================================== 건축 마감 벽체 (파라펫 위 화강석 벽) · 천장 끝면 마감 · 출입구 사인 양식
+ARCH = dict(CANOPY, arch_wall=True)
+
+
+def test_arch_wall_canopy_on_top_and_roof_end_finish(tmp_path):
+    from types import SimpleNamespace
+    eng = StationCADEngine(_fin_cfg(**ARCH))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    sp, G = lay.spec, lay.ground
+    u_re, u_top = lay.u["roof_end"], lay.u["top"]
+    a_o = sp.inner_width / 2 - 0.2
+    part = {p.code: p for p in lay.box_parts}
+    za = G + 1.1
+
+    def box(code):
+        (s,) = part[code].strips
+        return part[code].t_range, (s.s0, s.s1), (s.zb0, s.zt)
+    assert box("ARCH_L") == (pytest.approx((a_o, a_o + 0.45)), pytest.approx((u_re, u_top)), pytest.approx((G + 0.3, za)))
+    assert box("ARCH_L_LO") == (pytest.approx((a_o + 0.3, a_o + 0.45)), pytest.approx((u_re, u_top)), pytest.approx((G, G + 0.3)))
+    assert box("ARCH_B")[1] == pytest.approx((u_re - 0.45, u_re))                            # 뒤: 가로 파라펫 위
+    assert "ARCH_B_LO" in part and not [c for c in part if c.startswith("ARCH_F")]          # 앞(출구) 없음
+    cp = {p.code: p for p in lay.canopy}
+    post = cp["CP_POST_L1"]
+    assert post.strips[0].zb0 == pytest.approx(za) and sum(post.t_range) / 2 == pytest.approx(a_o + 0.225)   # 벽체 윗면·가운데
+    assert cp["CP_BEAM_L"].strips[0].s0 == pytest.approx(u_re - 0.45)
+    assert all(s.zb0 == pytest.approx(za) for c, p in cp.items() if c.startswith("CP_WALL") for s in p.strips)
+    # 실내 마감: 개구부 벽 마감 = 건축 벽체 윗면까지, 천장 끝면 패널 + 천장판 연장
+    ft = lay.finish_type
+    fin = {c: SimpleNamespace(code=c, t_range=t, strips=st) for c, k, m, t, st in lay.finish}
+    (re_,) = fin["FIN_ROOF_END"].strips
+    assert re_.s1 == pytest.approx(u_re + ft.face) and re_.zt == pytest.approx(za)
+    assert fin["FIN_ROOF_END"].t_range == pytest.approx((-(a_o - ft.face), a_o - ft.face))
+    op = [s for c, f in fin.items() if c.startswith("FIN_WALL") for s in f.strips if s.s0 >= u_re - 1e-9]
+    assert op and all(s.zt_end == pytest.approx(za) for s in op)
+    assert "FIN_CEILING_E" in fin
+    _no_overlap(list(lay.box_parts) + list(lay.canopy) + list(fin.values()), n=6)
+    # 출력: 건축 벽체 = IfcWall PARAPET (화강석), 3D FIN_WALL, 체적 공식 = 메쉬 = IFC
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "arch.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    archs = [e for e in ent.elements if e.kind == "ARCH"]
+    assert archs and all(e.material == "화강석" for e in archs)
+    for e in archs:
+        el = by_name[e.name]
+        assert el.is_a("IfcWall") and el.PredefinedType == "PARAPET"
+        assert ifc_world_volume(el) == pytest.approx(e.volume, rel=1e-6)
+        assert sum(PM.mesh_volume(q) for q in part_faces(ent.frame, e)) == pytest.approx(e.volume, rel=1e-7)
+    eng.build_3d_doc()
+    assert {x.dxf.layer for e in archs for x in e.source_element} == {"FIN_WALL"}
+    with pytest.raises(ValueError, match="건축 벽체 두께"):
+        lay_of(cfg_with(dict(ARCH, arch_t=0.2)))
+    with pytest.raises(ValueError, match="건축 벽체 높이"):
+        lay_of(cfg_with(dict(ARCH, arch_h=0.3)))
+
+
+def test_entrance_sign_style():
+    from signs.nameplate import render_entrance_sign
+    img = render_entrance_sign(3.0, 0.45, "GTX A", "킨텍스", "Kintex", "韓国国際会展中心", "キンテックス", "1", "#9A1E5B", "#9A1E5B")
+    assert img.size[0] / img.size[1] == pytest.approx(3.0 / 0.45, rel=0.01)
+    assert img.getpixel((2, 2)) == (0x9A, 0x1E, 0x5B)                                       # 배경색 = 입력
+    w, h = img.size
+    box = img.getpixel((w - 20 * w // 667, h // 2 - 25 * h // 100))                         # 오른쪽 노란 번호 상자
+    assert box == (255, 200, 0)
+    eng = StationCADEngine(cfg_with(ARCH))
+    eng.build_3d_doc()
+    (name, im, frame, faces), = eng.entrances.sign_images()
+    assert im.getpixel((2, 2)) == (0x3C, 0x3F, 0x45) and faces                                 # 기본 배경 = 짙은 회색

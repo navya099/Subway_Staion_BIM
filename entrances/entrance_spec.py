@@ -62,8 +62,12 @@ class EntranceSpec:
                 cp_beam_h) = 기둥 선 위 테두리 보(뒤 = 가로 파라펫 바깥면 ~ 앞 = 상단 끝벽 바깥면 + cp_front) + 기둥마다·앞뒤 끝 가로 보.
                 보 하면 = 앞 끝에서 승강구 + cp_height, 뒤로 cp_slope 기울기로 낮아짐(배수). 유리(cp_glass_t) = 보 위, 옆은 기둥 선
                 너머 cp_side. 외부 차단 유리벽 cp_wall(두께 cp_wall_t) = 옆(기둥 선)·뒤(가로 파라펫 위) 파라펫 윗면 ~ 보 하면, 앞은 출구로 열림
-        cp_sign: 캐노피 앞 가로 보 아래 출구 사인 (폭 cp_sign_w × 높이 cp_sign_h × 두께 cp_sign_t, 바깥(+u)을 향함). 번호·목적지 =
-                 exit_number / exit_dest (비우면 사인 설정 출구 안내 → 통로 순번), 이미지 = 역 안 출구 사인과 같은 그림
+        cp_sign: 캐노피 앞 가로 보 아래 출구 사인 (폭 cp_sign_w × 높이 cp_sign_h × 두께 cp_sign_t, 바깥(+u)을 향함). 양식 = 왼쪽
+                 노선 배지(line_name, 노선색 = 사인 설정 역 정보) · 역명(한글 크게, 영문·한자·일문 작게 — 사인 설정 역 정보) · 오른쪽
+                 '출입구 Entrance' + 번호 상자(exit_number, 비우면 사인 설정 출구 안내 → 통로 순번), 배경색 sign_bg
+        arch_wall: 건축 마감 벽체 (토목 파라펫 위 화강석 벽, 모델 끔·GUI 켬) — 안쪽 면 = 개구부 내공면, 바깥으로 두께 arch_t, 윗면 =
+                   지표 + arch_h (arch_t 비우면 지표 위 측벽(파라펫) 두께 + 0.15 — 실무 300 + 150 = 450). 옆(천장 끝 ~ 상단 끝벽 안쪽 면) · 뒤(가로 파라펫 위), 파라펫 바깥쪽은 지표까지 감쌈, 앞(출구)은 없음.
+                   캐노피 기둥·유리벽은 그 윗면에 섬, 개구부 실내 벽 마감도 그 윗면까지
         landing_t: 에스컬레이터 구역 승강구 슬래브 두께 (m, 실무 200) — 트러스 위 끝 ~ 상단 끝벽, 아래는 빈 공간(바닥 = 트러스 하면 높이)
         stair_offset: 계단 첫 챌판 위치 = 하부 피트 끝 + stair_offset (m, 0 이하). None 이면 자동: 피트 끝에서 시작하되
                       계단 슬래브가 바닥 아래로 내려가면 바닥 위에 머물 때까지 하부 수평부 쪽으로 앞당김
@@ -154,11 +158,16 @@ class EntranceSpec:
     cp_wall: bool = True             # 외부 차단 유리벽 (옆·뒤, 앞은 출구)
     cp_wall_t: float = 0.016         # 유리벽 두께
     cp_sign: bool = True             # 캐노피 앞 출구 사인
-    cp_sign_w: float = 2.4
-    cp_sign_h: float = 0.6
+    cp_sign_w: float = 3.0
+    cp_sign_h: float = 0.45
     cp_sign_t: float = 0.15
     exit_number: str = ""            # 출구 번호 (비우면 사인 설정 / 통로 순번)
-    exit_dest: str = ""              # 목적지 (줄바꿈 구분, 비우면 사인 설정)
+    line_name: str = ""              # 출구 사인 노선명 (배지 글자)
+    sign_bg: str = "#3C3F45"         # 출구 사인 배경색
+    arch_wall: bool = False          # 건축 마감 벽체 (파라펫 위 화강석 벽)
+    arch_h: float = 1.1              # 건축 벽체 윗면 = 지표 + 높이
+    arch_t: Optional[float] = None   # 건축 벽체 두께 (내공면에서 바깥으로, None = 지표 위 파라펫 두께 + 0.15)
+    arch_material: str = "화강석"
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

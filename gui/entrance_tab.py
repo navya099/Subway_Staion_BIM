@@ -179,8 +179,18 @@ class EntranceTab:
         tk.Checkbutton(row2, text="유리벽", variable=wvar, font=FONT).pack(side="left", padx=(4, 0))
         tk.Label(row2, text="출구 번호", font=FONT).pack(side="left", padx=(8, 0))
         self._entry(row2, it, "exit_number", (i, "exit_number"), 4).pack(side="left", padx=(2, 0))
-        tk.Label(row2, text="목적지(/ 로 줄)", font=FONT).pack(side="left", padx=(8, 0))
-        self._entry(row2, it, "exit_dest", (i, "exit_dest"), 22).pack(side="left", padx=(2, 0))
+        tk.Label(row2, text="노선명", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "line_name", (i, "line_name"), 7).pack(side="left", padx=(2, 0))
+        tk.Label(row2, text="사인 배경색", font=FONT).pack(side="left", padx=(8, 0))
+        self._entry(row2, it, "sign_bg", (i, "sign_bg"), 8).pack(side="left", padx=(2, 0))
+        avar = tk.BooleanVar(value=getattr(it, "arch_wall", True))
+        self._vars[(i, "arch_wall")] = avar
+
+        def on_arch(*_, obj=it, v=avar):
+            obj.arch_wall = v.get()
+            self.refresh_info()
+        avar.trace_add("write", on_arch)
+        tk.Checkbutton(row2, text="건축 벽체", variable=avar, font=FONT).pack(side="left", padx=(8, 0))
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))

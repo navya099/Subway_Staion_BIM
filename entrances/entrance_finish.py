@@ -52,13 +52,15 @@ def _ends(f, a, b, e):
 
 
 def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, surfaces, u_top, u_re, truss_lo,
-                           nose_at, nose_breaks, ceil_pl, roof_pl, joint_top) -> list:
+                           nose_at, nose_breaks, ceil_pl, roof_pl, joint_top, a_open=None) -> list:
     """[(코드, 종류, 재질, t 범위, 띠 목록)]. 종류 = FLOOR / FILL / WALL / CEILING / FRAME.
     ceil_pl = 천장판 하면 PL (천장 없으면 None), roof_pl = 천장 슬래브 하면 PL, joint_top = 이음면 막이 윗면 표고,
     surfaces = 계단 디딤판·계단참 [(u0, u1, 윗면)] (출입구 좌표), nose_at(u) = 스텝 코 선.
     a_p = 통로 내공 반폭, T = 이음벽 두께: 출입구가 통로보다 넓으면 이음벽(u 0 ~ T, |t| a_p ~ a)이 있어 — 바닥은 그 밖 u ≥ T,
     측벽 마감은 이음벽 면 마감 뒤부터, 이음벽 면(u = T)에 마감 패널, 천장은 이음벽 면 마감 표면(u = T + face)부터 전폭,
-    그 앞(통로와 이어지는 곳)은 통로 폭(벽 마감 표면 사이)만"""
+    그 앞(통로와 이어지는 곳)은 통로 폭(벽 마감 표면 사이)만.
+    a_open = 개구부(u_re 뒤) 내공 반폭 (내공 축소, None = 같음): 측벽 마감은 천장 구간 패널 → 꺾임 패널(u = u_re − face, 개구부 벽
+    끝면 앞) → 개구부 패널 (마감 표면 = 구조 내공 윤곽을 face 만큼 띄운 선)"""
     out = []
     face = ft.face if ft.wall_t > 0 else 0.0
     c = a - face                                         # 벽 마감 표면 (천장 반폭)
@@ -115,8 +117,18 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
                 br = [truss_lo] + list(nose_breaks)
             else:
                 bot, br = stair_bot
-            add(code, "WALL", ft.wall_material, t_rng, _strips(bot, wall_top, u_j - ft.wall_t if joint else 0.0, u_top,
-                                                               list(br) + top_breaks))
+            u_beg = u_j - ft.wall_t if joint else 0.0
+            if a_open is None:
+                add(code, "WALL", ft.wall_material, t_rng, _strips(bot, wall_top, u_beg, u_top, list(br) + top_breaks))
+            else:                                        # 개구부 내공 축소: 천장 구간 | 꺾임 | 개구부 패널
+                co = a_open - face
+                uk = u_re - face                          # 꺾임 패널 마감 표면 (개구부 벽 끝면에서 face)
+                brs = list(br) + top_breaks + [uk, uk + ft.wall_t]
+                add(code, "WALL", ft.wall_material, t_rng, _strips(bot, wall_top, u_beg, uk, brs))
+                add(f"{code}_RET", "WALL", ft.wall_material, tuple(sorted((sgn * (co + ft.wall_t), sgn * (c + ft.wall_t)))),
+                    _strips(bot, wall_top, uk, uk + ft.wall_t, brs))
+                add(f"{code}_O", "WALL", ft.wall_material, tuple(sorted((sgn * co, sgn * (co + ft.wall_t)))),
+                    _strips(bot, wall_top, uk, u_top, brs))
             if joint:                                    # 이음벽 면 (u = T) 마감: 통로 벽 마감 표면 ~ 출입구 벽 마감 표면
                 jt = tuple(sorted((sgn * cp, sgn * c)))
                 add(f"FIN_JOINT_{code[-1]}", "WALL", ft.wall_material, jt,
@@ -124,7 +136,8 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
         # 상단 끝벽 안쪽 면 (지표 ~ 파라펫, 개구부) — 상부 승강구를 높이면 앞면이 열려(출구) 끝벽 마감 없음
         if getattr(spec, "top_rise", 0.0) <= 0:
             e0 = u_top - face
-            add("FIN_END_WALL", "WALL", ft.wall_material, (-c, c), [Strip(e0, e0 + ft.wall_t, G, G, top_open)])
+            ce = c if a_open is None else a_open - face
+            add("FIN_END_WALL", "WALL", ft.wall_material, (-ce, ce), [Strip(e0, e0 + ft.wall_t, G, G, top_open)])
 
     # ---- 천장판·천장틀·막이
     if ceil:

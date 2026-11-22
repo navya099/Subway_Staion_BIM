@@ -13,7 +13,7 @@ class EntranceElementData(CommonBIMData):
         code: 부재 코드 (FLOOR_S, ROOF, WALL_L, END_WALL_E, JOINT_WALL_R, PARTITION ...)
         t_range: 출입구 좌표 t 범위
         shape: 띠 부재 형상 (출입구 좌표 s = u)
-        pieces: 띠 외 곧은 조각 (천장 헌치, BoxPiece 세계 좌표)
+        pieces: 띠 외 조각 (천장 헌치 BoxPiece · 바깥면 사선 전이 쐐기 TaperPiece, 세계 좌표)
     """
     kind: str = "WALL"
     code: str = ""

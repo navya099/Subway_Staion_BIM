@@ -34,6 +34,11 @@ class EntranceSpec:
         top_rise: 상부 승강구(계단·에스컬레이터 위 끝, 도착부 바닥)를 지표보다 높이는 높이 (m, 0 = 지표). 주면 상단 끝벽은 승강구 높이까지만
                   (앞면 개방 = 출구), 박스 앞에 바깥 경사로(ramp_width 폭, 기울기 1/ramp_ratio, 에스컬레이터 쪽 벽 옆)와 계단(나머지 폭,
                   단높이 상한 out_riser_max, 단너비 out_tread)이 지표까지 내려감
+        open_narrow: 지붕 없는 개구부(천장 슬래브 끝 u_re 뒤)의 내공 축소 (한쪽, m, 0 = 같음) — 실무 평면도: 내공 5,260 → 4,860.
+                     계단은 벽 쪽 변이 그만큼 좁아짐, 에스컬레이터는 벽 쪽 여유가 그 이상이어야 함
+        open_wall_t: 개구부 측벽 두께 (m, None = 두께 구간 그대로)
+        taper_ratio: 바깥면 사선 전이 (전이 길이 / 바깥면 차, 0 = 직각 계단) — 두께가 바뀌는 곳(두께 구간 경계·개구부 시작)에서
+                     두꺼운 쪽 바깥면이 얇은 구간 안으로 사선으로 줄어듦. 실무 평면도 2 (차 100 → 200, 차 600 → 1,200)
         finish: 내부 마감 종류 (마감을 켤 때, 비우면 붙은 출구통로의 마감 종류 — 통로의 finish, 비우면 '통로')
         haunch_w / haunch_h: 천장 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         lower_margin: 하부 이음벽 안쪽 면 ~ 에스컬레이터 트러스 하단 끝 (m)
@@ -95,6 +100,9 @@ class EntranceSpec:
     out_riser_max: float = 0.15      # 바깥 계단 단높이 상한
     out_tread: float = 0.35          # 바깥 계단 단너비
     out_base: float = 0.15           # 바깥 경사로·계단 바닥 (지표 아래 깊이)
+    open_narrow: float = 0.0         # 개구부 내공 축소 (한쪽)
+    open_wall_t: Optional[float] = None   # 개구부 측벽 두께 (None = 두께 구간)
+    taper_ratio: float = 0.0         # 바깥면 사선 전이 길이 / 바깥면 차 (0 = 직각)
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

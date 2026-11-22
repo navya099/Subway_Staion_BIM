@@ -46,7 +46,7 @@ class EntranceEngine:
                     level=level, pos_z=min(min(s.zb0, s.zb1) for s in p.strips),
                     material="Lean_Concrete" if p.kind == "LEAN" else "Concrete_C24",
                     kind=p.kind, code=p.code, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0),
-                    pieces=list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []))
+                    pieces=(list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []) + list(p.pieces)))
             stair = self._stair(lay, level) if lay.stair is not None else None
             fin_labels = {"FLOOR": "바닥 마감", "FILL": "바닥 채움", "WALL": "벽 마감", "CEILING": "천장판", "FRAME": "천장틀"}
             finishes = []
@@ -72,6 +72,7 @@ class EntranceEngine:
         t_rng = (sp.t_lo, sp.t_hi)
         parts, count = [], {StairPartKind.FLIGHT: 0, StairPartKind.LANDING: 0}
         for p in lay.stair.parts:
+            p_rng = p.t_range if p.t_range is not None else t_rng      # 개구부 쪽 조각은 축소된 내공면까지
             count[p.kind] += 1
             flight = p.kind == StairPartKind.FLIGHT
             surfaces = [(lay.stair.start + ua, lay.stair.start + ub, zt) for ua, ub, zt in p.surfaces]
@@ -80,8 +81,8 @@ class EntranceEngine:
                 family_name="콘크리트-계단" if flight else "콘크리트-계단참",
                 type_name=f"{p.n_risers}단" if flight else f"{int(round(sp.waist_t * 1000))}mm", level=level,
                 pos_z=min(z for _, _, z in surfaces) if surfaces else lay.z_floor, material="Concrete_C24", kind=p.kind,
-                n_risers=p.n_risers, n_treads=len(surfaces) if flight else 0, t_range=t_rng, surfaces=surfaces,
-                shape=StripShape(strips=p.strips, width=t_rng[1] - t_rng[0])))
+                n_risers=p.n_risers, n_treads=len(surfaces) if flight else 0, t_range=p_rng, surfaces=surfaces,
+                shape=StripShape(strips=p.strips, width=p_rng[1] - p_rng[0])))
         finishes = []                                   # 계단 마감 (정거장 계단과 같은 계단석 분리 구조, 출입구 좌표의 띠)
         fin_t = {"TREAD": "tread_t", "RISER": "riser_t"}
         for k, f in enumerate(getattr(lay.stair, "finish", []) or [], start=1):

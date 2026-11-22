@@ -21,7 +21,8 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("roof_cover", "흙 덮개", "nonneg"), ("lean_t", "버림 콘크리트", "nonneg"), ("lean_ext", "버림 내민 폭", "nonneg"),
               ("top_rise", "상부 지표 위 높이", "nonneg"), ("ramp_width", "바깥 경사로 폭", "nonneg"),
               ("ramp_ratio", "경사로 기울기 1/n", "pos"), ("out_riser_max", "바깥 단높이 상한", "pos"),
-              ("out_tread", "바깥 단너비", "pos")]
+              ("out_tread", "바깥 단너비", "pos"), ("open_narrow", "개구부 내공 축소", "nonneg"),
+              ("open_wall_t", "개구부 벽 두께", "opt"), ("taper_ratio", "바깥면 전이 길이/차", "nonneg")]
 
 
 @dataclass
@@ -58,6 +59,9 @@ class EntranceDraft:
     ramp_ratio: str = f"{_SPEC.ramp_ratio:g}"
     out_riser_max: str = f"{_SPEC.out_riser_max:g}"
     out_tread: str = f"{_SPEC.out_tread:g}"
+    open_narrow: str = f"{_SPEC.open_narrow:g}"
+    open_wall_t: str = ""                 # 비우면 두께 구간 그대로
+    taper_ratio: str = "2"                # 화면 기본 = 실무 평면도 (모델 기본 0 = 직각 계단)
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 
@@ -81,6 +85,9 @@ class EntranceDraft:
         for attr, label, rule in NUM_FIELDS:
             if attr == "ground_el" and not str(self.ground_el).strip():
                 vals[attr] = None                        # 정거장 공통 지표 EL
+                continue
+            if rule == "opt":                            # 비우면 None, 주면 양수
+                vals[attr] = None if not str(getattr(self, attr)).strip() else _num(getattr(self, attr), where, label, positive=True)
                 continue
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")

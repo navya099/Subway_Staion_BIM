@@ -18,7 +18,9 @@ from slabs.slab_shape_type import SlabKind
 from entrances.entrance_engine import EntranceEngine
 from escalators.escalator_engine import EscalatorEngine
 from escalators.escalator_type import EscalatorPartKind
-from helper.strip_member import Strip, StripShape, _fan, part_faces
+from helper.strip_member import Strip, StripShape, _fan, part_faces, strip_faces
+from helper.taper_piece import TaperPiece
+from entrances.entrance_layout import EntranceFrame
 from passages.passage_engine import PassageEngine
 from passages.passage_type import PassagePartKind
 from rooms.room_engine import RoomEngine
@@ -476,17 +478,24 @@ class IFCExporter:
                 ObjectPlacement=self._frame_placement(ent.frame), PredefinedType="USERDEFINED")
             members = []
             for e in ent.elements:
-                items = self._frame_strip_solids(e, "EntranceProfile") + \
-                    [self._box_piece_solid(dataclasses.replace(p, ox=0.0, oy=0.0, ux=1.0, uy=0.0), "EntranceHaunchProfile")
-                     for p in e.pieces]
-                if e.kind == "WALL":
-                    el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL")
-                elif e.kind == "RAMP":                         # 바깥 경사로·계단 (박스 앞, 상부 승강구 ~ 지표)
-                    el = self._frame_element("IfcRampFlight", e, ent.frame, items, PredefinedType="STRAIGHT")
-                elif e.kind == "STEPS":
-                    el = self._frame_element("IfcStairFlight", e, ent.frame, items, PredefinedType="STRAIGHT")
+                rep = "SweptSolid"
+                local = [dataclasses.replace(p, ox=0.0, oy=0.0, ux=1.0, uy=0.0) for p in e.pieces]
+                if any(isinstance(p, TaperPiece) for p in e.pieces):    # 바깥면 사선 전이 쐐기: 부재 전체를 면 집합 (출입구 좌표)
+                    rep = "Tessellation"
+                    t0, t1 = e.t_range
+                    items = [self._face_set(strip_faces(self._LOCAL_FRAME, st, t0, t1)) for st in e.shape.strips] + \
+                        [self._face_set(p.faces()) for p in local]
                 else:
-                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"))
+                    items = self._frame_strip_solids(e, "EntranceProfile") + \
+                        [self._box_piece_solid(p, "EntranceHaunchProfile") for p in local]
+                if e.kind == "WALL":
+                    el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL", rep=rep)
+                elif e.kind == "RAMP":                         # 바깥 경사로·계단 (박스 앞, 상부 승강구 ~ 지표)
+                    el = self._frame_element("IfcRampFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
+                elif e.kind == "STEPS":
+                    el = self._frame_element("IfcStairFlight", e, ent.frame, items, PredefinedType="STRAIGHT", rep=rep)
+                else:
+                    el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"), rep=rep)
                 members.append(el)
             st = ent.stair
             if st is not None:
@@ -578,14 +587,16 @@ class IFCExporter:
             out.append(self._profile_solid(pts, t1 - t0, profile_name, origin=(st.s0, t0, zmin)))
         return out
 
-    def _frame_element(self, entity, m, frame, items, **attrs):
+    def _frame_element(self, entity, m, frame, items, rep="SweptSolid", **attrs):
         el = self.file.create_entity(
             entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(m.guid).hex), Name=m.name,
-            ObjectPlacement=self._frame_placement(frame), Representation=self._product_shape(items, "SweptSolid"),
+            ObjectPlacement=self._frame_placement(frame), Representation=self._product_shape(items, rep),
             **({"ObjectType": m.type_name} | attrs))
         if m.material:
             self._assign_material(el, m.material)
         return el
+
+    _LOCAL_FRAME = EntranceFrame(0.0, 0.0, 1.0, 0.0)            # 출입구 좌표 그대로 (부재 배치 = 출입구 좌표계)
 
     _PASSAGE_ENTITY = {PassagePartKind.FLOOR: ("IfcSlab", "FLOOR"), PassagePartKind.ROOF: ("IfcSlab", "ROOF"),
                        PassagePartKind.WALL: ("IfcWall", "SOLIDWALL")}

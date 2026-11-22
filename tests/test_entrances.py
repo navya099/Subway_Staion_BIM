@@ -715,3 +715,117 @@ def test_raised_landing_finish_and_draft():
     assert sp.top_rise == 0.45 and sp.ramp_width == 0.0
     lay = lay_of(cfg_with({"top_rise": 0.45, "ramp_width": 0.0}))
     assert "OUT_RAMP" not in {p.code for p in lay.box_parts}                                 # 경사로 폭 0 = 계단만
+
+
+# ===================================================== 실무 평면도: 개구부 내공 축소 · 바깥면 사선 전이
+OPEN = {"thickness_zones": ZONES, "wall_t": 0.7, "open_narrow": 0.2, "open_wall_t": 0.3, "taper_ratio": 2.0}
+
+
+def _in_taper(q, u, t, z):
+    f = (u - q.u0) / (q.u1 - q.u0)
+    ta, tb = q.ta0 + (q.ta1 - q.ta0) * f, q.tb0 + (q.tb1 - q.tb0) * f
+    zb, zt = q.zb0 + (q.zb1 - q.zb0) * f, q.zt0 + (q.zt1 - q.zt0) * f
+    return ta + 1e-7 < t < tb - 1e-7 and zb + 1e-7 < z < zt - 1e-7
+
+
+def test_opening_narrow_and_outer_taper():
+    lay = lay_of(cfg_with(OPEN))
+    a = lay.spec.inner_width / 2
+    a_o, u_re = a - 0.2, lay.u["roof_end"]
+    part = {p.code: p for p in lay.box_parts}
+    wl = part["WALL_L_Z4"]                                                                    # 개구부 (u_re 뒤) 측벽
+    assert wl.strips[0].s0 == pytest.approx(u_re) and wl.t_range == pytest.approx((a_o, a_o + 0.3)) and wl.thick == 0.3
+    assert part["WALL_R_Z4"].t_range == pytest.approx((-(a_o + 0.3), -a_o))
+    assert part["WALL_L_Z3"].t_range == pytest.approx((a, a + 0.7))                         # 천장 구간은 그대로
+    assert part["END_WALL_S"].t_range[0] == pytest.approx(-(a_o + 0.3))
+    assert part["FLOOR_E_Z4"].t_range[1] == pytest.approx(a_o + 0.3)
+    # 개구부 시작: 바깥면 a + 0.7 → a_o + 0.3 (차 0.6) 을 개구부 안으로 2 × 0.6 = 1.2 사선
+    w = sorted(wl.pieces, key=lambda q: q.u0)
+    assert w[0].u0 == pytest.approx(u_re) and w[-1].u1 == pytest.approx(u_re + 1.2)
+    assert w[0].tb0 == pytest.approx(a + 0.7) and w[-1].tb1 == pytest.approx(a_o + 0.3)
+    assert all(q.ta0 == pytest.approx(a_o + 0.3) for q in w)
+    for code in ("FLOOR_E_Z4", "FLOOR_S_Z4"):                                                # 바닥 슬래브 바깥면도
+        assert part[code].pieces and max(q.u1 for q in part[code].pieces) == pytest.approx(u_re + 1.2)
+    # 두께 구간 경계(0.9 → 0.8, u 14): 두꺼운 쪽 바깥면이 얇은 구간 안으로 2 × 0.1 (측벽·바닥·천장)
+    for code in ("WALL_L_Z2", "ROOF_Z2", "FLOOR_S_Z2"):
+        z2 = part[code].pieces
+        assert min(q.u0 for q in z2) == pytest.approx(14.0) and max(q.u1 for q in z2) == pytest.approx(14.2)
+    assert not part["WALL_L_Z1"].pieces and not part["PARAPET"].pieces
+    # 계단: 개구부 쪽 조각은 벽 쪽(−t) 변이 축소된 내공면, 천장 구간은 계단 구역 전체 폭
+    s0, s1 = lay.spec.zones()["stair"]
+    for p in lay.stair.parts:
+        t = p.t_range if p.t_range is not None else (s0, s1)
+        assert t == pytest.approx((-a_o, s1) if p.strips[0].s0 >= u_re - 1e-9 else (s0, s1))
+        assert all(st.s1 <= u_re + 1e-9 for st in p.strips) or all(st.s0 >= u_re - 1e-9 for st in p.strips)
+    plain = lay_of(cfg_with({"thickness_zones": ZONES, "wall_t": 0.7}))                     # 기본값: 예전과 같음 (직각 계단, 축소 없음)
+    assert not any(p.pieces for p in plain.box_parts) and "WALL_L_Z4" not in {p.code for p in plain.box_parts}
+
+
+def test_opening_narrow_finish_overlap_and_volumes(tmp_path):
+    import random
+    eng = StationCADEngine(_fin_cfg(**OPEN))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    a, fin = lay.spec.inner_width / 2, lay.spec_stair_finish
+    a_o, u_re, face = a - 0.2, lay.u["roof_end"], lay.finish_type.face
+    nos = sorted(f.t_range for f in lay.stair.finish if f.code == "NOSING")                 # 논슬립 벽 쪽 끝 = 벽 면 + nosing_end
+    assert [r[0] for r in nos] == pytest.approx(sorted([-a + fin.nosing_end, -a_o + fin.nosing_end]))
+    wf = {c: (t, s) for c, k, m, t, s in lay.finish}
+    assert wf["FIN_WALL_L_O"][0][0] == pytest.approx(a_o - face)                             # 개구부 벽 마감 표면
+    assert wf["FIN_WALL_L_RET"][1][0].s0 == pytest.approx(u_re - face)                       # 꺾임 패널: 개구부 벽 끝면 앞
+    assert wf["FIN_WALL_L"][1][-1].s1 == pytest.approx(u_re - face)
+    members = [(n, m) for n, m in eng.entrances.strip_members(ent) if "_ESC" not in n]
+    boxes = [(n, m.t_range, s) for n, m in members for s in m.shape.strips]
+    tapers = [(n, q) for n, m in members for q in getattr(m, "pieces", []) if hasattr(q, "ta0")]
+    assert tapers
+    rng = random.Random(4)
+    samples = []
+    for n, m in members:
+        t0, t1 = m.t_range
+        for st in m.shape.strips:
+            for _ in range(3):
+                u = rng.uniform(st.s0, st.s1)
+                if st.zt_at(u) - st.zb_at(u) > 1e-6:
+                    samples.append((n, u, rng.uniform(t0, t1), rng.uniform(st.zb_at(u), st.zt_at(u))))
+    for n, q in tapers:
+        for _ in range(20):
+            u = rng.uniform(q.u0, q.u1)
+            f = (u - q.u0) / (q.u1 - q.u0)
+            ta, tb = q.ta0 + (q.ta1 - q.ta0) * f, q.tb0 + (q.tb1 - q.tb0) * f
+            zb, zt = q.zb0 + (q.zb1 - q.zb0) * f, q.zt0 + (q.zt1 - q.zt0) * f
+            if tb - ta > 1e-6 and zt - zb > 1e-6:
+                samples.append((n + "#taper", u, rng.uniform(ta, tb), rng.uniform(zb, zt)))
+    for n, u, t, z in samples:                                                               # 서로 겹치지 않음 (쐐기 포함)
+        for n2, (a0, a1), s2 in boxes:
+            if n2 == n or not (a0 + 1e-9 < t < a1 - 1e-9 and s2.s0 + 1e-9 < u < s2.s1 - 1e-9):
+                continue
+            assert not (s2.zb_at(u) + 1e-7 < z < s2.zt_at(u) - 1e-7), (n, n2, u, t, z)
+        for n2, q in tapers:
+            if n2 + "#taper" != n and q.u0 + 1e-9 < u < q.u1 - 1e-9:
+                assert not _in_taper(q, u, t, z), (n, n2, u, t, z)
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "o.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for name, m in eng.entrances.strip_members(ent):                                         # 체적: 공식 = 메쉬 = IFC
+        formula = m.shape.volume + sum(p.volume for p in getattr(m, "pieces", []))
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m)) + \
+            sum(PM.mesh_volume(p.faces()) for p in getattr(m, "pieces", []))
+        assert mesh == pytest.approx(formula, rel=1e-7, abs=1e-8)
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
+    wedge = sum(q.volume for n, q in tapers if n == "EN1_WALL_L_Z4")                         # 쐐기 체적 = 삼각 평면 × 높이 (평균)
+    assert wedge > 0
+
+
+def test_opening_narrow_rules_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    with pytest.raises(ValueError, match="트러스 옆 여유"):
+        lay_of(cfg_with({"open_narrow": 0.9}))
+    with pytest.raises(ValueError, match="개구부 벽 두께"):
+        lay_of(cfg_with({"open_wall_t": 0.0}))
+    with pytest.raises(ValueError, match="바깥면 전이"):
+        lay_of(cfg_with({"taper_ratio": -1.0}))
+    sp = EntranceDraft(passage="EX1").to_spec("출입구")
+    assert sp.taper_ratio == 2.0 and sp.open_wall_t is None and sp.open_narrow == 0.0        # 화면 기본 = 실무 평면도 기울기
+    sp = EntranceDraft(passage="EX1", open_narrow="0.2", open_wall_t="0.3").to_spec("출입구")
+    assert (sp.open_narrow, sp.open_wall_t) == (0.2, 0.3)
+    with pytest.raises(ValueError, match="개구부 벽 두께"):
+        EntranceDraft(passage="EX1", open_wall_t="-1").to_spec("출입구")

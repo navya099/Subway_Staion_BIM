@@ -45,6 +45,22 @@ def check_entrance_spec(spec, name: str):
                 raise ValueError(f"출입구 {name}: {label}은(는) 0보다 커야 합니다 ({v})")
         if spec.ramp_width > spec.inner_width + 1e-9:
             raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
+    for label, v in (("개구부 내공 축소", spec.open_narrow), ("바깥면 전이 기울기", spec.taper_ratio)):
+        if not v >= 0:
+            raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    if spec.open_wall_t is not None and not spec.open_wall_t > 0:
+        raise ValueError(f"출입구 {name}: 개구부 벽 두께는 0보다 커야 합니다 ({spec.open_wall_t})")
+    if spec.open_narrow > 0:
+        a_o = spec.inner_width / 2.0 - spec.open_narrow
+        zs = spec.zones()
+        if "stair" in zs:
+            s0, s1 = zs["stair"]
+            if min(s1, a_o) - max(s0, -a_o) < 0.3:
+                raise ValueError(f"출입구 {name}: 개구부 내공 축소({spec.open_narrow:g}m)로 계단 폭이 너무 좁아집니다")
+        for k, (e0, e1) in enumerate(zs.get("escalators", []), start=1):
+            if e0 < -a_o - 1e-9 or e1 > a_o + 1e-9:
+                raise ValueError(f"출입구 {name}: 개구부 내공 축소({spec.open_narrow:g}m)가 에스컬레이터 {k} 트러스 옆 여유보다 큽니다 "
+                                 "(ESC 구역 폭을 키우거나 축소를 줄이세요)")
     for label, v in (("흙 덮개", spec.roof_cover), ("버림 콘크리트 두께", spec.lean_t), ("버림 콘크리트 내민 폭", spec.lean_ext)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")

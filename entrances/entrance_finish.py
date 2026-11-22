@@ -79,6 +79,8 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
         regions = []
         if esc is None:
             regions.append(((-a, a), u_s0))
+        elif "stair" not in zones:                         # 에스컬레이터만
+            regions.append((esc, truss_lo))
         else:
             other = (-a, esc[0]) if e_side > 0 else (esc[1], a)
             regions += [(other, u_s0), (esc, truss_lo)]
@@ -107,7 +109,7 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
         stair_bot = _stair_bottom(zl, G, u_s0, surfaces, u_top)
         for code, sgn in (("FIN_WALL_L", 1), ("FIN_WALL_R", -1)):
             t_rng = tuple(sorted((sgn * c, sgn * (c + ft.wall_t))))
-            on_esc = "escalator" in zones and (sgn > 0) == (e_side > 0)
+            on_esc = "escalator" in zones and ("stair" not in zones or (sgn > 0) == (e_side > 0))
             if on_esc:
                 bot = lambda u: zl if u < truss_lo else nose_at(u)
                 br = [truss_lo] + list(nose_breaks)

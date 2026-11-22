@@ -127,7 +127,17 @@ class EntranceTab:
             obj.escalator = v.get()
             self.refresh_info()
         var.trace_add("write", on_esc)
-        tk.Checkbutton(row, text="에스컬레이터", variable=var, font=FONT).pack(side="left")
+        svar = tk.BooleanVar(value=getattr(it, "stair", True))
+        self._vars[(i, "stair")] = svar
+
+        def on_stair(*_, obj=it, v=svar):
+            obj.stair = v.get()
+            self.refresh_info()
+        svar.trace_add("write", on_stair)
+        tk.Checkbutton(row, text="계단", variable=svar, font=FONT).pack(side="left")
+        tk.Checkbutton(row, text="에스컬레이터", variable=var, font=FONT).pack(side="left", padx=(6, 0))
+        self._entry(row, it, "escalator_count", (i, "escalator_count"), 3).pack(side="left", padx=(2, 0))
+        tk.Label(row, text="대", font=FONT).pack(side="left")
         tk.Label(row, text="쪽", font=FONT).pack(side="left", padx=(8, 0))
         c = ttk.Combobox(row, values=SIDES, state="readonly", width=10, font=FONT)
         c.set(it.side if it.side in SIDES else SIDES[0])

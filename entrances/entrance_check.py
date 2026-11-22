@@ -14,6 +14,11 @@ def check_entrance_spec(spec, name: str):
         raise ValueError(f"출입구 {name}: 이어 붙일 출구통로를 지정하세요")
     if spec.ground_el is not None and not math.isfinite(spec.ground_el):
         raise ValueError(f"출입구 {name}: 지표 EL 이 숫자가 아닙니다 ({spec.ground_el})")
+    if not spec.stair and not spec.escalator:
+        raise ValueError(f"출입구 {name}: 계단과 에스컬레이터 중 하나는 있어야 합니다")
+    if spec.escalator and not (isinstance(spec.escalator_count, int) and not isinstance(spec.escalator_count, bool)
+                               and 1 <= spec.escalator_count <= 6):
+        raise ValueError(f"출입구 {name}: 에스컬레이터 대수는 1 ~ 6 의 정수여야 합니다 ({spec.escalator_count!r})")
     if spec.escalator_side not in (1, -1):
         raise ValueError(f"출입구 {name}: 에스컬레이터 쪽은 +1(왼쪽) 또는 -1(오른쪽) 이어야 합니다 ({spec.escalator_side!r})")
     positive = [("계단 폭", spec.stair_width), ("벽·슬래브 두께", spec.wall_t), ("단높이 상한", spec.riser_max),

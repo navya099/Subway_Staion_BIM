@@ -103,7 +103,8 @@ def element_materials(engine) -> dict:
     stair_fin = engine.stairs.finish_elements() if getattr(engine, "stairs", None) is not None else []
     pfin = getattr(engine, "passage_finishes", None)
     ents_ = getattr(engine, "entrances", None)
-    ent_fin = [f for en in (ents_.entrances if ents_ is not None else []) for f in en.stair.finishes + en.finishes]   # 출입구 계단·내부 마감
+    ent_fin = [f for en in (ents_.entrances if ents_ is not None else [])
+               for f in (en.stair.finishes if en.stair is not None else []) + en.finishes]   # 출입구 계단·내부 마감
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
@@ -115,7 +116,7 @@ def element_materials(engine) -> dict:
         put(e, railing_glass_material(cfg.smoke_settings, "제연 유리") if e.code == "GLASS" else finish_material(e.material))
     escs = getattr(engine, "escalators", None)
     ents = getattr(engine, "entrances", None)
-    ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
+    ent_escs = [x for e in (ents.entrances if ents is not None else []) for x in e.escalators]
     for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:   # 핸드레일 검정·스텝·승강판 텍스처·볼라드
         for e in list(esc.parts) + list(esc.bollards):
             m = ESC_MATERIALS.get(e.material)
@@ -142,11 +143,11 @@ def stair_face_frames(engine) -> dict:
     out = {}
     stairs = getattr(engine, "stairs", None)
     ents = getattr(engine, "entrances", None)
-    ent_fin = [f for en in (ents.entrances if ents is not None else []) for f in en.stair.finishes]   # 출입구 계단 마감
+    ent_fin = [f for en in (ents.entrances if ents is not None else []) for f in (en.stair.finishes if en.stair is not None else [])]   # 출입구 계단 마감
     for fe in (stairs.finish_elements() if stairs is not None else []) + ent_fin:
         out.update(getattr(fe, "face_frames", None) or {})
     escs = getattr(engine, "escalators", None)
-    ent_escs = [e.escalator for e in (ents.entrances if ents is not None else []) if e.escalator]
+    ent_escs = [x for e in (ents.entrances if ents is not None else []) for x in e.escalators]
     for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:
         for stp in esc.steps:
             out.update(stp.face_frames or {})

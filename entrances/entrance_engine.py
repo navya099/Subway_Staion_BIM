@@ -47,7 +47,7 @@ class EntranceEngine:
                     material="Lean_Concrete" if p.kind == "LEAN" else "Concrete_C24",
                     kind=p.kind, code=p.code, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0),
                     pieces=list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []))
-            stair = self._stair(lay, level)
+            stair = self._stair(lay, level) if lay.stair is not None else None
             fin_labels = {"FLOOR": "바닥 마감", "FILL": "바닥 채움", "WALL": "벽 마감", "CEILING": "천장판", "FRAME": "천장틀"}
             finishes = []
             for code, kind, mat, t_rng, strips in lay.finish:
@@ -57,11 +57,14 @@ class EntranceEngine:
                     type_name=f"{lay.finish_type.name} {fin_labels[kind]}", level=level,
                     pos_z=min(min(s.zb0, s.zb1) for s in strips), material=mat, kind=kind, code=code, t_range=t_rng,
                     shape=StripShape(strips=strips, width=ft1 - ft0)))
-            escalator = self._escalator(lay, level) if lay.escalator else None
+            n_esc = len(lay.escalators)
+            escalators = [self._escalator(lay, level, e, k, n_esc) for k, e in enumerate(lay.escalators)]
+            kinds = (["계단"] if lay.stair is not None else []) + ([f"ESC×{n_esc}" if n_esc > 1 else "ESC"] if n_esc else [])
             self.entrances.append(EntranceData(
-                name=lay.name, family_name="출입구", type_name=f"W{spec.inner_width:g}" + (" ESC" if spec.escalator else ""),
+                name=lay.name, family_name="출입구", type_name=f"W{spec.inner_width:g} " + "+".join(kinds),
                 level=level, pos_x=lay.frame.px, pos_y=lay.frame.py, pos_z=lay.z_floor, passage=lay.passage, floor=floor,
-                frame=lay.frame, layout=lay, elements=elements, stair=stair, escalator=escalator, finishes=finishes))
+                frame=lay.frame, layout=lay, elements=elements, stair=stair, escalator=escalators[0] if escalators else None,
+                escalators=escalators, finishes=finishes))
 
     @staticmethod
     def _stair(lay, level) -> StairData:
@@ -98,41 +101,44 @@ class EntranceEngine:
                          t_range=t_rng, parts=parts, finishes=finishes)
 
     @staticmethod
-    def _escalator(lay, level) -> EscalatorData:
-        esp = lay.escalator.spec
+    def _escalator(lay, level, le, k=0, n=1) -> EscalatorData:
+        """에스컬레이터 1대 (le = 배치 결과). 이름 {출입구}_ESC (1대) / {출입구}_ESC{k} (여러 대, 칸막이벽 쪽부터 1)"""
+        esp = le.spec
+        tag = "ESC" if n <= 1 else f"ESC{k + 1}"
         parts = []
-        for p in lay.escalator.parts:
+        for p in le.parts:
             t0, t1 = p.t_range
             parts.append(EscalatorPartData(
-                name=f"{lay.name}_ESC_{p.kind.value}{ESC_SIDE[p.side]}", family_name=ESC_FAMILY[p.kind],
+                name=f"{lay.name}_{tag}_{p.kind.value}{ESC_SIDE[p.side]}", family_name=ESC_FAMILY[p.kind],
                 type_name=f"S{int(round(esp.step_width * 1000))} {esp.angle_deg:g}°", level=level,
                 pos_z=min(min(s.zb0, s.zb1) for s in p.strips), material=ESC_MATERIAL[p.kind], kind=p.kind,
                 side=p.side, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0)))
         st0, st1 = esp.t_center - esp.step_width / 2.0, esp.t_center + esp.step_width / 2.0
         steps = []
-        for stp in getattr(lay.escalator, "steps", []):             # 개별 스텝 (위 운행로) — 출입구 좌표 s = u_wp + u
-            strips = sorted((Strip(lay.escalator.u_wp + ua, lay.escalator.u_wp + ub, zb, zb, zt) for ua, ub, zb, zt in stp.pieces),
+        for stp in getattr(le, "steps", []):                        # 개별 스텝 (위 운행로) — 출입구 좌표 s = u_wp + u
+            strips = sorted((Strip(le.u_wp + ua, le.u_wp + ub, zb, zb, zt) for ua, ub, zb, zt in stp.pieces),
                             key=lambda x: x.s0)
             steps.append(EscalatorStepData(
-                name=f"{lay.name}_ESC_STEP{stp.index + 1:03d}", family_name="에스컬레이터-스텝",
+                name=f"{lay.name}_{tag}_STEP{stp.index + 1:03d}", family_name="에스컬레이터-스텝",
                 type_name=f"S{int(round(esp.step_width * 1000))} 스텝", level=level, pos_z=stp.z,
                 material=ESC_MATERIAL[EscalatorPartKind.STEPS], index=stp.index, chain_u=stp.u, t_range=(st0, st1),
                 shape=StripShape(strips=strips, width=st1 - st0)))
         u = lay.u
-        return EscalatorData(name=f"{lay.name}_ESC", family_name="에스컬레이터",
+        return EscalatorData(name=f"{lay.name}_{tag}", family_name="에스컬레이터",
                              type_name=f"S{int(round(esp.step_width * 1000))} {esp.angle_deg:g}°", level=level,
                              pos_z=lay.z_floor, lower_floor=0, direction=1, angle_deg=esp.angle_deg,
-                             rise=lay.escalator.rise, run=lay.escalator.run, s_wp=(u["wp_lo"], u["wp_hi"]),
+                             rise=le.rise, run=le.run, s_wp=(u["wp_lo"], u["wp_hi"]),
                              s_range=(u["truss_lo"], u["truss_hi"]), t_range=(esp.t_lo, esp.t_hi), parts=parts, steps=steps)
 
     # ---------- 부재 모음 ----------
     def strip_members(self, ent: EntranceData) -> list:
         """(부재 이름, 띠 부재) — 박스 부재·계단 런/계단참·에스컬레이터 부재 (모두 출입구 좌표의 띠)"""
         out = [(e.name, e) for e in ent.elements]
-        out += [(p.name, p) for p in ent.stair.parts] + [(f.name, f) for f in ent.stair.finishes]
+        if ent.stair is not None:
+            out += [(p.name, p) for p in ent.stair.parts] + [(f.name, f) for f in ent.stair.finishes]
         out += [(f.name, f) for f in ent.finishes]
-        if ent.escalator:
-            out += [(p.name, p) for p in ent.escalator.parts] + [(s.name, s) for s in ent.escalator.steps]
+        for esc in ent.escalators:
+            out += [(p.name, p) for p in esc.parts] + [(s.name, s) for s in esc.steps]
         return out
 
     # ---------- 작도 ----------
@@ -164,7 +170,7 @@ class EntranceEngine:
         fr_ = ent.frame
         tv, uv = (-fr_.uy, fr_.ux, 0.0), (fr_.ux, fr_.uy, 0.0)
         stone = ent.layout.spec_stair_finish.stone_len if ent.layout.spec_stair_finish is not None else 1.2
-        for fe in ent.stair.finishes:
+        for fe in (ent.stair.finishes if ent.stair is not None else []):
             fe.face_frames = {}
             if fe.code not in TREAD_TEXTURE_CODES:
                 continue
@@ -189,7 +195,7 @@ class EntranceEngine:
         dep = ent.layout.escalator.spec.step_depth
         uv = (fr_.ux, fr_.uy, 0.0)
         tv = (-fr_.uy, fr_.ux, 0.0)                                   # +t (왼쪽)
-        for stp in ent.escalator.steps:
+        for stp in (s for esc in ent.escalators for s in esc.steps):
             t0, t1 = stp.t_range
             o = fr_.to_world(u_wp + stp.chain_u, t0)
             frame = ((o[0], o[1], 0.0), tv, uv, t1 - t0, dep)

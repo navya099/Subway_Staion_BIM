@@ -22,6 +22,9 @@ class EntranceSpec:
         ground_el: 지상 도착부 지표면 절대 표고 (m). None 이면 정거장 공통 지표 EL (StationParameters.ground_el)
         stair_width / partition_t / escalator_zone: 계단 폭, 칸막이벽 두께, 에스컬레이터 구역 폭 (m)
         escalator: 에스컬레이터를 둘지 (False 면 내공 폭 = 계단 폭, 칸막이벽 없음)
+        stair: 계단을 둘지 (False 면 에스컬레이터만 — 내공 폭 = 에스컬레이터 구역 × 대수, 칸막이벽 없음)
+        escalator_count: 에스컬레이터 대수 (모두 같은 제원, 트러스끼리 이격 없이 붙여 나란히 — 실무). 에스컬레이터 구역 폭 =
+                         escalator_zone(1대일 때 구역, 양쪽 벽·칸막이 여유 포함) + (대수 − 1) × 트러스 외폭
         escalator_side: 에스컬레이터 쪽 +1 = 오르는 방향 왼쪽(+t), -1 = 오른쪽
         wall_t: 벽·슬래브 두께 (m, 두께 구간이 없을 때·첫 구간 앞)
         thickness_zones: 두께 구간 [(u 시작, 두께), ...] — u = 이음면(통로 끝)에서 출입구 진행 거리 (m). 그 u 부터 다음 구간 앞까지
@@ -46,6 +49,8 @@ class EntranceSpec:
     escalator_zone: float = 3.31
     escalator: bool = True
     escalator_side: int = 1
+    stair: bool = True
+    escalator_count: int = 1
     wall_t: float = 0.8
     haunch_w: float = 0.3
     haunch_h: float = 0.3
@@ -98,23 +103,38 @@ class EntranceSpec:
         return sorted({u0 for u0, _ in self.thickness_zones if lo + 1e-9 < u0 < hi - 1e-9})
 
     @property
+    def n_escalators(self) -> int:
+        return max(1, int(self.escalator_count)) if self.escalator else 0
+
+    @property
+    def escalator_group_width(self) -> float:
+        """에스컬레이터 구역 전체 폭 = 1대 구역 + (대수 − 1) × 트러스 외폭 (트러스끼리 붙음)"""
+        return self.escalator_zone + (self.n_escalators - 1) * self.esc_truss_width if self.escalator else 0.0
+
+    @property
     def inner_width(self) -> float:
-        if not self.escalator:
-            return self.stair_width
-        return self.stair_width + self.partition_t + self.escalator_zone
+        w = self.stair_width if self.stair else 0.0
+        if self.escalator:
+            w += self.escalator_group_width + (self.partition_t if self.stair else 0.0)
+        return w
 
     def zones(self) -> dict:
-        """폭 방향 구역 (t 범위, 출입구 좌표: 오르는 방향 왼쪽 +). stair / partition / escalator"""
+        """폭 방향 구역 (t 범위, 출입구 좌표: 오르는 방향 왼쪽 +). stair / partition / escalator(에스컬레이터 구역 전체) /
+        escalators(대마다 구역, 칸막이벽 쪽부터 — 계단이 없으면 −t 쪽부터)"""
         a = self.inner_width / 2.0
         if not self.escalator:
             return {"stair": (-a, a)}
-        if self.escalator_side > 0:                  # 왼쪽(+t) 에 에스컬레이터
-            return {"stair": (-a, -a + self.stair_width),
-                    "partition": (-a + self.stair_width, -a + self.stair_width + self.partition_t),
-                    "escalator": (a - self.escalator_zone, a)}
-        return {"escalator": (-a, -a + self.escalator_zone),
-                "partition": (a - self.stair_width - self.partition_t, a - self.stair_width),
-                "stair": (a - self.stair_width, a)}
+        n, tw = self.n_escalators, self.esc_truss_width
+        m = (self.escalator_zone - tw) / 2.0          # 벽·칸막이 쪽 여유 (1대일 때와 같음), 대 사이는 0 (트러스끼리 붙음)
+        if not self.stair:                           # 에스컬레이터만
+            return {"escalator": (-a, a), "escalators": [(-a + m + k * tw, -a + m + (k + 1) * tw) for k in range(n)]}
+        if self.escalator_side > 0:                  # 왼쪽(+t) 에 에스컬레이터 — 칸막이 쪽부터
+            b = -a + self.stair_width + self.partition_t
+            return {"stair": (-a, -a + self.stair_width), "partition": (-a + self.stair_width, b),
+                    "escalator": (b, a), "escalators": [(b + m + k * tw, b + m + (k + 1) * tw) for k in range(n)]}
+        b = a - self.stair_width - self.partition_t
+        return {"escalator": (-a, b), "escalators": [(b - m - (k + 1) * tw, b - m - k * tw) for k in range(n)],
+                "partition": (b, a - self.stair_width), "stair": (a - self.stair_width, a)}
 
     def stair_spec(self) -> StairSpec:
         t0, t1 = self.zones()["stair"]
@@ -122,8 +142,9 @@ class EntranceSpec:
                          riser_max=self.riser_max, tread=self.tread, flight_rise_max=self.flight_rise_max,
                          landing_len=self.landing_len, waist_t=self.stair_slab_t, headroom=self.stair_headroom)
 
-    def escalator_spec(self) -> EscalatorSpec:
-        t0, t1 = self.zones()["escalator"]
+    def escalator_spec(self, k: int = 0) -> EscalatorSpec:
+        """k 번째 에스컬레이터 (칸막이벽 쪽부터, 모두 같은 제원) — t 범위 = 그 대의 트러스 자리"""
+        t0, t1 = self.zones()["escalators"][k]
         return EscalatorSpec(lower_floor=1, s_wp=0.0, direction=1, t_center=(t0 + t1) / 2.0,
                              angle_deg=self.esc_angle_deg, step_width=self.esc_step_width,
                              truss_width=self.esc_truss_width, truss_depth=self.esc_truss_depth,

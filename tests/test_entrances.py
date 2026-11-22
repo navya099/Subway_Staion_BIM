@@ -130,7 +130,7 @@ def test_box_parts_layout():
     sp, u = lay.spec, lay.u
     codes = {p.code for p in lay.box_parts}
     assert codes == {"FLOOR_S", "FLOOR_E", "ROOF", "WALL_L", "WALL_R", "END_WALL_S", "END_WALL_E",
-                     "JOINT_WALL_L", "JOINT_WALL_R", "PARTITION"}
+                     "JOINT_WALL_L", "JOINT_WALL_R", "PARTITION", "PARAPET"}
     a, b = sp.inner_width / 2, sp.inner_width / 2 + sp.wall_t
     part = {p.code: p for p in lay.box_parts}
     assert part["WALL_L"].t_range == pytest.approx((a, b)) and part["ROOF"].t_range == pytest.approx((-b, b))
@@ -594,3 +594,77 @@ def test_entrance_finish_override_and_draft():
     assert lay_of(cfg).finish_type.name == "역무실"
     d = EntranceDraft(passage="EX1", finish="화장실")
     assert d.to_spec("출입구").finish == "화장실" and EntranceDraft(passage="EX1").to_spec("출입구").finish == ""
+
+
+# ===================================================== 지상부 1단계: 계단만·ESC 만·ESC n대 + 개구부 시작부 파라펫
+def test_escalator_only_and_multiple_escalators(tmp_path):
+    from escalators.escalator_type import EscalatorPartKind as EK
+    cfg = cfg_with({"stair": False, "escalator_count": 2, "escalator_side": 1})
+    eng = StationCADEngine(cfg)
+    ent = eng.entrances.entrances[0]
+    sp = ent.layout.spec
+    assert ent.stair is None and len(ent.escalators) == 2
+    assert sp.inner_width == pytest.approx(sp.escalator_zone + sp.esc_truss_width)            # 둘째 대는 트러스 폭만큼만
+    z = sp.zones()["escalators"]
+    assert z[0][1] == pytest.approx(z[1][0])                                                   # 대 사이 이격 없음
+    names = {e.name for e in ent.escalators}
+    assert names == {"EN1_ESC1", "EN1_ESC2"}
+    clad = [next(p for p in e.parts if p.kind == EK.CLAD_SIDE and p.side == 1) for e in ent.escalators]
+    out = [next(p for p in e.parts if p.kind == EK.CLAD_SIDE and p.side == -1) for e in ent.escalators]
+    assert clad[0].t_range[1] == pytest.approx(out[1].t_range[0])                              # 트러스 외장끼리 이격 없이 붙음
+    m = (sp.escalator_zone - sp.esc_truss_width) / 2
+    assert ent.escalators[0].t_range[0] == pytest.approx(-sp.inner_width / 2 + m)              # 벽 쪽 여유 = 1대일 때와 같음
+    codes = {p.code for p in ent.layout.box_parts}
+    assert "FLOOR_S" not in codes and "PARTITION" not in codes and "END_WALL_S" not in codes and "FLOOR_E" in codes
+    # 두 측벽 모두 에스컬레이터 쪽 바닥(트러스 하면) 위
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "m.ifc"))
+    assert len([t for t in f.by_type("IfcTransportElement") if t.Name.startswith("EN1_ESC")]) == 2
+    assert not [s for s in f.by_type("IfcStair") if s.Name.startswith("EN1")]
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    for name, m in eng.entrances.strip_members(ent):
+        formula = m.shape.volume + sum(p.volume for p in getattr(m, "pieces", []))
+        assert ifc_world_volume(by_name[name]) == pytest.approx(formula, rel=1e-6, abs=1e-8)
+    # 계단 + 에스컬레이터 3대: 계단 | 칸막이 | ESC × 3
+    lay = lay_of(cfg_with({"escalator_count": 3}))
+    z = lay.spec.zones()
+    m = (lay.spec.escalator_zone - lay.spec.esc_truss_width) / 2
+    assert len(lay.escalators) == 3 and z["escalators"][0][0] == pytest.approx(z["partition"][1] + m)     # 칸막이 쪽 여유
+    assert z["escalators"][1][0] == pytest.approx(z["escalators"][0][1]) and z["escalators"][2][1] == pytest.approx(z["escalator"][1] - m)
+    assert lay.spec.inner_width == pytest.approx(lay.spec.stair_width + lay.spec.partition_t + lay.spec.escalator_zone
+                                                 + 2 * lay.spec.esc_truss_width)
+
+
+def test_stair_only_and_rules():
+    lay = lay_of(cfg_with({"escalator": False, "stair_width": 4.6}))
+    assert lay.escalators == [] and lay.stair is not None
+    with pytest.raises(ValueError, match="하나는 있어야"):
+        StationCADEngine(cfg_with({"escalator": False, "stair": False}))
+    with pytest.raises(ValueError, match="대수"):
+        StationCADEngine(cfg_with({"escalator_count": 0}))
+
+
+def test_roof_end_parapet():
+    lay = lay_of(cfg_with())
+    sp = lay.spec
+    par = next(p for p in lay.box_parts if p.code == "PARAPET")
+    u_re = lay.u["roof_end"]
+    T = sp.thick_at(u_re)
+    a = sp.inner_width / 2
+    assert par.t_range == pytest.approx((-(a + T), a + T))
+    assert par.strips[0].s0 == pytest.approx(u_re - T) and par.strips[-1].s1 == pytest.approx(u_re)
+    assert all(st.zt == pytest.approx(lay.ground + sp.parapet) for st in par.strips)
+    roof = max((s for p in lay.box_parts if p.code.startswith("ROOF") for s in p.strips), key=lambda s: s.s1)
+    assert par.strips[-1].zb1 == pytest.approx(roof.zt_end)                                    # 천장 상면 위에 섬
+
+
+def test_draft_stair_and_count():
+    from gui.entrance_draft import EntranceDraft, preview
+    d = EntranceDraft(passage="EX1", stair=False, escalator_count="2")
+    sp = d.to_spec("출입구")
+    assert not sp.stair and sp.escalator_count == 2 and "2대 붙임" in preview(d) and "계단 없음" in preview(d)
+    d.escalator_count = "x"
+    with pytest.raises(ValueError, match="정수"):
+        d.to_spec("출입구")
+    d.escalator, d.escalator_count = False, "1"
+    with pytest.raises(ValueError, match="하나는"):
+        d.to_spec("출입구")

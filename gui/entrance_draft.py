@@ -27,6 +27,8 @@ class EntranceDraft:
     name: str = ""
     passage: str = "EX1"
     escalator: bool = True
+    stair: bool = True
+    escalator_count: str = "1"            # 에스컬레이터 대수 (모두 같은 제원, 나란히)
     side: str = SIDE_LEFT
     ground_el: str = ""                  # 비우면 정거장 공통 지표 EL
     stair_width: str = f"{_SPEC.stair_width:g}"
@@ -74,7 +76,14 @@ class EntranceDraft:
                 continue
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")
+        if not self.stair and not self.escalator:
+            raise ValueError(f"{where}: 계단과 에스컬레이터 중 하나는 있어야 합니다")
+        try:
+            n_esc = int(str(self.escalator_count).strip() or "1")
+        except ValueError:
+            raise ValueError(f"{where}: 에스컬레이터 대수가 정수가 아닙니다 ('{self.escalator_count}')") from None
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
+                            stair=bool(self.stair), escalator_count=n_esc,
                             stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
                             finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
 
@@ -110,9 +119,13 @@ def preview(it: EntranceDraft) -> str:
         sp = it.to_spec("")
     except ValueError:
         return "→ 입력값을 확인하세요"
-    if sp.escalator:
+    n = sp.n_escalators
+    esc = f"에스컬레이터 {sp.escalator_zone:g}" + (f" + 트러스 {sp.esc_truss_width:g} × {n - 1} ({n}대 붙임)" if n > 1 else "")
+    if sp.escalator and sp.stair:
         side = "왼쪽" if sp.escalator_side > 0 else "오른쪽"
-        parts = f"계단 {sp.stair_width:g} + 칸막이 {sp.partition_t:g} + 에스컬레이터 {sp.escalator_zone:g} ({side})"
+        parts = f"계단 {sp.stair_width:g} + 칸막이 {sp.partition_t:g} + {esc} ({side})"
+    elif sp.escalator:
+        parts = esc + " (계단 없음)"
     else:
         parts = f"계단 {sp.stair_width:g}"
     return (f"→ 내공 폭 {sp.inner_width:g}m = {parts}\n"

@@ -49,7 +49,7 @@ class EntranceFrame:
 @dataclass
 class EntrancePartLayout:
     code: str                 # FLOOR_S, FLOOR_E, ROOF, WALL_L, WALL_R, END_WALL_S, END_WALL_E, JOINT_WALL_L/R, PARTITION, LEAN
-    kind: str                 # FLOOR / ROOF / WALL / LEAN (버림 콘크리트)   (두께 구간이 둘 이상이면 측벽·바닥·천장·버림은 _Z{k})
+    kind: str                 # FLOOR / ROOF / WALL / LEAN (버림 콘크리트) / RAMP / STEPS / PAVE (앞마당 포장)   (두께 구간이 둘 이상이면 측벽·바닥·천장·버림은 _Z{k})
     t_range: tuple
     strips: list
     thick: float = None       # 부재 두께 (벽·슬래브: 그 구간 두께)
@@ -271,6 +271,44 @@ def outdoor_approach(spec, a: float, u0: float, G: float, Gt: float, side: int) 
         strips = [Strip(u0 + (k - 1) * spec.out_tread, u0 + k * spec.out_tread, zb, zb, Gt - k * r) for k in range(1, n)]
         if strips:
             out.append(("OUT_STAIR", "STEPS", t_s, strips))
+    return out
+
+
+def forecourt(spec, a: float, u0: float, G: float, Gt: float) -> list:
+    """박스 앞(상단 끝벽 바깥면 u0 부터) 앞마당 접속 슬래브 [(코드, 종류, t 범위, 띠, 두께)] — 실무 상세 "a".
+    포장 윗면 = 승강구 높이 Gt 로 평탄(fc_flat, 비우면 자동) 뒤 기울기 1/ramp_ratio 로 내려감 (끝 = u0 + fc_length = 끝단 보 바깥면).
+    포장(fc_pave_t) 아래 접속 슬래브(fc_slab_t, 끝단 보 위까지), 슬래브 아래 버림(fc_lean_t, 헌치를 따라 끝단 보 안쪽 면까지),
+    끝단 보(fc_beam_t, 평탄부 슬래브 하면 아래 fc_beam_h, 안쪽 헌치 fc_haunch_w × fc_haunch_h), 보 아래 기초 버림(fc_foot_w × fc_foot_t,
+    보 가운데). 두께는 모두 연직. t 범위 = 개구부 내공 폭 (±a)"""
+    r, Lf = spec.ramp_ratio, spec.fc_length
+    flat = spec.fc_flat if spec.fc_flat is not None else max(0.0, Lf - (Gt - G) * r)
+    ue, uf = u0 + Lf, u0 + min(flat, Lf)
+    surf = PL([_const(u0, uf, Gt), (uf, ue, Gt, Gt - (ue - uf) / r)])
+
+    def down(pl, d):
+        return PL([(x0, x1, z0 - d, z1 - d) for x0, x1, z0, z1 in pl.segs])
+    top = down(surf, spec.fc_pave_t)
+    bot = down(top, spec.fc_slab_t)
+    ub = ue - spec.fc_beam_t
+    zb = Gt - spec.fc_pave_t - spec.fc_slab_t - spec.fc_beam_h   # 끝단 보 하면 (수평, 평탄부 슬래브 하면 아래 fc_beam_h — 실무 상세 치수 기준)
+    hw = min(max(spec.fc_haunch_w, 0.0), ub - u0)
+    hh = spec.fc_haunch_h if hw > 1e-9 else 0.0
+    uh = ub - hw
+    under = PL(_clip(bot, u0, uh).segs + ([(uh, ub, bot.at(uh), bot.at(ub, -1) - hh)] if hh > 1e-9 else []))
+    if hh <= 1e-9:
+        under = _clip(bot, u0, ub)
+    t = (-a, a)
+    out = [("FC_PAVE", "PAVE", t, strips_between(top, surf, u0, ue), spec.fc_pave_t),
+           ("FC_SLAB", "FLOOR", t, strips_between(bot, top, u0, ue), spec.fc_slab_t)]
+    beam = strips_between(under, bot, uh, ub) if hh > 1e-9 else []
+    beam += strips_between(PL([_const(ub, ue, zb)]), bot, ub, ue)
+    out.append(("FC_BEAM", "WALL", t, beam, spec.fc_beam_t))
+    if spec.fc_lean_t > 0:
+        out.append(("FC_LEAN", "LEAN", t, strips_between(down(under, spec.fc_lean_t), under, u0, ub), spec.fc_lean_t))
+    if spec.fc_foot_t > 0:
+        e = (spec.fc_foot_w - spec.fc_beam_t) / 2.0
+        out.append(("FC_FOOT", "LEAN", t, strips_between(PL([_const(ub - e, ue + e, zb - spec.fc_foot_t)]),
+                                                        PL([_const(ub - e, ue + e, zb)]), ub - e, ue + e), spec.fc_foot_t))
     return out
 
 
@@ -540,7 +578,10 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
                   bottom.offset(-spec.lean_t), bottom, 0.0, end)
 
     # ---------- 바깥 경사로·계단 (높임이 있을 때, 박스 앞 u ≥ end): 경사로 = 에스컬레이터 쪽 벽 옆 폭 ramp_width, 나머지 = 계단
-    if spec.top_rise > 0:
+    if spec.top_rise > 0 and spec.outdoor == "forecourt":     # 앞마당 접속 슬래브 (실무 상세 "a")
+        for code, kind, t_rng, strips, th in forecourt(spec, ai_e, end, G, Gt):
+            add(code, kind, t_rng, strips, th)
+    elif spec.top_rise > 0:
         for code, kind, t_rng, strips in outdoor_approach(spec, ai_e, end, G, Gt, spec.escalator_side if spec.escalator else 1):
             add(code, kind, t_rng, strips)
 

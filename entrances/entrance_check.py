@@ -43,6 +43,10 @@ def check_entrance_spec(spec, name: str):
                          ("바깥 계단 단너비", spec.out_tread)):
             if not v > 0:
                 raise ValueError(f"출입구 {name}: {label}은(는) 0보다 커야 합니다 ({v})")
+        if spec.outdoor not in ("steps", "forecourt"):
+            raise ValueError(f"출입구 {name}: 바깥 접근 형식이 올바르지 않습니다 ('{spec.outdoor}' — steps | forecourt)")
+        if spec.outdoor == "forecourt":
+            check_forecourt(spec, name)
         if spec.ramp_width > spec.inner_width + 1e-9:
             raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
     for label, v in (("개구부 내공 축소", spec.open_narrow), ("바깥면 전이 기울기", spec.taper_ratio)):
@@ -104,3 +108,32 @@ def layout_entrances(cfg, passage_layouts: list) -> list:
         used[spec.passage] = name
         out.append(layout_entrance(cfg, spec, name, passage_layouts))
     return out
+
+
+def check_forecourt(spec, name: str):
+    """앞마당 접속 슬래브 치수·높이 검사 (포장 윗면이 끝단 보 바깥면에서 지표 ± 5cm 안이어야 함)"""
+    for label, v in (("앞마당 길이", spec.fc_length), ("접속 슬래브 두께", spec.fc_slab_t), ("끝단 보 폭", spec.fc_beam_t)):
+        if v <= 0:
+            raise ValueError(f"출입구 {name}: {label}는 0 보다 커야 합니다 ({v:g})")
+    for label, v in (("포장 두께", spec.fc_pave_t), ("앞마당 버림", spec.fc_lean_t), ("끝단 보 깊이", spec.fc_beam_h),
+                     ("끝단 보 헌치 폭", spec.fc_haunch_w), ("끝단 보 헌치 높이", spec.fc_haunch_h), ("기초 버림 두께", spec.fc_foot_t)):
+        if v < 0:
+            raise ValueError(f"출입구 {name}: {label}는 0 이상이어야 합니다 ({v:g})")
+    if spec.fc_foot_t > 0 and spec.fc_foot_w < spec.fc_beam_t - 1e-9:
+        raise ValueError(f"출입구 {name}: 기초 버림 폭({spec.fc_foot_w:g}m)이 끝단 보 폭({spec.fc_beam_t:g}m)보다 좁습니다")
+    if spec.fc_length < spec.fc_beam_t + spec.fc_haunch_w + 1e-6:
+        raise ValueError(f"출입구 {name}: 앞마당 길이({spec.fc_length:g}m)가 끝단 보 + 헌치보다 짧습니다")
+    flat = spec.fc_flat if spec.fc_flat is not None else max(0.0, spec.fc_length - spec.top_rise * spec.ramp_ratio)
+    if flat < 0 or flat > spec.fc_length + 1e-9:
+        raise ValueError(f"출입구 {name}: 앞마당 평탄 길이({flat:g}m)는 0 ~ 앞마당 길이({spec.fc_length:g}m) 여야 합니다")
+    drop = (spec.fc_length - flat) / spec.ramp_ratio
+    if spec.fc_beam_h <= drop + 1e-6:
+        raise ValueError(f"출입구 {name}: 끝단 보 깊이({spec.fc_beam_h:g}m)가 앞마당 경사 낙차({drop:.3f}m)보다 커야 합니다 "
+                         "(보 하면이 끝 슬래브 하면 아래)")
+    end = spec.top_rise - drop                                              # 끝단 포장 윗면 − 지표
+    if end < -1e-6:
+        raise ValueError(f"출입구 {name}: 앞마당 끝 포장 윗면이 지표보다 {-end:.3f}m 낮습니다 (평탄 길이를 늘리거나 앞마당 길이를 줄이세요)")
+    if end > 0.05 + 1e-9:
+        need = spec.top_rise * spec.ramp_ratio + flat
+        raise ValueError(f"출입구 {name}: 앞마당 끝 포장 윗면이 지표보다 {end:.3f}m 높습니다 (경사 1/{spec.ramp_ratio:g} 로 지표까지 "
+                         f"앞마당 길이 {need:.3f}m 필요 — 평탄 길이를 줄이거나 앞마당 길이를 늘리세요)")

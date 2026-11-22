@@ -14,7 +14,8 @@ from stairs.stair_finish import CODES as FINISH_CODES
 from stairs.stair_type import StairPartKind
 
 _FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리트-출입구천장슬래브", "WALL": "콘크리트-출입구벽체",
-           "LEAN": "콘크리트-버림", "RAMP": "콘크리트-출입구경사로", "STEPS": "콘크리트-출입구바깥계단"}
+           "LEAN": "콘크리트-버림", "RAMP": "콘크리트-출입구경사로", "STEPS": "콘크리트-출입구바깥계단",
+           "PAVE": "출입구 앞마당 포장"}
 
 
 class EntranceEngine:
@@ -44,7 +45,7 @@ class EntranceEngine:
                     name=f"{lay.name}_{p.code}", family_name=_FAMILY[p.kind],
                     type_name=f"{int(round((p.thick if p.thick is not None else spec.wall_t) * 1000))}mm",
                     level=level, pos_z=min(min(s.zb0, s.zb1) for s in p.strips),
-                    material="Lean_Concrete" if p.kind == "LEAN" else "Concrete_C24",
+                    material={"LEAN": "Lean_Concrete", "PAVE": spec.fc_material}.get(p.kind, "Concrete_C24"),
                     kind=p.kind, code=p.code, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0),
                     pieces=(list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []) + list(p.pieces)))
             stair = self._stair(lay, level) if lay.stair is not None else None
@@ -151,7 +152,9 @@ class EntranceEngine:
                 faces += [f for p in getattr(m, "pieces", []) for f in p.faces()]
                 layer = "STRUCT_ENTRANCE"                              # 박스·계단 = 콘크리트, 에스컬레이터 = 정거장 에스컬레이터와 같은 레이어
                 if isinstance(m, StairFinishData):
-                    layer = "FIN_STAIR"                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
+                    layer = "FIN_STAIR"
+                if isinstance(m, EntranceElementData) and m.kind == "PAVE":
+                    layer = "FIN_FLOOR"                                 # 앞마당 포장 = 바닥 마감                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
                 if isinstance(m, EntranceFinishData):                    # 내부 마감 = 실 마감과 같은 레이어
                     layer = {"FLOOR": "FIN_FLOOR", "FILL": "FIN_FLOOR", "WALL": "FIN_WALL", "CEILING": "FIN_CEILING",
                              "FRAME": "FIN_FRAME"}[m.kind]
@@ -216,8 +219,9 @@ class EntranceEngine:
             for name, m in self.strip_members(ent):
                 if isinstance(m, EntranceFinishData) and m.kind == "FRAME":
                     continue                                    # 천장틀은 단면에 안 그림
-                concrete = not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData, EntranceFinishData))
-                fin_layer = isinstance(m, (StairFinishData, EntranceFinishData))
+                pave = isinstance(m, EntranceElementData) and m.kind == "PAVE"
+                concrete = not pave and not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData, EntranceFinishData))
+                fin_layer = pave or isinstance(m, (StairFinishData, EntranceFinishData))
                 t0, t1 = m.t_range
                 polys = [cut_faces_by_plane(strip_faces(ent.frame, st, t0, t1), cx, cy, nx, ny) for st in m.shape.strips]
                 polys += [p.cut_by_plane(cx, cy, nx, ny) for p in getattr(m, "pieces", [])]

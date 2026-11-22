@@ -829,3 +829,87 @@ def test_opening_narrow_rules_and_draft():
     assert (sp.open_narrow, sp.open_wall_t) == (0.2, 0.3)
     with pytest.raises(ValueError, match="개구부 벽 두께"):
         EntranceDraft(passage="EX1", open_wall_t="-1").to_spec("출입구")
+
+
+# ===================================================== 실무 상세 "a": 앞마당 접속 슬래브 (상부 승강구 높임 + 바깥 = forecourt)
+FORE = {"top_rise": 0.165, "outdoor": "forecourt", "fc_flat": 1.243, "open_narrow": 0.2, "open_wall_t": 0.3, "wall_t": 0.3}
+
+
+def test_forecourt_matches_detail_a(tmp_path):
+    import random
+    eng = StationCADEngine(cfg_with(FORE))
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    G, u0 = lay.ground, lay.u["end"]
+    part = {p.code: p for p in lay.box_parts}
+    assert not [c for c in part if c.startswith("OUT_")]                                     # 경사로·계단 대신 앞마당
+    a_o = lay.spec.inner_width / 2 - 0.2
+    assert all(part[c].t_range == pytest.approx((-a_o, a_o)) for c in ("FC_PAVE", "FC_SLAB", "FC_BEAM", "FC_LEAN", "FC_FOOT"))
+
+    def rel(st):
+        return (st.s0 - u0, st.s1 - u0, st.zb0 - G, st.zb1 - G, st.zt - G, st.zt_end - G)
+    # 실무 상세 치수 (끝벽 바깥면·지표 기준): 포장 GL+165 평탄 1,243 → 기울기 1/12, 끝단 보 바깥면 3,150 에서 슬래브 윗면 −94
+    assert [x for s in part["FC_PAVE"].strips for x in rel(s)] == pytest.approx(
+        [0, 1.243, 0.065, 0.065, 0.165, 0.165, 1.243, 3.15, 0.065, 0.065 - 1.907 / 12, 0.165, 0.165 - 1.907 / 12])
+    assert rel(part["FC_SLAB"].strips[0]) == pytest.approx((0, 1.243, -0.235, -0.235, 0.065, 0.065))
+    beam = [rel(s) for s in part["FC_BEAM"].strips]
+    assert beam[0][:2] == pytest.approx((2.56, 2.85)) and beam[0][4] - beam[0][2] == pytest.approx(0.0)   # 헌치 (삼각)
+    assert beam[1][:4] == pytest.approx((2.85, 3.15, -0.77, -0.77))                          # 보 하면 = 평탄 슬래브 하면 − 535
+    (foot,) = part["FC_FOOT"].strips
+    assert rel(foot) == pytest.approx((2.695, 3.305, -0.91, -0.91, -0.77, -0.77))
+    assert rel(part["FC_LEAN"].strips[0]) == pytest.approx((0, 1.243, -0.375, -0.375, -0.235, -0.235))
+    assert part["FC_LEAN"].strips[-1].s1 - u0 == pytest.approx(2.85)                        # 버림 = 헌치 따라 보 안쪽 면까지
+    # 서로 겹치지 않음 (앞마당 부재끼리 + 박스)
+    fc = [(p.code, p.t_range, s) for p in lay.box_parts for s in p.strips]
+    rng = random.Random(7)
+    for code, (t0, t1), st in fc:
+        if not code.startswith("FC_"):
+            continue
+        for _ in range(30):
+            u = rng.uniform(st.s0, st.s1)
+            if st.zt_at(u) - st.zb_at(u) < 1e-6:
+                continue
+            t, z = rng.uniform(t0, t1), rng.uniform(st.zb_at(u), st.zt_at(u))
+            for c2, (a0, a1), s2 in fc:
+                if c2 != code and a0 + 1e-9 < t < a1 - 1e-9 and s2.s0 + 1e-9 < u < s2.s1 - 1e-9:
+                    assert not (s2.zb_at(u) + 1e-7 < z < s2.zt_at(u) - 1e-7), (code, c2, u, t, z)
+    # 출력: 포장 = 바닥 마감 레이어·IfcCovering(FLOORING, 화강석), 보 = IfcWall, 버림 = IfcSlab BASESLAB, 체적 공식 = 메쉬 = IFC
+    els = {e.code: e for e in ent.elements}
+    assert els["FC_PAVE"].material == "화강석" and els["FC_LEAN"].material == "Lean_Concrete"
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "fc.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    assert by_name["EN1_FC_PAVE"].is_a("IfcCovering") and by_name["EN1_FC_PAVE"].PredefinedType == "FLOORING"
+    assert by_name["EN1_FC_BEAM"].is_a("IfcWall") and by_name["EN1_FC_FOOT"].PredefinedType == "BASESLAB"
+    for code in ("FC_PAVE", "FC_SLAB", "FC_BEAM", "FC_LEAN", "FC_FOOT"):
+        m = els[code]
+        formula = m.shape.volume
+        mesh = sum(PM.mesh_volume(q) for q in part_faces(ent.frame, m))
+        assert mesh == pytest.approx(formula, rel=1e-7)
+        assert ifc_world_volume(by_name[m.name]) == pytest.approx(formula, rel=1e-6)
+    w = 2 * a_o
+    assert els["FC_PAVE"].shape.volume == pytest.approx(w * 0.1 * 3.15)                       # 연직 두께 일정
+    assert els["FC_SLAB"].shape.volume == pytest.approx(w * 0.3 * 3.15)
+    eng.build_3d_doc()
+    assert {e.dxf.layer for e in els["FC_PAVE"].source_element} == {"FIN_FLOOR"}                # 포장 = 바닥 마감 레이어
+
+
+def test_forecourt_rules_and_draft():
+    from gui.entrance_draft import EntranceDraft
+    auto = lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt"}))                     # 평탄 길이 자동: 끝에서 지표
+    pave = {p.code: p for p in auto.box_parts}["FC_PAVE"]
+    assert pave.strips[0].s1 - auto.u["end"] == pytest.approx(3.15 - 0.165 * 12)
+    assert pave.strips[-1].zt_end == pytest.approx(auto.ground)
+    with pytest.raises(ValueError, match="지표보다 .* 높습니다"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt", "fc_flat": 2.0}))
+    with pytest.raises(ValueError, match="지표보다 .* 낮습니다"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt", "fc_flat": 0.5}))
+    with pytest.raises(ValueError, match="끝단 보 깊이"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "forecourt", "fc_beam_h": 0.1}))
+    with pytest.raises(ValueError, match="바깥 접근 형식"):
+        lay_of(cfg_with({"top_rise": 0.165, "outdoor": "plaza"}))
+    sp = EntranceDraft(passage="EX1").to_spec("출입구")
+    assert sp.outdoor == "forecourt" and sp.fc_flat is None and sp.fc_length == 3.15        # 화면 기본 = 실무 상세 앞마당
+    sp = EntranceDraft(passage="EX1", outdoor="경사로·계단", fc_flat="0").to_spec("출입구")
+    assert sp.outdoor == "steps" and sp.fc_flat == 0.0
+    with pytest.raises(ValueError, match="앞마당 평탄 길이"):
+        EntranceDraft(passage="EX1", fc_flat="-1").to_spec("출입구")

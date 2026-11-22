@@ -22,7 +22,14 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("top_rise", "상부 지표 위 높이", "nonneg"), ("ramp_width", "바깥 경사로 폭", "nonneg"),
               ("ramp_ratio", "경사로 기울기 1/n", "pos"), ("out_riser_max", "바깥 단높이 상한", "pos"),
               ("out_tread", "바깥 단너비", "pos"), ("open_narrow", "개구부 내공 축소", "nonneg"),
-              ("open_wall_t", "개구부 벽 두께", "opt"), ("taper_ratio", "바깥면 전이 길이/차", "nonneg")]
+              ("open_wall_t", "개구부 벽 두께", "opt"), ("taper_ratio", "바깥면 전이 길이/차", "nonneg"),
+              ("fc_length", "앞마당 길이", "pos"), ("fc_flat", "앞마당 평탄 길이", "opt0"),
+              ("fc_pave_t", "앞마당 포장 두께", "nonneg")]
+
+OUTDOOR_FORECOURT = "앞마당 슬래브"
+OUTDOOR_STEPS = "경사로·계단"
+OUTDOORS = [OUTDOOR_FORECOURT, OUTDOOR_STEPS]
+_OUTDOOR = {OUTDOOR_FORECOURT: "forecourt", OUTDOOR_STEPS: "steps"}
 
 
 @dataclass
@@ -62,6 +69,10 @@ class EntranceDraft:
     open_narrow: str = f"{_SPEC.open_narrow:g}"
     open_wall_t: str = ""                 # 비우면 두께 구간 그대로
     taper_ratio: str = "2"                # 화면 기본 = 실무 평면도 (모델 기본 0 = 직각 계단)
+    outdoor: str = OUTDOOR_FORECOURT      # 바깥 접근 형식 (화면 기본 = 실무 상세 앞마당, 모델 기본 = 경사로·계단)
+    fc_length: str = f"{_SPEC.fc_length:g}"
+    fc_flat: str = ""                     # 비우면 자동 (포장 윗면이 앞마당 끝에서 지표)
+    fc_pave_t: str = f"{_SPEC.fc_pave_t:g}"
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 
@@ -86,11 +97,14 @@ class EntranceDraft:
             if attr == "ground_el" and not str(self.ground_el).strip():
                 vals[attr] = None                        # 정거장 공통 지표 EL
                 continue
-            if rule == "opt":                            # 비우면 None, 주면 양수
-                vals[attr] = None if not str(getattr(self, attr)).strip() else _num(getattr(self, attr), where, label, positive=True)
+            if rule in ("opt", "opt0"):                  # 비우면 None, 주면 양수 (opt0 = 0 이상)
+                vals[attr] = None if not str(getattr(self, attr)).strip() else \
+                    _num(getattr(self, attr), where, label, positive=rule == "opt", nonneg=rule == "opt0")
                 continue
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")
+        if self.outdoor not in _OUTDOOR:
+            raise ValueError(f"{where}: 바깥 접근 형식이 올바르지 않습니다 ('{self.outdoor}')")
         if not self.stair and not self.escalator:
             raise ValueError(f"{where}: 계단과 에스컬레이터 중 하나는 있어야 합니다")
         try:
@@ -98,7 +112,7 @@ class EntranceDraft:
         except ValueError:
             raise ValueError(f"{where}: 에스컬레이터 대수가 정수가 아닙니다 ('{self.escalator_count}')") from None
         return EntranceSpec(passage=self.passage.strip(), escalator=bool(self.escalator), escalator_side=_SIDE[self.side],
-                            stair=bool(self.stair), escalator_count=n_esc,
+                            stair=bool(self.stair), escalator_count=n_esc, outdoor=_OUTDOOR[self.outdoor],
                             stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
                             finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
 

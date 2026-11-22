@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.entrance_draft import NUM_FIELDS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
+from gui.entrance_draft import NUM_FIELDS, OUTDOORS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -81,6 +81,10 @@ class EntranceTab:
         self.drafts.items[idx].side = label
         self.refresh_info()
 
+    def set_outdoor(self, idx, label: str):
+        self.drafts.items[idx].outdoor = label
+        self.refresh_info()
+
     def render(self):
         pos = self.canvas.yview()[0]
         for w in self.body.winfo_children():
@@ -144,6 +148,12 @@ class EntranceTab:
         c.bind("<<ComboboxSelected>>", lambda e, cc=c, k=i: self.set_side(k, cc.get()))
         c.pack(side="left", padx=(2, 0))
         self._combos[(i, "side")] = c
+        tk.Label(row, text="바깥", font=FONT).pack(side="left", padx=(8, 0))
+        oc = ttk.Combobox(row, values=OUTDOORS, state="readonly", width=11, font=FONT)
+        oc.set(it.outdoor if it.outdoor in OUTDOORS else OUTDOORS[0])
+        oc.bind("<<ComboboxSelected>>", lambda e, cc=oc, k=i: self.set_outdoor(k, cc.get()))
+        oc.pack(side="left", padx=(2, 0))
+        self._combos[(i, "outdoor")] = oc
         tk.Button(row, text="두께 구간…", font=FONT, command=lambda k=i: self.open_zones(k)).pack(side="left", padx=(12, 0))
         zl = tk.Label(row, text=zones_summary(it), font=FONT, fg="#455A64")
         zl.pack(side="left", padx=(4, 0))

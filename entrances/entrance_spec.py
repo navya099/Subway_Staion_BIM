@@ -39,6 +39,13 @@ class EntranceSpec:
         open_wall_t: 개구부 측벽 두께 (m, None = 두께 구간 그대로)
         taper_ratio: 바깥면 사선 전이 (전이 길이 / 바깥면 차, 0 = 직각 계단) — 두께가 바뀌는 곳(두께 구간 경계·개구부 시작)에서
                      두꺼운 쪽 바깥면이 얇은 구간 안으로 사선으로 줄어듦. 실무 평면도 2 (차 100 → 200, 차 600 → 1,200)
+        outdoor: 박스 앞 바깥 접근 형식 (top_rise > 0 일 때) — 'steps' = 바깥 경사로·계단 (위 top_rise 설명), 'forecourt' = 앞마당
+                 접속 슬래브 (실무 상세 "a": 상단 끝벽 바깥면부터 개구부 내공 폭 전체, 승강구 높이로 평탄 fc_flat 뒤 기울기 1/ramp_ratio 로
+                 지표까지 내려감 — 포장 fc_pave_t 아래 슬래브 fc_slab_t + 버림 fc_lean_t, 끝에 끝단 보 fc_beam_t × (평탄부 슬래브 하면
+                 아래 fc_beam_h) + 안쪽 헌치 fc_haunch_w × fc_haunch_h, 그 아래 기초 버림 fc_foot_w × fc_foot_t)
+        fc_length: 앞마당 길이 = 상단 끝벽 바깥면 ~ 끝단 보 바깥면 (m, 실무 2,850 + 보 300)
+        fc_flat: 앞마당 평탄 길이 (m, None = 자동: 포장 윗면이 끝단 보 바깥면에서 지표에 닿게 = fc_length − top_rise × ramp_ratio)
+        fc_material: 앞마당 포장 재질
         finish: 내부 마감 종류 (마감을 켤 때, 비우면 붙은 출구통로의 마감 종류 — 통로의 finish, 비우면 '통로')
         haunch_w / haunch_h: 천장 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         lower_margin: 하부 이음벽 안쪽 면 ~ 에스컬레이터 트러스 하단 끝 (m)
@@ -103,6 +110,19 @@ class EntranceSpec:
     open_narrow: float = 0.0         # 개구부 내공 축소 (한쪽)
     open_wall_t: Optional[float] = None   # 개구부 측벽 두께 (None = 두께 구간)
     taper_ratio: float = 0.0         # 바깥면 사선 전이 길이 / 바깥면 차 (0 = 직각)
+    outdoor: str = "steps"           # 바깥 접근 형식: steps (경사로·계단) | forecourt (앞마당 접속 슬래브)
+    fc_length: float = 3.15          # 앞마당 길이 (끝벽 바깥면 ~ 끝단 보 바깥면)
+    fc_flat: Optional[float] = None  # 앞마당 평탄 길이 (None = 자동)
+    fc_pave_t: float = 0.1           # 포장 두께
+    fc_slab_t: float = 0.3           # 접속 슬래브 두께
+    fc_lean_t: float = 0.14          # 슬래브 아래 버림
+    fc_beam_t: float = 0.3           # 끝단 보 폭
+    fc_beam_h: float = 0.535         # 끝단 보 하면 = 평탄부 슬래브 하면 아래 깊이
+    fc_haunch_w: float = 0.29        # 끝단 보 안쪽 헌치 (수평 / 연직)
+    fc_haunch_h: float = 0.12
+    fc_foot_w: float = 0.61          # 끝단 보 아래 기초 버림 폭 / 두께
+    fc_foot_t: float = 0.14
+    fc_material: str = "화강석"       # 앞마당 포장 재질
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

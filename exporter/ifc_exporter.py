@@ -481,6 +481,10 @@ class IFCExporter:
                      for p in e.pieces]
                 if e.kind == "WALL":
                     el = self._frame_element("IfcWall", e, ent.frame, items, PredefinedType="SOLIDWALL")
+                elif e.kind == "RAMP":                         # 바깥 경사로·계단 (박스 앞, 상부 승강구 ~ 지표)
+                    el = self._frame_element("IfcRampFlight", e, ent.frame, items, PredefinedType="STRAIGHT")
+                elif e.kind == "STEPS":
+                    el = self._frame_element("IfcStairFlight", e, ent.frame, items, PredefinedType="STRAIGHT")
                 else:
                     el = self._frame_element("IfcSlab", e, ent.frame, items, PredefinedType={"FLOOR": "FLOOR", "LEAN": "BASESLAB"}.get(e.kind, "ROOF"))
                 members.append(el)

@@ -18,7 +18,10 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("parapet", "파라펫", "nonneg"), ("riser_max", "단높이 상한", "pos"), ("tread", "단너비", "pos"),
               ("flight_rise_max", "런 높이 상한", "pos"), ("landing_len", "계단참 길이", "pos"),
               ("stair_slab_t", "계단 슬래브", "pos"), ("stair_headroom", "계단 머리 높이", "pos"),
-              ("roof_cover", "흙 덮개", "nonneg"), ("lean_t", "버림 콘크리트", "nonneg"), ("lean_ext", "버림 내민 폭", "nonneg")]
+              ("roof_cover", "흙 덮개", "nonneg"), ("lean_t", "버림 콘크리트", "nonneg"), ("lean_ext", "버림 내민 폭", "nonneg"),
+              ("top_rise", "상부 지표 위 높이", "nonneg"), ("ramp_width", "바깥 경사로 폭", "nonneg"),
+              ("ramp_ratio", "경사로 기울기 1/n", "pos"), ("out_riser_max", "바깥 단높이 상한", "pos"),
+              ("out_tread", "바깥 단너비", "pos")]
 
 
 @dataclass
@@ -50,6 +53,11 @@ class EntranceDraft:
     roof_cover: str = f"{_SPEC.roof_cover:g}"
     lean_t: str = f"{_SPEC.lean_t:g}"
     lean_ext: str = f"{_SPEC.lean_ext:g}"
+    top_rise: str = f"{_SPEC.top_rise:g}"
+    ramp_width: str = f"{_SPEC.ramp_width:g}"
+    ramp_ratio: str = f"{_SPEC.ramp_ratio:g}"
+    out_riser_max: str = f"{_SPEC.out_riser_max:g}"
+    out_tread: str = f"{_SPEC.out_tread:g}"
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 

@@ -121,9 +121,10 @@ def layout_entrance_finish(spec, ft, *, a, a_p, T, zones, e_side, zl, G, u_s0, s
                 jt = tuple(sorted((sgn * cp, sgn * c)))
                 add(f"FIN_JOINT_{code[-1]}", "WALL", ft.wall_material, jt,
                     _strips(lambda u: zl, wall_top, u_j - ft.wall_t, u_j, top_breaks))
-        # 상단 끝벽 안쪽 면 (지표 ~ 파라펫, 개구부)
-        e0 = u_top - face
-        add("FIN_END_WALL", "WALL", ft.wall_material, (-c, c), [Strip(e0, e0 + ft.wall_t, G, G, top_open)])
+        # 상단 끝벽 안쪽 면 (지표 ~ 파라펫, 개구부) — 상부 승강구를 높이면 앞면이 열려(출구) 끝벽 마감 없음
+        if getattr(spec, "top_rise", 0.0) <= 0:
+            e0 = u_top - face
+            add("FIN_END_WALL", "WALL", ft.wall_material, (-c, c), [Strip(e0, e0 + ft.wall_t, G, G, top_open)])
 
     # ---- 천장판·천장틀·막이
     if ceil:

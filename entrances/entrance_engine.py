@@ -14,7 +14,7 @@ from stairs.stair_finish import CODES as FINISH_CODES
 from stairs.stair_type import StairPartKind
 
 _FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리트-출입구천장슬래브", "WALL": "콘크리트-출입구벽체",
-           "LEAN": "콘크리트-버림"}
+           "LEAN": "콘크리트-버림", "RAMP": "콘크리트-출입구경사로", "STEPS": "콘크리트-출입구바깥계단"}
 
 
 class EntranceEngine:

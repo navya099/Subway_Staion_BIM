@@ -668,3 +668,50 @@ def test_draft_stair_and_count():
     d.escalator, d.escalator_count = False, "1"
     with pytest.raises(ValueError, match="하나는"):
         d.to_spec("출입구")
+
+
+# ===================================================== 지상부 2단계: 상부 승강구 높임 + 바깥 경사로·계단
+def test_raised_top_landing_ramp_and_steps(tmp_path):
+    import math as _m
+    cfg = cfg_with({"top_rise": 0.45, "ramp_width": 1.2, "ramp_ratio": 12.0})
+    eng = StationCADEngine(cfg)
+    ent = eng.entrances.entrances[0]
+    lay = ent.layout
+    G, Gt = lay.ground, lay.top_level
+    assert Gt == pytest.approx(G + 0.45)
+    assert lay.escalator.finish_levels[1] == pytest.approx(Gt)                               # 에스컬레이터 위 끝 = 승강구
+    top = max(z for p in lay.stair.parts for _, _, z in p.surfaces)
+    assert top <= Gt + 1e-9 and lay.stair.parts[-1].strips[-1].zt == pytest.approx(Gt)        # 계단 도착 = 승강구
+    part = {p.code: p for p in lay.box_parts}
+    assert all(st.zt_end == pytest.approx(Gt) for st in part["END_WALL_S"].strips)           # 앞면 개방 (끝벽 = 승강구 높이까지)
+    ramp, stair = part["OUT_RAMP"], part["OUT_STAIR"]
+    a = lay.spec.inner_width / 2
+    assert ramp.t_range == pytest.approx((a - 1.2, a))                                       # 에스컬레이터 쪽(+t) 벽 옆
+    (rs,) = ramp.strips
+    assert (rs.s0, rs.zt, rs.zt_end) == (pytest.approx(lay.u["end"]), pytest.approx(Gt), pytest.approx(G))
+    assert rs.s1 - rs.s0 == pytest.approx(0.45 * 12)
+    n = _m.ceil(0.45 / lay.spec.out_riser_max - 1e-9)
+    assert len(stair.strips) == n - 1 and stair.t_range == pytest.approx((-a, a - 1.2))
+    assert [st.zt for st in stair.strips] == pytest.approx([Gt - k * 0.45 / n for k in range(1, n)])
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "r.ifc"))
+    assert [e.Name for e in f.by_type("IfcRampFlight")] == ["EN1_OUT_RAMP"]
+    assert "EN1_OUT_STAIR" in [e.Name for e in f.by_type("IfcStairFlight")]
+    # 높임 없으면 예전 (끝벽 = 지표 + 파라펫, 바깥 부재 없음)
+    plain = lay_of(cfg_with())
+    assert not [p for p in plain.box_parts if p.code.startswith("OUT")]
+    assert plain.top_level == pytest.approx(plain.ground)
+
+
+def test_raised_landing_finish_and_draft():
+    from finishes.finish_spec import FinishSettings
+    from gui.entrance_draft import EntranceDraft
+    cfg = cfg_with({"top_rise": 0.3})
+    cfg.finish_settings = FinishSettings(enabled=True)
+    lay = lay_of(cfg)
+    assert "FIN_END_WALL" not in {c for c, *_ in lay.finish}                                 # 앞면 개방: 끝벽 마감 없음
+    op = [s for c, k, m, t, st in lay.finish if c == "FIN_WALL_L" for s in st if s.s0 >= lay.u["roof_end"] - 1e-9]
+    assert op and all(s.zt_end == pytest.approx(lay.top_level + lay.spec.parapet) for s in op)
+    sp = EntranceDraft(passage="EX1", top_rise="0.45", ramp_width="0").to_spec("출입구")
+    assert sp.top_rise == 0.45 and sp.ramp_width == 0.0
+    lay = lay_of(cfg_with({"top_rise": 0.45, "ramp_width": 0.0}))
+    assert "OUT_RAMP" not in {p.code for p in lay.box_parts}                                 # 경사로 폭 0 = 계단만

@@ -35,6 +35,16 @@ def check_entrance_spec(spec, name: str):
                      ("헌치 폭", spec.haunch_w), ("헌치 높이", spec.haunch_h)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    for label, v in (("상부 지표 위 높이", spec.top_rise), ("경사로 폭", spec.ramp_width), ("바깥 바닥 깊이", spec.out_base)):
+        if not v >= 0:
+            raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    if spec.top_rise > 0:
+        for label, v in (("경사로 기울기(1/n)", spec.ramp_ratio), ("바깥 계단 단높이 상한", spec.out_riser_max),
+                         ("바깥 계단 단너비", spec.out_tread)):
+            if not v > 0:
+                raise ValueError(f"출입구 {name}: {label}은(는) 0보다 커야 합니다 ({v})")
+        if spec.ramp_width > spec.inner_width + 1e-9:
+            raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
     for label, v in (("흙 덮개", spec.roof_cover), ("버림 콘크리트 두께", spec.lean_t), ("버림 콘크리트 내민 폭", spec.lean_ext)):
         if not v >= 0:
             raise ValueError(f"출입구 {name}: {label}은(는) 0 이상이어야 합니다 ({v})")

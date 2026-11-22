@@ -31,6 +31,9 @@ class EntranceSpec:
                          측벽·천장·바닥 슬래브 두께. 비우면 wall_t 일정
         roof_cover: 천장 슬래브가 끝나는 흙 덮개 두께 (m, 천장 상면이 지표 − roof_cover 에 닿는 곳에서 끝남, 0 = 지표에 닿는 곳)
         lean_t / lean_ext: 바닥 슬래브 아래 버림 콘크리트 두께 (0 = 없음) / 외곽 밖으로 나오는 폭 (m)
+        top_rise: 상부 승강구(계단·에스컬레이터 위 끝, 도착부 바닥)를 지표보다 높이는 높이 (m, 0 = 지표). 주면 상단 끝벽은 승강구 높이까지만
+                  (앞면 개방 = 출구), 박스 앞에 바깥 경사로(ramp_width 폭, 기울기 1/ramp_ratio, 에스컬레이터 쪽 벽 옆)와 계단(나머지 폭,
+                  단높이 상한 out_riser_max, 단너비 out_tread)이 지표까지 내려감
         finish: 내부 마감 종류 (마감을 켤 때, 비우면 붙은 출구통로의 마감 종류 — 통로의 finish, 비우면 '통로')
         haunch_w / haunch_h: 천장 헌치 수평 / 연직 크기 (m, 0 이면 없음)
         lower_margin: 하부 이음벽 안쪽 면 ~ 에스컬레이터 트러스 하단 끝 (m)
@@ -86,6 +89,12 @@ class EntranceSpec:
     esc_newel_radius: float = 0.3
     thickness_zones: list = dataclasses.field(default_factory=list)
     finish: str = ""                 # 내부 마감 종류 (마감표 이름, 비우면 붙은 출구통로의 마감 종류)
+    top_rise: float = 0.0            # 상부 승강구 지표 위 높이
+    ramp_width: float = 1.2          # 바깥 경사로 폭 (0 = 없음)
+    ramp_ratio: float = 12.0         # 바깥 경사로 기울기 1/n
+    out_riser_max: float = 0.15      # 바깥 계단 단높이 상한
+    out_tread: float = 0.35          # 바깥 계단 단너비
+    out_base: float = 0.15           # 바깥 경사로·계단 바닥 (지표 아래 깊이)
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

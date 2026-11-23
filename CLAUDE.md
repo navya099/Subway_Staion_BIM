@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1252개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1264개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -71,13 +71,13 @@ engine/                     outer_views.py(평면·본체 종단의 본체 밖 �
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
-exporter/ev_anim.py         웹 뷰어 엘리베이터 애니메이션 자료
+exporter/ev_anim.py         웹 뷰어 엘리베이터 애니메이션 자료, esc_anim.py(에스컬레이터 스텝)
 exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·stair_stone·tactile_*·Polished Concrete New 등, **저장소에 포함** — 출처·라이선스는 README) + README
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -220,7 +220,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
       - 부재(상세만): 승강구 바닥판 `FLOOR_PLATE`·콤플레이트 `COMB`(첫·끝 스텝 앞 `COMB_L` 0.25) = 스커트 안쪽, 윗면 = 마감면, 두께 `LANDING_PLATE_T` 0.03(그 아래가 트러스 상면), 바깥 덮개판 `OUTER_PLATE`(스커트 안쪽 면 ~ 트러스 바깥, 난간 끝 너머), **데크 끝 마무리**(`escalator_layout.newel_ends`, 사용자 요청 '데크 끝 손보기'): 난간 끝(뉴얼 쪽)에서 반경 길이만큼 윗면 = 바닥 + (스커트 높이 + 데크 두께)·√(1 − (d/R)²) 1/4 타원으로 내려가는 끝 덩어리 — `NEWEL_END_IN`(스커트 안쪽 면 ~ 핸드레일 띠)·`NEWEL_END_OUT`(핸드레일 띠 ~ 트러스 바깥), 핸드레일 띠는 뉴얼 받침 `NEWEL_BASE`(같은 타원과 고리 아래 끝 중 낮은 쪽, 고리와 같은 분할점 `_newel_ds` — 겹침 없음), 트러스 외장 `CLAD_SIDE`(트러스 외폭 안 `CLAD_T` 0.02, 트러스 하면 ~ 난간 구간은 데크 하면·승강구는 덮개판 아래)·`CLAD_BOTTOM`(아래 0.02) — 트러스(`TRUSS`)는 그 안쪽 심(평면 범위·오프닝 그대로). IFC: 외장 IfcCovering(CLADDING), 나머지 IfcBuildingElementPart. 양끝에 떨어진 띠(승강구 부재)·겹친 띠(핸드레일)는 IFC 면 집합, 종단면 띠마다 윤곽.
     - **5단계 보기 재질·볼라드**: 보기 재질 `render_material.ESC_MATERIALS`(부재 재질 이름 → 보기 재질, DAE·웹 뷰어 공통 `dae_exporter.element_materials` — 예전 두 곳에 복사돼 있던 마감·난간·제연 재질 매핑도 여기로): 핸드레일 검정, 스텝 `escalator_step`(**스텝마다 디딤판 윗면에 한 장** — `EscalatorEngine._step_frames` → `EscalatorStepData.face_frames`, 계단석과 같은 틀·`stair_face_frames`, 이미지 아래쪽 = 앞 코, 노란 경계띠 앞·양옆 — 그 밖의 스텝 면(챌판·판 옆면)은 홈만 있는 `escalator_riser`), 승강구 바닥판·바깥 덮개판 `escalator_plate`(마름모 무늬 0.3m 타일), 콤플레이트 노란색, 볼라드 스테인리스. 텍스처 두 장은 Pillow 로 자체 제작(`assets/image/tile`).
       - 볼라드(`EscalatorSpec.bollard_count` 2(0 = 없음)·`bollard_d` 0.12·`bollard_h` 0.9·`bollard_dist` 1.2): 양끝 승강구, 끝 뉴얼 바깥 끝(스텝 범위 ± (뉴얼 연장 + 반경)) + 거리, t = 두 핸드레일(유리) 중심 사이를 수 + 1 등분(`bollard_ts`), 바닥 = 그 층 바닥 마감면(`layout_bollards` → `EscalatorLayout.bollards`). 형상 = 16각 기둥을 s 방향 사다리꼴 RoomPiece 8조각(`EscalatorBollardData`, 이름 `{ESC}_BOLLARD_{L|U}{k}`), 3D STRUCT_ESCALATOR, 횡단 SEC_ESCALATOR, 평면 PLAN_ESCALATOR 원(서는 층), IFC `IfcBuildingElementProxy`(USERDEFINED BOLLARD, 서는 층 storey). 검사: 수 0~10, 지름·높이 > 0, 간격 − 지름 ≥ 0.05(촘촘), 내공(확폭 포함) 밖 오류(`check_bollards`). ESC 탭 '볼라드 수·지름·높이·거리'.
-      - 남은 후보: 콤 톱니·스텝 클리트 형상, 귀환로 스텝, 핸드레일 귀환 구간, 실무 도면 치수(스텝 깊이 350? 핸드레일 폭 82) 반영, 출입구 에스컬레이터 상세화, 스텝 애니메이션(웹 뷰어).
+      - 남은 후보: 콤 톱니·스텝 클리트 형상, 귀환로 스텝, 핸드레일 귀환 구간, 실무 도면 치수(스텝 깊이 350? 핸드레일 폭 82) 반영, 출입구 에스컬레이터 상세화.
   - 자동 오프닝: 위층 슬래브(번호 k) = 트러스가 슬래브를 지나는 구간 ∪ 머리 높이 부족 구간 ~ 트러스 상단 끝. 머리 높이 기준은 계단과 같이 아래층 천장판 하면(마감 켬, 더 낮을 때), 폭 = 트러스 외폭 + 2 × `side_clear`. 하부 피트 = 트러스 하면이 시작면 아래인 구간 → 아래 슬래브(k−1) 오프닝, **피트가 슬래브보다 깊으면 오류**(바닥 내린 피트는 이후 단계). 승강장 위면 승강장 슬래브에 구멍(`cfg.platform_holes()`, `PlatformData.pieces/openings`), 지지벽체와 겹치면 오류.
   - IFC: `IfcTransportElement`(ESCALATOR) ⊃ 트러스·스텝 `IfcBuildingElementPart`, 난간 `IfcRailing`(BALUSTRADE), 핸드레일 `IfcRailing`(HANDRAIL). 승강장 IfcSlab 에도 IfcOpeningElement.
   - 검증: 치수·층·내공 범위, 트러스 폭 ≥ 스텝+난간, 같은 층 에스컬레이터·계단끼리 비겹침, 서 있는 슬래브의 다른 오프닝 위 금지(계단도 피트 위 금지), 시작 층 기둥 비관통.
@@ -333,6 +333,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 좌표는 정수 원점 기준 상대 좌표(소수 5자리, 스케치업 정밀도) — 원점은 `<asset><comments>`·완료 알림. 레이어마다 노드(스케치업 그룹), 재질마다 삼각형 묶음, double_sided.
   - 기본 마감 재질 이름 변경: 바닥 기본 `석재` → **화강석**, 벽 기본 `패널` → **금속패널**(FinishType·마감 탭 초안). 옛 프로젝트 파일의 마감표는 저장된 이름 그대로라 텍스처를 쓰려면 마감 탭에서 이름을 바꿔야 함.
 - **3D 웹 뷰어(`exporter/web_viewer.py`, 출력 탭 '3D 웹 뷰어(HTML)', 기본 끔 → `정거장3d뷰어.html`)**: matplotlib 3D 미리보기가 느려서 만든 브라우저 뷰어. three.js(`assets/web/three.min.js` r147, MIT)와 모델 자료를 HTML 한 파일에 넣어 인터넷 없이 열림.
+  - **에스컬레이터 애니메이션(`exporter/esc_anim.py`, 정거장·출입구 ES)**: 스텝 3DFACE 를 ES 마다 태그 'E|순번' 묶음으로 나누고 `data.escs`(스텝 코 선 표본 path(0.05m, 스텝 폭 가운데)·스텝 깊이·개수·대표 스텝(챌판이 있는 경사부)·운행 방향)를 넣음. 템플릿 JS `ESC`: 대표 스텝 삼각형을 스텝마다 복사해 코 선을 따라 옮김 — 간격이 같으므로 한 칸(스텝 깊이) 안의 위상만 되풀이, 디딤판 = N(u), 챌판 아래 끝 = N(u − dep), 스텝 범위 밖은 콤 아래로 잘림, 위상 0 = BIM 스텝. 수평 0.45m/s, 왼쪽 '에스컬레이터' 운행 체크·상행/하행/정지. 처음 방향: 나란한 묶음(사이 ≤ 1m, 같은 층·방향 또는 같은 출입구)은 오르는 방향 오른쪽부터 상행·하행 번갈아(우측 통행), 혼자면 상행. 걷기 중 스텝 위(폭 안, 발 높이 0.8 이내)면 코 선 높이를 따르고 함께 이동(멈춘 ES 는 계단처럼). 150m 밖은 갱신 안 함. `window.__viewer.tick(dt)` = 시뮬레이션 한 걸음(브라우저 시험용). 검증: 뷰어 배치 식을 옮긴 파이썬 식의 위상 0 = 실제 스텝 꼭짓점(test_esc_anim). 핸드레일 움직임·강조 따라 움직임은 없음.
   - 자료 = `build_3d_doc` 의 3DFACE 그대로(단일 원천, 천장틀 FIN_FRAME 은 기본 제외). 묶음(레이어 × 보기 재질 `render_material`)마다 꼭짓점(float32, 정수 원점 기준 상대)·꼭짓점별 (s, FL 기준 h)·삼각형 번호·삼각형 → 부재 번호를 한 바이트 열로 이어 gzip + base64(브라우저 `DecompressionStream`). 부재 표 = 서브 엔진의 BIM 객체 중 `source_element` 를 가진 것(이름·층·재질·종류, `_element_index` 가 훑음). h 의 FL 은 선형 끝 밖을 끝 구배로 연장.
   - 조명: 실내 기준으로 위·아래를 거의 고르게(반구광) + 약한 해·카메라 빛 — 위에서만 비추던 때는 천장판 아랫면이 어두워 윗면과 뒤집힌 것처럼 보였음(사용자 지적, 면 방향은 정상).
   - 뷰어(템플릿 JS): Z 위 궤도 조작(왼쪽 회전, 오른쪽/Shift 이동, 휠 확대, 더블클릭 = 회전 중심), 표시 묶음(미리보기 `LAYER_GROUPS`), 보이는 층(그 층 천장 하면 위를 버림)·STA 범위 = 셰이더 discard(모든 재질 공통 uniform), 클릭 = 부재 정보 + 강조(잘린 면은 건너뜀), 걷기(포인터 잠금, WASD·Shift·E/Q·PgUp/PgDn 층 — **시작할 때 보던 화면(카메라 위치·시선) 그대로**(사용자 지정), W 로 시작하면 그 W 를 뗄 때까지 안 움직임, PgUp/PgDn 을 누르면 층 눈높이 = 선형 중심 표본 FL + 층 바닥(최하층은 승강장 상면) + 1.6, 높이 떠 있을 때 PgDn 은 먼저 아래 첫 층으로). `window.__viewer` 로 상태 접근(디버그).

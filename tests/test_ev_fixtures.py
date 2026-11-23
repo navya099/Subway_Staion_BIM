@@ -185,10 +185,10 @@ def test_animation_tags_and_buttons():
     for e in evs:
         assert set(e["buttons"]) <= names and all(0 <= i < len(e["stops"]) and d in ("up", "down") for i, d in e["buttons"].values())
     assert evs[0]["buttons"]["EV1_CALLU_NS_B3F"] == [0, "up"]
-    used = {c["anim"] for c in data["chunks"] if c.get("anim")}
+    used = {c["anim"] for c in data["chunks"] if c.get("anim") and not c["anim"].startswith("E|")}       # E| = 에스컬레이터 스텝
     assert used == {t for e in evs for t in e["parts"]}                                       # 태그마다 메쉬가 있음
     for c in data["chunks"]:                                                                  # 움직이지 않는 부재에는 태그 없음
-        assert not c.get("anim") or c["layer"] in ("STRUCT_ELEVATOR_CAR", "STRUCT_ELEVATOR_GLASS", "STRUCT_ELEVATOR_FRAME")
+        assert not c.get("anim") or c["anim"].startswith("E|") or c["layer"] in ("STRUCT_ELEVATOR_CAR", "STRUCT_ELEVATOR_GLASS", "STRUCT_ELEVATOR_FRAME")
     for lb in ("B3F", "B2F", "B1F", "1F"):
         for d in ("", "up", "down"):
             assert HF.indicator_key(lb, d) in data["images"]
@@ -196,7 +196,7 @@ def test_animation_tags_and_buttons():
 
 def test_no_elevators_no_animation():
     data, _ = build_web_data(StationCADEngine(cfg_with(FORE)))
-    assert data["evs"] == [] and not [c for c in data["chunks"] if c.get("anim")]
+    assert data["evs"] == [] and not [c for c in data["chunks"] if c.get("anim") and not c["anim"].startswith("E|")]
 
 
 # ===================================================== RC 승강로 벽 마감의 문 자리 (이격 마감)

@@ -118,13 +118,13 @@ class WallEngine:
             return
         p = self.sp
         for name, floor_n, side, s0, s1, z0, z1, code in openings:
-            kind = OpeningKind.VENT_DUCT if code == "VENT_DUCT" else OpeningKind.PASSAGE
+            kind = {"VENT_DUCT": OpeningKind.VENT_DUCT, "ELEVATOR": OpeningKind.ELEVATOR}.get(code, OpeningKind.PASSAGE)
             level = self.level_name(floor_n)
             package = next(pk for pk in self.wall_packages if pk.level == level)
             role = WallRole.RIGHT if side > 0 else WallRole.LEFT          # 벽체 코드 R 이 t 큰 쪽 (_wall_defs)
             wall = next(w for w in package.walls if w.role == role)
             if any(decompose.overlap_area((s0, s1, z0, z1), (*o.s_range, *o.t_range)) > 1e-9 for o in wall.openings):
-                raise ValueError(f"{kind.label} {name}: {wall.name} 의 다른 통로·환기구 오프닝과 겹칩니다")
+                raise ValueError(f"{kind.label} {name}: {wall.name} 의 다른 통로·환기구·외부 EV 오프닝과 겹칩니다")
             t0, t1 = PM.t_range(wall)
             wall.openings.append(OpeningData(
                 name=f"OPEN_{name}_{wall.name}", family_name="측벽 오프닝", type_name=kind.label, level=level,
@@ -143,7 +143,7 @@ class WallEngine:
                     bs0, bs1 = PM.s_range(b)
                     hit = [h for h in holes if h[0] < bs1 - 1e-9 and bs0 < h[1] - 1e-9]
                     if hit and getattr(b, "trap", None):
-                        raise ValueError(f"{wall.name}: 측벽 오프닝(통로·환기구)이 확폭 사선 전이부(s {bs0:.2f} ~ {bs1:.2f})에 걸립니다")
+                        raise ValueError(f"{wall.name}: 측벽 오프닝(통로·환기구·외부 EV)이 확폭 사선 전이부(s {bs0:.2f} ~ {bs1:.2f})에 걸립니다")
                     t0, t1 = PM.t_range(b)
                     if not hit:
                         new.append(b)

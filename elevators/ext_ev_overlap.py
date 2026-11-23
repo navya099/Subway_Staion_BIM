@@ -128,10 +128,10 @@ def station_solids(cfg) -> list:
     return out
 
 
-def _hit(mine, others):
+def _hit(mine, others, tol: float = TOL):
     for a in mine:
         for b in others:
-            if overlaps(a, b):
+            if overlaps(a, b, tol):
                 return a.label, b.label
     return None
 
@@ -146,7 +146,8 @@ def check_ext_ev_overlaps(cfg, layouts: list):
     targets += [(f"환기구 {v.name}", [Convex("덕트", q.faces()) for q in v.pieces()]) for v in cfg.vent_layouts()]
     solids = [(x.name, ev_solids(x)) for x in layouts]
     for i, (name, mine) in enumerate(solids):
+        tol = TOL + layouts[i].body_tol                            # 곡선 본체 벽에 붙는 곧은 EV 면
         for what, others in targets + [(f"외부 엘리베이터 {n}", s) for n, s in solids[:i]]:
-            hit = _hit(mine, others)
+            hit = _hit(mine, others, tol if what == "정거장 본체" else TOL)
             if hit:
                 raise ValueError(f"외부 엘리베이터 {name}: {hit[0]} 이(가) {what} ({hit[1]}) 와(과) 겹칩니다")

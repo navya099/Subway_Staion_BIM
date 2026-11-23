@@ -7,9 +7,10 @@ from gui.column_draft import _num
 _SPEC = ExtEvSpec()                # 초기값은 모델 기본값이 단일 출처
 
 HOST_PASSAGE = "출구통로 옆"
+HOST_WALL = "본체 측벽 옆"
 HOST_ENTRANCE = "출입구 좌표"
 HOST_STATION = "정거장 좌표"
-HOSTS = {HOST_PASSAGE: "passage", HOST_ENTRANCE: "entrance", HOST_STATION: "station"}
+HOSTS = {HOST_PASSAGE: "passage", HOST_WALL: "wall", HOST_ENTRANCE: "entrance", HOST_STATION: "station"}
 HOST_LABELS = list(HOSTS)
 SIDES = {"왼쪽 (+)": 1, "오른쪽 (−)": -1}
 SIDE_LABELS = list(SIDES)
@@ -24,6 +25,7 @@ LOW_LABELS = list(LOW_FINISHES)
 
 # 위치 기준 → 그 기준에서만 쓰는 (속성, 라벨) 입력칸
 PLACE_FIELDS = {HOST_PASSAGE: [("along", "통로 거리(m)")],
+                HOST_WALL: [("sta", "중심 STA")],
                 HOST_ENTRANCE: [("u", "u"), ("t", "t"), ("low_z", "지하 EL(비우면 통로 끝 바닥)")],
                 HOST_STATION: [("sta", "중심 STA"), ("t", "t"), ("low_z", "지하 EL")]}
 
@@ -37,6 +39,7 @@ class ExtEvDraft:
     host_name: str = ""
     along: str = "6"
     side: str = SIDE_LABELS[0]
+    floor: int = 2                        # 본체 측벽 옆: 문이 나는 층 (1 = 최하층)
     u: str = "0"
     sta: str = "0"
     t: str = "0"
@@ -72,6 +75,8 @@ class ExtEvDraft:
         if self.host == HOST_PASSAGE:                              # 지하 문·지하 바닥 = 통로 쪽 자동
             return ExtEvSpec(host_name=self.host_name.strip(), along=_num(self.along, where, "통로 거리", nonneg=True),
                              host_side=SIDES[self.side], **v)
+        if self.host == HOST_WALL:                                 # 지하 문 = 본체 쪽, 지하 바닥 = 그 자리 바닥 마감면
+            return ExtEvSpec(u=_num(self.sta, where, "중심 측점") - start_station, floor=int(self.floor), host_side=SIDES[self.side], **v)
         v.update(t=_num(self.t, where, "t 위치"), low_z=blank(self.low_z, "지하 EL"),
                  low_face=None if self.low_face == SAME_FACE else self.low_face)
         if self.host == HOST_ENTRANCE:
@@ -84,6 +89,15 @@ class ExtEvDrafts:
 
     def __init__(self):
         self.items: list[ExtEvDraft] = []
+
+    def ensure_floors(self, floor_count: int) -> bool:
+        """층수가 바뀌면 문이 나는 층을 새 층수 안으로. 변경 여부 반환"""
+        changed = False
+        for it in self.items:
+            n = min(max(it.floor, 1), max(1, floor_count))
+            changed |= n != it.floor
+            it.floor = n
+        return changed
 
     def to_specs(self, start_station: float) -> list[ExtEvSpec]:
         return [it.to_spec(self.where(i, it), start_station) for i, it in enumerate(self.items)]
@@ -102,6 +116,8 @@ def preview(it: ExtEvDraft, start_station: float) -> str:
     size = f"외곽 {sp.width:g} × {sp.depth:g} · 지하 {'투시형' if sp.low_finish == 'glass' else '폐쇄형'}"
     if sp.host == "passage":
         return f"→ {sp.host_name or '출구통로'} 시작에서 {sp.along:g}m, {'왼쪽' if sp.host_side > 0 else '오른쪽'} 벽 공유 · 지하 문 = 통로 쪽 · {size}"
+    if sp.host == "wall":
+        return f"→ STA {sp.u + start_station:.2f} {'왼쪽(+t)' if sp.host_side > 0 else '오른쪽(−t)'} 본체 측벽 공유 · 지하 문 = 본체 쪽 · {size}"
     if sp.host == "entrance":
         return f"→ {sp.host_name or '출입구'} 좌표 u {sp.u:g}, t {sp.t:g} · 지하 문 {sp.low_face or sp.face} · {size}"
     return f"→ STA {sp.u + start_station:.2f}, t {sp.t:g} (u = 선형 진행방향) · 지하 문 {sp.low_face or sp.face} · {size}"

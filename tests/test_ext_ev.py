@@ -12,7 +12,7 @@ from elevators.elevator_spec import ElevatorSpec
 from elevators.ext_ev import ExtEvSpec
 from elevators.ext_ev_overlap import Convex, overlaps
 from engine.cad_engine import StationCADEngine
-from gui.ext_ev_draft import LOW_CLOSED, HOST_ENTRANCE, HOST_PASSAGE, HOST_STATION, SIDE_LABELS, ExtEvDraft, ExtEvDrafts
+from gui.ext_ev_draft import LOW_CLOSED, HOST_ENTRANCE, HOST_PASSAGE, HOST_STATION, HOST_WALL, SIDE_LABELS, ExtEvDraft, ExtEvDrafts
 from gui.project_file import ProjectState
 from helper import prism_member as PM
 from helper.strip_member import part_faces
@@ -317,6 +317,127 @@ def test_low_front_rules():
         cfg.validate()
 
 
+# ===================================================== 본체 측벽 옆 박스형 (대합실 연결)
+def wall_cfg(curved=False, **kw):
+    base = cfg_with(FORE, curved=True) if curved else _fin_cfg(**FORE)
+    G = base.lv(20.0) - base.station.offset + base.station.height + 2.0
+    cfg = ev_cfg(ExtEvSpec(**{"name": "W", "host": "wall", "floor": 2, "u": 20.0, "ground_el": G, "low_finish": "glass", **kw}), base=base)
+    cfg.validate()
+    return cfg
+
+
+@pytest.mark.parametrize("floor", [1, 2, 3])
+@pytest.mark.parametrize("side", [1, -1])
+@pytest.mark.parametrize("low", ["closed", "glass"])
+def test_beside_station_wall(floor, side, low):
+    from config.widening import inner_at, outer_at
+    from finishes.finish_layout import floor_ffl_at
+    cfg = wall_cfg(floor=floor, host_side=side, low_finish=low, car_at="low", door_open=1.0)
+    st = cfg.station
+    (x,) = cfg.ext_ev_layouts()
+    FL = cfg.lv(20.0) - st.offset
+    inner, outer = inner_at(cfg, floor, side, 20.0), outer_at(cfg, floor, side, 20.0)
+    base = cfg.platform.top_level if floor == 1 else st.floor_level(floor)
+    ffl = floor_ffl_at(cfg, floor, 20.0, side * (inner - 0.1))
+    assert ffl > 0 and x.stops[1] == pytest.approx(FL + base + ffl) and x.floor == floor              # 그 자리 실의 바닥 마감면
+    (op,) = [o for o in cfg.wall_openings() if o[0] == "W"]
+    half, h = x.spec.low_front()
+    assert op[1:5] == (floor, side, pytest.approx(20.0 - half), pytest.approx(20.0 + half)) and op[7] == "ELEVATOR"
+    assert op[5] == pytest.approx(base) and 0 <= op[6] - (base + ffl + h) < 0.03                       # 구배 여유만큼만
+    assert min(abs(v - side * outer) for v in x.outer[2:]) < 1e-9                                      # EV 본체 쪽 면 = 측벽 바깥면
+    tag = "NT" if side > 0 else "PT"
+    own = [(p.strips[0].zb0, p.strips[0].zt) for p in x.parts if p.code == f"RC_WALL_{tag}"]
+    same = [k for k in range(1, st.floors + 1) if abs(outer_at(cfg, k, side, 20.0) - outer) < 1e-9]
+    assert floor in same
+    for k in same:                                                                                     # 벽 공유: 맞닿는 층 높이에는 RC 벽 없음
+        assert not any(a < FL + st.floor_level(k) + 1.0 < b for a, b in own)
+    assert any(abs(b - x.stops[2]) < 1e-9 for _, b in own)                                             # 본체 위(지표까지)는 자기 벽
+    assert FL + st.floor_level(st.floors + 1) < x.stops[2]
+    assert _ext_overlaps(x.frame, x.parts) == []
+    for code in (("LCOL_NN", "LGLASS", "LINING") if low == "glass" else ("LFRAME",)) + ("LOW_FLOOR",):
+        assert any(p.code == code for p in x.parts), code
+
+
+@pytest.mark.parametrize("low", ["closed", "glass"])
+@pytest.mark.parametrize("floor", [1, 2])
+def test_beside_station_wall_does_not_overlap_body_and_finishes(low, floor):
+    cfg = wall_cfg(low_finish=low, host_side=-1, floor=floor, door_open=1.0)
+    eng = StationCADEngine(cfg)
+    (x,) = cfg.ext_ev_layouts()
+    boxes = [(q, w.name) for pk in eng.walls.wall_packages for w in pk.walls for q in (w.pieces or [w])]
+    boxes += [(q, e.name) for r in eng.finishes.rooms for e in r.elements for q in e.pieces]
+    assert len(boxes) > 50
+    rng, bad, hit = random.Random(11), [], 0
+    for p in x.parts:
+        for stp in p.strips:
+            for _ in range(8):
+                X, Y = x.frame.to_world(rng.uniform(stp.s0, stp.s1), rng.uniform(*p.t_range))
+                z = rng.uniform(stp.zb0, stp.zt)
+                s, t = cfg.to_station(X, Y)
+                hit += abs(t) < cfg.station.width / 2.0 + cfg.station.wall_t_at(floor)
+                for q, nm in boxes:
+                    (s0, s1), (t0, t1) = PM.s_range(q), PM.t_range(q)
+                    if s0 + 1e-4 < s < s1 - 1e-4 and t0 + 1e-4 < t < t1 - 1e-4:
+                        zb = q.pos_z + cfg.lv(s) - cfg.lv((s0 + s1) / 2.0)
+                        if zb + 6e-3 < z < zb + q.shape.height - 6e-3:
+                            bad.append((p.code, nm))
+    assert hit > 10 and bad == []                                                                      # 벽 두께 속 부재도 있음
+
+
+def test_beside_station_wall_outputs(tmp_path):
+    cfg = wall_cfg()
+    eng = StationCADEngine(cfg)
+    (x,) = eng.ext_evs.ext_evs
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "w.ifc"))
+    by = {e.Name: e for e in f.by_type("IfcElement")}
+    assert ifcopenshell.util.element.get_container(by["W"]).Name == cfg.station.level_name(2)
+    (op,) = [e for e in f.by_type("IfcOpeningElement") if e.Name.startswith("OPEN_W_")]
+    assert op.VoidsElements                                                                            # 본체 측벽 개구부
+    for e in x.elements:
+        assert ifc_world_volume(by[e.name]) == pytest.approx(e.volume, rel=1e-5)
+    vol = lambda en: sum(w.net_volume for pk in en.walls.wall_packages for w in pk.walls)
+    o = next(o for o in cfg.wall_openings() if o[0] == "W")
+    assert vol(StationCADEngine(_fin_cfg(**FORE))) - vol(eng) == pytest.approx((o[4] - o[3]) * (o[6] - o[5]) * cfg.station.wall_t_at(2), rel=1e-6)
+    assert any(i.hatch_layer for i in eng.ext_evs.section_items(20.0))
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_beside_curved_station_wall(side):
+    cfg = wall_cfg(curved=True, host_side=side)                                                        # 곧은 EV 면 ↔ 곡선 벽: 수 mm 만 허용
+    (x,) = cfg.ext_ev_layouts()
+    assert 0 < x.body_tol < 0.02
+    t = x.outer[2] if side > 0 else x.outer[3]
+    assert cfg.to_station(*x.frame.to_world(0.0, t))[1] == pytest.approx(t, abs=1e-6)
+
+
+def test_beside_station_wall_rules():
+    for kw, match in ((dict(floor=9), "층이 1"), (dict(u=0.5), "본체 길이"), (dict(u=500.0), "본체 길이"), (dict(host_side=0), "본체 측벽 쪽"),
+                      (dict(u=50.0, floor=3), "겹"),                                                    # 출구통로(s 50, +t, 3층) 자리
+                      (dict(ground_el=None), "지표 EL")):
+        with pytest.raises(ValueError, match=match):
+            wall_cfg(**kw)
+    from rooms.room_spec import RoomSpec
+    base = _fin_cfg(**FORE)
+    base.rooms = list(base.rooms) + [RoomSpec(floor=2, use="기계실", s0=20.5, s1=30.0, t0=0.0, t1=base.station.width / 2.0)]
+    with pytest.raises(ValueError, match="실 경계"):
+        ev_cfg(ExtEvSpec(host="wall", floor=2, u=20.0, ground_el=200.0, low_finish="glass"), base=base).validate()
+
+
+def test_thicker_lower_wall_is_reported():
+    """아래층 외벽이 더 두꺼우면 피트가 그 벽과 겹침 → 오류, 위층이 더 얇으면 그 층 높이는 EV 자기 벽"""
+    base = _fin_cfg(**FORE)
+    base.station.wall_ts = [1.2, 1.0, 1.0]
+    with pytest.raises(ValueError, match="정거장 본체"):
+        ev_cfg(ExtEvSpec(host="wall", floor=2, u=20.0, ground_el=200.0), base=base).validate()
+    base = _fin_cfg(**FORE)
+    base.station.wall_ts = [1.2, 1.2, 1.0]
+    cfg = ev_cfg(ExtEvSpec(host="wall", floor=2, u=20.0, ground_el=200.0), base=base)
+    cfg.validate()
+    (x,) = cfg.ext_ev_layouts()
+    z3 = cfg.lv(20.0) - cfg.station.offset + cfg.station.floor_level(3) + 1.0
+    assert any(p.code == "RC_WALL_NT" and p.strips[0].zb0 < z3 < p.strips[0].zt for p in x.parts)
+
+
 # ===================================================== 겹침 검사 (높이까지)
 def cube(x0, y0, z0, d=1.0):
     p = [(x0 + i * d, y0 + j * d, z0 + k * d) for i in (0, 1) for j in (0, 1) for k in (0, 1)]
@@ -395,6 +516,11 @@ def test_draft_to_spec():
     assert (sp.host, sp.u, sp.t, sp.face, sp.low_face, sp.car_at, sp.ground_el) == ("entrance", 8.0, 6.0, "+t", "-u", "low", 109.3)
     sp = ExtEvDraft(host=HOST_STATION, sta="130", t="25", low_z="3").to_spec("외부 EV", 100.0)
     assert (sp.host, sp.u, sp.t, sp.low_z, sp.low_face) == ("station", 30.0, 25.0, 3.0, None)
+    sp = ExtEvDraft(host=HOST_WALL, sta="130", floor=3, side=SIDE_LABELS[1]).to_spec("외부 EV", 100.0)
+    assert (sp.host, sp.u, sp.floor, sp.host_side) == ("wall", 30.0, 3, -1)
+    d = ExtEvDrafts()
+    d.items.append(ExtEvDraft(floor=5))
+    assert d.ensure_floors(3) and d.items[0].floor == 3 and not d.ensure_floors(3)
     assert sp.low_finish == "glass"                                                            # 화면 기본 = 투시형 (모델 기본 폐쇄형)
     assert ExtEvDraft(low_finish=LOW_CLOSED).to_spec("x", 0).low_finish == "closed" == ExtEvSpec().low_finish
     for bad in (dict(along="x"), dict(low_finish="?"), dict(along="-1"), dict(sign_bg="red"), dict(face="+x"), dict(host="?"), dict(door_open="-1")):

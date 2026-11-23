@@ -113,7 +113,8 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     base = cfg.lv(sc) - st.offset                                  # FL(z=0) 의 절대 표고
     on_plat = _on_platform(cfg, spec, name)
     k0, k1 = spec.lower_floor, spec.upper_floor
-    rel = {n: (pl.top_level if (n == 1 and on_plat) else st.floor_level(n)) for n in range(k0, k1 + 1)}
+    rel = {n: (pl.top_level if (n == 1 and on_plat) else st.floor_level(n)) for n in range(k0, k1 + 1)}       # 구조 바닥
+    ffl = {n: stop_ffl(cfg, spec, n) for n in rel}                 # 문 앞 실의 바닥 마감 높이 (마감 끔 = 0)
 
     # ---- 높이 (FL 기준) 와 본체·승강장 슬래브 관통
     pit_top = rel[k0] - spec.pit_depth
@@ -128,9 +129,9 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
         wall_top = rel[k1] + spec.overhead
         lo, hi = pit_top - spec.pit_slab_t, wall_top + spec.top_slab_t
     for n in range(k0, k1 + 1):                                    # 출입구가 그 층 위 슬래브(번호 n)에 닿지 않을 것
-        if rel[n] + spec.door_h > ranges[n][0] + _EPS:
+        if rel[n] + ffl[n] + spec.door_h > ranges[n][0] + _EPS:
             raise ValueError(f"엘리베이터 {name}: 문 높이({spec.door_h:g}m)가 {st.level_name(n)} 정지 바닥 위 내공 높이"
-                             f"({ranges[n][0] - rel[n]:.3f}m)보다 큽니다")
+                             f"({ranges[n][0] - rel[n] - ffl[n]:.3f}m)보다 큽니다")
     roof_bottom = ranges[st.floors][0]
     if hi > roof_bottom + _EPS:
         raise ValueError(f"엘리베이터 {name}: 승강로 천장 슬래브 상면(FL+{hi:.3f})이 본체 천장 슬래브 하면(FL+{roof_bottom:.3f})보다 "
@@ -143,6 +144,12 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     if k0 > 1 and lo < st.floor_level(k0 - 1) + _EPS:
         raise ValueError(f"엘리베이터 {name}: 피트 바닥(FL+{lo:.3f})이 아래층({st.level_name(k0 - 1)}) 바닥에 닿습니다 "
                          "(피트 깊이·피트 슬래브 두께를 줄이세요)")
+
+    # ---- 정지 바닥 = 바닥 마감면 (피트·승강로 벽·오버헤드는 위처럼 구조 바닥 기준 — 구조는 마감에 따라 바뀌지 않음)
+    rel = {n: v + ffl[n] for n, v in rel.items()}
+    if rel[k1] + spec.car_height + spec.car_roof_t > wall_top + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 최상 정지층 바닥 마감면에서 카 높이 + 카 천장({spec.car_height + spec.car_roof_t:g}m)이 "
+                         f"승강로 천장 하면({wall_top - rel[k1]:.3f}m)보다 큽니다")
 
     # ---- 부재 (상자 = 띠 1개)
     parts = []
@@ -158,7 +165,7 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
                          f"({st.level_name(k0)} ~ {st.level_name(k1)} 정지 바닥) 밖입니다")
 
     if spec.shaft == "glass":
-        return _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts)
+        return _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts, ffl)
     s0, s1, t0, t1 = spec.inner_rect()
     S0, S1, T0, T1 = spec.outer_rect()
     box("PIT", K.PIT_SLAB, S0, S1, T0, T1, lo, pit_top)
@@ -206,6 +213,15 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     return ElevatorLayout(name=name, spec=spec, on_platform=on_plat, stops={n: base + r for n, r in rel.items()},
                           stop_rel=rel, parts=parts, opening=opening, platform_hole=hole, door_openings=doors,
                           z_range=(base + lo, base + hi))
+
+
+def stop_ffl(cfg, spec, n: int) -> float:
+    """정지층 n 의 바닥 마감 높이: 문 앞 실(승강로 바깥면 0.3 밖)의 ffl, 문 면이 여럿이면 큰 값"""
+    from finishes.finish_layout import floor_ffl_at
+    S0, S1, T0, T1 = spec.outer_rect()
+    pts = [((S1 + 0.3 if sg > 0 else S0 - 0.3), spec.t_center) if a == "s" else (spec.s_center, (T1 + 0.3 if sg > 0 else T0 - 0.3))
+           for a, sg in spec.doors_at(n)]
+    return max((floor_ffl_at(cfg, n, *p) for p in pts), default=0.0)
 
 
 def car_z(spec, rel) -> float:
@@ -363,7 +379,7 @@ def _car_bottom(spec, zc):
     return (zc - spec.car_floor_t,) if half > inner - 0.18 else None
 
 
-def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts):
+def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts, ffl):
     """투시형 승강로 (실무 표준도 068·069): RC 피트 + 모서리 강관 기둥 + 가로재 + 층마다 유리 + 천장 위 금속 패널 띠 + 카.
     면 코드 PS/NS (±s 면), PT/NT (±t 면). ±s 면 유리·패널이 t 방향 외곽 전체, ±t 면은 그 사이 (모서리 겹침 없음)"""
     st, pl = cfg.station, cfg.platform
@@ -405,9 +421,20 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     for h in spec.glass_rows:
         joints.append((acc, acc + h))
         acc += h
+    all_joints, door_top = joints, oh
+
+    def floor_joints(n):
+        """(층 n 유리 줄, 문 자리 높이): 정지 바닥이 마감만큼 올라가 위 슬래브 하면을 넘으면 맨 위 줄을 그만큼 줄임"""
+        z0, z1 = all_joints[-1]
+        over = rel[n] + z1 - ranges[n][0]
+        if _EPS < over <= ffl[n] + _EPS and z1 - over - z0 > 0.05 and z1 - over >= spec.door_h:
+            z1 -= over
+        return all_joints[:-1] + [(z0, z1)], min(door_top, z1)
+
     for n in range(k0, k1 + 1):
         lvl = st.level_name(n)
-        zg1 = rel[n] + spec.glass_z0 + spec.glass_height
+        joints, oh = floor_joints(n)
+        zg1 = rel[n] + joints[-1][1]
         if zg1 > ranges[n][0] + _EPS:
             raise ValueError(f"엘리베이터 {name}: {lvl} 유리 윗면(FL+{zg1:.3f})이 위 슬래브 하면(FL+{ranges[n][0]:.3f})보다 높습니다 "
                              "(유리 줄 높이를 줄이세요)")
@@ -479,6 +506,7 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     rg = spec.girt_d / 2.0
     for n in range(k0, k1 + 1):
         lvl = st.level_name(n)
+        joints, oh = floor_joints(n)
         on = spec.doors_at(n)
         for tag, axis, sign in faces:
             if axis == "s":                                         # ±s 면 가로재: 축 = t 방향, s = 기둥 선

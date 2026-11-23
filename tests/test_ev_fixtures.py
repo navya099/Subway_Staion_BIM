@@ -312,3 +312,49 @@ def test_deep_frame_ifc_and_animation(tmp_path):
     assert max(d) < 0.45 + 1e-6 and min(d) > 0.3                                               # 90도형: 카 외곽까지만 열림
     assert ElevatorDraft().to_spec("x", 0).car_gap == 0.03 and ElevatorDraft(car_gap="").to_spec("x", 0).car_gap is None
     assert ExtEvDraft().to_spec("x", 0).car_gap == 0.03 and ExtEvDraft(car_gap=" ").to_spec("x", 0).car_gap is None
+
+
+# ===================================================== 내부 엘리베이터 정지 바닥 = 바닥 마감면
+@pytest.mark.parametrize("kw", [GLASS, RC, dict(RC, through=True)])
+def test_internal_stops_at_finished_floor(kw):
+    from finishes.finish_layout import floor_ffl_at
+    on, off = make([dict(kw, car_gap=0.03)]), make([dict(kw, car_gap=0.03)], fin=False)
+    a, b = on.elevator_layouts()[0], off.elevator_layouts()[0]
+    S0, S1, T0, T1 = a.spec.outer_rect()
+    for n in (1, 2, 3):
+        axis, sign = sorted(a.spec.doors_at(n))[0]
+        p = (S1 + 0.3 if sign > 0 else S0 - 0.3, a.spec.t_center) if axis == "s" else (a.spec.s_center, T1 + 0.3 if sign > 0 else T0 - 0.3)
+        ffl = floor_ffl_at(on, n, *p)
+        assert ffl > 0 and a.stops[n] - b.stops[n] == pytest.approx(ffl)                       # 마감만큼 올라감 (승강장은 승강장 상면 기준)
+    # 구조(피트·RC 벽·오프닝)는 마감과 관계없이 그대로
+    box = lambda lay, kinds: sorted((p.code, *p.s_range, *p.t_range, p.z_range[0]) for p in lay.parts if p.kind in kinds)
+    assert box(a, (K.PIT_SLAB, K.PIT_WALL, K.TOP_SLAB)) == box(b, (K.PIT_SLAB, K.PIT_WALL, K.TOP_SLAB))
+    assert a.opening == b.opening and a.z_range == b.z_range
+    walls = lambda lay: sum(p.volume for p in lay.parts if p.kind == K.HOIST_WALL)
+    assert walls(a) == pytest.approx(walls(b), rel=1e-9)                                       # 출입구 크기는 같고 위치만 위로
+    car = next(p for p in a.parts if p.kind == K.CAR_FLOOR)
+    assert car.z_range[1] == pytest.approx(a.stops[1])
+    for p in a.parts:
+        if p.kind == K.LANDING_DOOR:
+            assert p.z_range[0] == pytest.approx(a.stops[p.stop])
+
+
+def test_glass_top_row_is_trimmed_by_finish():
+    """유리 윗면이 위 슬래브에 딱 맞던 투시형: 정지 바닥이 마감만큼 올라가면 맨 위 줄을 줄임 (오류 아님)"""
+    cfg0 = make([GLASS], fin=False)
+    (l0,) = cfg0.elevator_layouts()
+    st = cfg0.station
+    room = min(st.floor_level(n + 1) - (st.mid_t if n < st.floors else st.roof_t) - l0.stop_rel[n] for n in (1, 2, 3))
+    top = room - 0.07 - 1.3 - 1.2
+    assert top > 0.2
+    kw = dict(GLASS, glass_rows=(1.3, 1.2, top))
+    make([kw], fin=False)
+    (lay,) = make([kw]).elevator_layouts()
+    base = lay.stops[1] - lay.stop_rel[1]
+    for n in (1, 2, 3):
+        zs = [p.z_range for p in lay.parts if p.kind == K.GLASS and p.code.endswith(st.level_name(n))]
+        limit = base + st.floor_level(n + 1) - (st.mid_t if n < st.floors else st.roof_t)
+        assert max(z[1] for z in zs) <= limit + 1e-9
+    assert _boxes(lay) == set()
+    with pytest.raises(ValueError, match="유리 윗면"):                                          # 마감보다 많이 넘으면 예전처럼 오류
+        make([dict(GLASS, glass_rows=(1.3, 1.2, top + 0.3))])

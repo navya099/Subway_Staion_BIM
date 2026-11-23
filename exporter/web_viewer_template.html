@@ -367,19 +367,19 @@ const LIVE = /*__LIVE__*/false;
     for (let i = 0; i < cl.length; i++) { const d = (cl[i][1] - x) ** 2 + (cl[i][2] - y) ** 2; if (d < bd) { bd = d; best = i; } }
     return cl[best];
   }
+  let holdW = false;
   let walking = false, walkFloor = 0, eye = 1.6, yaw = 0, pitch = 0;
   const keys = {};
   function floorBase(i) { const f = DATA.floors[i]; return i === 0 && DATA.platform_top != null ? DATA.platform_top : f.fl; }
   function startWalk() {
     if (walking) return;
-    const fi = +fsel.value;
-    walkFloor = fi >= 0 ? fi : 0;
-    eye = floorBase(walkFloor) + 1.6;
-    const tgt = orbit.target.clone();
-    const c = nearestCl(tgt.x, tgt.y);
-    camera.position.set(tgt.x, tgt.y, c[3] + eye);
-    const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-    yaw = Math.atan2(dir.y, dir.x); pitch = 0;
+    // 지금 보는 화면 그대로 시작: 카메라 위치·시선을 유지 (층 눈높이로 가려면 PgUp/PgDn)
+    const c = nearestCl(camera.position.x, camera.position.y);
+    eye = camera.position.z - c[3];
+    walkFloor = 0;
+    DATA.floors.forEach((f, i) => { if (eye >= f.fl) walkFloor = i; });
+    yaw = orbit.az + Math.PI; pitch = -orbit.el;
+    holdW = !!keys.KeyW;                    // W 로 시작했으면 그 W 를 뗄 때까지는 앞으로 가지 않음
     el.requestPointerLock();
   }
   $("walk").onclick = startWalk;
@@ -406,18 +406,19 @@ const LIVE = /*__LIVE__*/false;
   document.addEventListener("mousemove", (e) => {
     if (!walking) return;
     yaw -= e.movementX * 0.0022;
-    pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * 0.0022));
+    pitch = Math.max(-1.55, Math.min(1.55, pitch - e.movementY * 0.0022));
   });
   window.addEventListener("keydown", (e) => {
     keys[e.code] = true;
     if (/^Digit[1-9]$/.test(e.code)) EV.inCarKey(+e.code.slice(5) - 1);
     if (e.code === "KeyW" && !walking && document.activeElement.tagName !== "SELECT") { startWalk(); }
     if (walking && (e.code === "PageUp" || e.code === "PageDown")) {
-      walkFloor = Math.max(0, Math.min(DATA.floors.length - 1, walkFloor + (e.code === "PageUp" ? 1 : -1)));
+      const at = floorBase(walkFloor) + 1.6, up = e.code === "PageUp";     // 층 눈높이보다 높이 떠 있으면 PgDn 은 먼저 그 층 바닥으로
+      if (up || eye <= at + 0.5) walkFloor = Math.max(0, Math.min(DATA.floors.length - 1, walkFloor + (up ? 1 : -1)));
       eye = floorBase(walkFloor) + 1.6; e.preventDefault();
     }
   });
-  window.addEventListener("keyup", (e) => { keys[e.code] = false; });
+  window.addEventListener("keyup", (e) => { keys[e.code] = false; if (e.code === "KeyW") holdW = false; });
 
   let last = performance.now();
   function stepWalk(dt) {
@@ -425,7 +426,7 @@ const LIVE = /*__LIVE__*/false;
     const v = (keys.ShiftLeft || keys.ShiftRight ? 9 : 3) * dt;
     const fx = Math.cos(yaw), fy = Math.sin(yaw);
     let mx = 0, my = 0;
-    if (keys.KeyW) { mx += fx; my += fy; } if (keys.KeyS) { mx -= fx; my -= fy; }
+    if (keys.KeyW && !holdW) { mx += fx; my += fy; } if (keys.KeyS) { mx -= fx; my -= fy; }
     if (keys.KeyA) { mx -= fy; my += fx; } if (keys.KeyD) { mx += fy; my -= fx; }
     const n = Math.hypot(mx, my) || 1;
     camera.position.x += mx / n * v * (mx || my ? 1 : 0); camera.position.y += my / n * v * (mx || my ? 1 : 0);

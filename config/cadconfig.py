@@ -33,6 +33,8 @@ LAYER_DEFINITIONS = {
     "PROF_ESCALATOR": {"color": 30},     # 종단면도 에스컬레이터 절단면
     "PLAN_ESCALATOR": {"color": 30},     # 평면도 에스컬레이터
     "STRUCT_PASSAGE": {"color": 140},    # 출구통로 (하늘색)
+    "PLAN_BEYOND": {"color": 8},         # 평면도 본체 외곽(지상 평면)·절단면 위 지붕 윤곽
+    "PROF_OUTER": {"color": 140},        # 종단면도에 투영한 본체 밖 구조물 (출구통로·출입구·외부 EV)
     "PLAN_PASSAGE": {"color": 140},      # 평면도 출구통로 벽
     "STRUCT_ENTRANCE": {"color": 170},   # 출입구 (박스·계단·에스컬레이터)
     "STRUCT_ELEVATOR_FRAME": {"color": 251},  # 투시형 엘리베이터 강관 기둥·가로재·금속 패널 띠

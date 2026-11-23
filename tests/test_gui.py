@@ -1307,6 +1307,21 @@ def test_print_tab_input_becomes_options(app):
     assert "평면: B2F, B1F" in tab.info_var.get()
 
 
+def test_print_tab_ground_plan_and_outer_projection(app):
+    tab = app.print_tab
+    tab._vars["plan_ground"].set(False)
+    tab._vars["profile_outer"].set("왼쪽 (+t)")
+    o = tab.draft.to_options(4.4)
+    assert (o.plan_ground, o.profile_outer) == (False, "left")
+    tab._vars["profile"].set(False)
+    assert str(tab.outer_combo.cget("state")) == "disabled"
+    tab._vars["profile"].set(True)
+    assert str(tab.outer_combo.cget("state")) == "readonly"
+    tab.draft.profile_outer = "없음"
+    tab.render()
+    assert tab._vars["profile_outer"].get() == "없음"
+
+
 def test_print_tab_disables_options_of_unchecked_outputs(app):
     tab = app.print_tab
     assert str(tab._cont_entries[0].cget("state")) == "disabled"          # 연속 단면 꺼짐
@@ -1849,6 +1864,37 @@ def test_preview_errors_keep_previous_model(app, monkeypatch):
     pv.plan_cut.delete(0, "end"); pv.plan_cut.insert(0, "99")
     pv.draw_plan()
     assert "내공 높이" in pv.status.cget("text")
+    pv.close()
+
+
+def test_preview_ground_plan_and_profile_outer_option(app, monkeypatch):
+    """지상 평면(외부 EV 가 있을 때)과 종단 탭 외부 구조물 투영 선택"""
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    set_floors(app, 3)
+    app.on_preview()
+    pv = app.preview
+    assert "지상" not in pv.plan_floor["values"]
+    tab = app.elevator_tab
+    tab.add_ext_ev(); tab.set_host(0, "본체 측벽 옆"); app.root.update()
+    tab._vars[("ext", 0, "sta")].set(f"{float(app.entries['start_station'].get()) + 30:g}")
+    cfg = pv.cfg
+    tab._vars[("ext", 0, "ground_el")].set(f"{cfg.lv(30.0) - cfg.station.offset + cfg.station.height + 2.0:.3f}")
+    app.on_preview()
+    assert "지상" in pv.plan_floor["values"] and "지상" not in [v[:2] for v in pv.d3_floor["values"]]
+    pv.plan_floor.set("지상")
+    pv.draw_plan()
+    assert pv.plan.key == ("plan", 4) and "GL+" in pv.status.cget("text")
+    counts = {}
+    real = pv.engine.build_profile_doc
+    monkeypatch.setattr(pv.engine, "build_profile_doc", lambda off, outer="both": counts.setdefault(outer, real(off, outer)))
+    pv.profile_axis.set("선형 중심 (C.L.)")
+    for label, key in (("양쪽", "both"), ("왼쪽 (+t)", "left"), ("오른쪽 (−t)", "right"), ("없음", "none")):
+        pv.profile_outer.set(label)
+        pv.draw_profile()
+        assert key in counts
+    n = {k: len(d.modelspace().query('LWPOLYLINE[layer=="PROF_OUTER"]')) for k, d in counts.items()}
+    assert n["both"] == n["left"] > 0 and n["right"] == n["none"] == 0
+    monkeypatch.undo()
     pv.close()
 
 

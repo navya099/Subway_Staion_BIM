@@ -27,7 +27,7 @@ class BIMEngine:
         if opt.plan:
             paths.append(engine.generate_plan_dxf(out / "정거장평면도.dxf", floors=opt.floors(cfg), cut_h=opt.plan_cut_h))
         if opt.profile:
-            paths.append(engine.generate_profile_dxf(out / "정거장종단면도.dxf", offsets=opt.profile_offsets))
+            paths.append(engine.generate_profile_dxf(out / "정거장종단면도.dxf", offsets=opt.profile_offsets, outer=opt.profile_outer))
         if opt.path_profile and engine.passages.all_passages():
             paths.append(engine.generate_path_profile_dxf(out / "통로종단면도.dxf"))
         if opt.ifc:

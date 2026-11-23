@@ -6,6 +6,8 @@ from config.output_config import PLAN_CUT_H, OutputOptions
 from config.station_config import StationParameters
 from gui.column_draft import _num
 
+OUTER_LABELS = {"양쪽": "both", "왼쪽 (+t)": "left", "오른쪽 (−t)": "right", "없음": "none"}   # 종단면도 외부 구조물 투영
+
 
 def parse_station(text: str, where: str) -> float:
     """측점 문자열 → m. '1234.5' 또는 '1+234.5' (km+m) 형식"""
@@ -37,7 +39,9 @@ class PrintDraft:
     plan: bool = True
     plan_floors: set = field(default_factory=lambda: set(range(1, StationParameters().floors + 1)))   # 기본: 모든 층
     plan_cut_h: str = f"{PLAN_CUT_H:g}"
+    plan_ground: bool = True           # 지상 평면 (출입구·외부 EV·환기구)
     profile: bool = True
+    profile_outer: str = "양쪽"        # 외부 구조물 투영 (OUTER_LABELS)
     profile_center: bool = True
     profile_track_l: bool = False
     profile_track_r: bool = False
@@ -84,9 +88,11 @@ class PrintDraft:
                             web=bool(self.web), path_profile=bool(self.path_profile))
         if opt.plan:
             opt.plan_floors = sorted(self.plan_floors)
+            opt.plan_ground = bool(self.plan_ground)
             opt.plan_cut_h = _num(self.plan_cut_h, "평면도", "절단 높이", positive=True)
         if opt.profile:
             opt.profile_offsets = self.offsets(track_spacing)
+            opt.profile_outer = OUTER_LABELS.get(self.profile_outer, "both")
         if opt.section:
             opt.section_stations = [parse_station(x, "단면도") for x in _split(self.section_stations)]
             if self.section_continuous:

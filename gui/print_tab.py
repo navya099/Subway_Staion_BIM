@@ -1,7 +1,8 @@
 import tkinter as tk
+from tkinter import ttk
 
 from gui.column_draft import level_name
-from gui.print_draft import PrintDraft, preview
+from gui.print_draft import OUTER_LABELS, PrintDraft, preview
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -52,7 +53,9 @@ class PrintTab:
         tk.Label(row, text="절단 높이 (각 층 FL +, m)", font=FONT).pack(side="left")
         e = self._entry(row, "plan_cut_h", 8)
         e.pack(side="left", padx=4)
-        self._groups["plan"] = [e]
+        c = self._check(row, "plan_ground", "지상 평면 (출입구·외부 EV·환기구)")
+        c.pack(side="left", padx=(10, 0))
+        self._groups["plan"] = [e, c]
 
         # 종단면도
         box = self._frame(" 종단면도 (절단 축) ")
@@ -66,6 +69,14 @@ class PrintTab:
         tk.Label(row, text="직접 지정 offset (쉼표)", font=FONT).pack(side="left")
         e = self._entry(row, "profile_offsets", 22)
         e.pack(side="left", padx=4)
+        row = tk.Frame(box)
+        row.pack(fill="x", pady=(2, 0))
+        tk.Label(row, text="외부 구조물 투영 (통로·출입구·외부 EV)", font=FONT).pack(side="left")
+        var = tk.StringVar(value=self.draft.profile_outer)
+        self._vars["profile_outer"] = var
+        var.trace_add("write", lambda *_: setattr(self.draft, "profile_outer", var.get()))
+        self.outer_combo = ttk.Combobox(row, textvariable=var, values=list(OUTER_LABELS), state="readonly", width=11, font=FONT)
+        self.outer_combo.pack(side="left", padx=4)
         self._groups["profile"] = widgets + [e]
 
         # 단면도
@@ -189,6 +200,7 @@ class PrintTab:
             st = "normal" if getattr(self.draft, key) else "disabled"
             for w in widgets:
                 w.configure(state=st)
+        self.outer_combo.configure(state="readonly" if self.draft.profile else "disabled")
         st = "normal" if self.draft.section and self.draft.section_continuous else "disabled"
         for w in getattr(self, "_cont_entries", []):
             w.configure(state=st)

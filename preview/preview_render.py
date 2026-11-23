@@ -303,6 +303,13 @@ def floor_choices(cfg: StationProjectConfig) -> list:
     return [(p.level_name(n), n) for n in range(1, p.floors + 1)]
 
 
+def plan_choices(cfg: StationProjectConfig) -> list:
+    """평면 탭 선택지 = 층 + 지상 (지상 구조물이 있을 때, 층 번호 = 층수 + 1)"""
+    from engine.outer_views import floor_label, ground_floor, has_ground
+    n = ground_floor(cfg)
+    return floor_choices(cfg) + ([(floor_label(cfg, n), n)] if has_ground(cfg) else [])
+
+
 def axis_choices(cfg: StationProjectConfig) -> list:
     """종단 축 선택지 [(표시 이름, offset t)] — 선형 중심, 왼쪽·오른쪽 선로 중심"""
     d = getattr(cfg.platform, "track_spacing", None)
@@ -345,6 +352,10 @@ def parse_cut_h(text: str, cfg: StationProjectConfig, floor: int) -> float:
         h = float(str(text).strip())
     except ValueError:
         raise ValueError(f"평면: 절단 높이가 숫자가 아닙니다 ('{text}')") from None
+    if floor > cfg.station.floors:                     # 지상 (지표 기준)
+        if not 0 < h < 10:
+            raise ValueError(f"평면: 지상 절단 높이는 0 보다 크고 10m 보다 작아야 합니다 ({h:g})")
+        return h
     ch = cfg.station.clear_height(floor)
     if not 0 < h < ch:
         raise ValueError(f"평면: 절단 높이는 0 보다 크고 그 층 내공 높이({ch:.2f}m)보다 작아야 합니다 ({h:g})")

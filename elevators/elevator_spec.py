@@ -2,6 +2,7 @@ import dataclasses
 from typing import Optional
 
 DOOR_SIDES = ("+s", "-s", "+t", "-t")      # 승강장(문) 쪽: 종점 방향 / 시점 방향 / 왼쪽 / 오른쪽
+PIPE_CLEAR = 0.03                          # 카 ↔ 강관 기둥·가로재 여유
 SHAFTS = ("rc", "glass")                   # 승강로 형식: RC 벽 (정거장 밖·확폭 구간) / 투시형 강관 + 유리 (정거장 내부, 실무 표준도)
 
 
@@ -89,6 +90,10 @@ class ElevatorSpec:
     spider_d: float = 0.03           # 스파이더 깊이 (< door_gap)
     ladder: bool = True              # 피트 점검 사다리
     fixtures: bool = False           # 승강장 호출 버튼 판 · 층 표시기 (hall_fixture)
+    car_gap: Optional[float] = None  # 카 문 ↔ 승강장 문 간격 (None = 카를 승강로 중심에, 승강장 문은 승강로 벽·유리 안쪽에 — 예전).
+    #                                  주면: 문이 한 면뿐이면 카를 그 쪽으로 붙이고, 그래도 남는 거리(강관·가로재, 관통형·90도형)는
+    #                                  승강장 문을 카 쪽으로 들이고 깊은 문틀 + 바닥판으로 메움
+    clear_in: float = 0.0            # RC 승강로 안쪽 면에서 카가 떨어져야 할 최소 거리 (외부 EV: RC 박스 안 강관)
 
     def doors_at(self, floor: int) -> set:
         """그 층 문 면 {('s'|'t', ±1)}"""
@@ -137,6 +142,34 @@ class ElevatorSpec:
     @property
     def door_sign(self) -> int:
         return 1 if self.main_side[0] == "+" else -1
+
+    def car_half(self, axis: str) -> float:
+        """카 중심 → 카 문짝 바깥면 (축 방향)"""
+        return (self.car_depth if axis == self.door_axis else self.car_width) / 2.0 + 2 * self.car_wall_t
+
+    def pipe_clear(self) -> float:
+        """강관 안쪽 끝 → 카 문짝 (카가 지나가고 열린 승강장 문짝도 강관 안쪽에 있게)"""
+        return max(PIPE_CLEAR, self.door_t + (self.car_gap or 0.0) + 0.01)
+
+    def car_shift(self) -> tuple:
+        """카 중심 이동 (ds, dt): car_gap 을 주고 문이 한 축의 한쪽 면뿐이면 그 쪽으로 (승강장 문 또는 강관·가로재 여유까지)"""
+        faces = self.door_faces_all()
+        if self.car_gap is None or len(faces) != 1:
+            return 0.0, 0.0
+        (axis, sign), = faces
+        half_in = (self.inner_s if axis == "s" else self.inner_t) / 2.0
+        doors = self.door_gap + self.door_t + self.car_gap
+        if self.shaft == "glass":
+            dist = half_in + self.glass_offset - self.car_half(axis)
+            need = max(self.glass_t + doors, self.col_inset + max(self.col_d, self.girt_d) / 2.0 + self.pipe_clear())
+        else:
+            dist, need = half_in - self.car_half(axis), max(doors, self.clear_in)
+        d = sign * max(0.0, dist - need)
+        return (d, 0.0) if axis == "s" else (0.0, d)
+
+    def car_center(self) -> tuple:
+        ds, dt = self.car_shift()
+        return self.s_center + ds, self.t_center + dt
 
     def inner_rect(self) -> tuple:
         """승강로 내공 (s0, s1, t0, t1)"""

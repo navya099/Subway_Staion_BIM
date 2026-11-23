@@ -223,7 +223,7 @@ def car_parts(spec, z: float, open_ratio: float, box):
     바닥·천장 = 카 외곽, 벽 4면 (문 면은 문 자리를 비움, car_glass 면 문 없는 면 = 유리 CAR_GLASS),
     카 문 = 문 면마다 가운데 열림 두 짝 CAR_DOOR_{면}_N / _P (카 벽 바깥면 밖 평면, 접선 방향으로 open × 반폭만큼 밀림).
     box(code, kind, s0, s1, t0, t1, z0, z1, piece=0, slide=None)"""
-    sc, tc = spec.s_center, spec.t_center
+    sc, tc = spec.car_center()
     door_faces = spec.door_faces_all()
     cw, dw = spec.car_wall_t, spec.door_w / 2.0
     if spec.door_axis == "s":
@@ -263,20 +263,50 @@ def car_parts(spec, z: float, open_ratio: float, box):
                 box(f"CAR_WALL_{code}", kind, u0, u1, b0, b1, z0, z1, k)
 
 
-def landing_doors(spec, rel, st, face_n, box, floors=None):
+PORTAL_T = 0.05              # 깊은 문틀(car_gap)의 잼·상부·바닥판 두께
+
+
+def landing_doors(spec, rel, st, face_n, box, floors=None, sill_in=0.0):
     """정지층마다 문 면의 승강장 문 두 짝 LDOOR_{면}_{층}_N / _P (승강로 안쪽 평면 — face_n(axis, sign) = 문 평면 바깥쪽 경계,
-    그 안쪽으로 door_gap 띄우고 두께 door_t, 열림 = door_open_at)"""
+    그 안쪽으로 door_gap 띄우고 두께 door_t, 열림 = door_open_at).
+    car_gap 을 주면 문짝 안쪽 면 = 카 문 바깥면 + car_gap (더 안쪽일 때만) 이고, 그 사이를 깊은 문틀 LPORT_{면}_{층}
+    (양 잼·상부·바닥판)으로 메움. sill_in = 바닥판이 시작하는 깊이 (face_n 에서 안쪽, 투시형 금속 패널 띠 두께만큼)"""
     sc, tc = spec.s_center, spec.t_center
     dw = spec.door_w / 2.0
+    cs, ct = spec.car_center()
     for n in (floors if floors is not None else range(spec.lower_floor, spec.upper_floor + 1)):
-        o = door_open_at(spec, n) * dw
         for axis, sign in sorted(spec.doors_at(n)):
+            travel = dw
+            if spec.car_gap is not None and len({a for a, _ in spec.door_faces_all()}) > 1:     # 90도형: 카 모서리에서 직각 면 문짝과
+                travel = max(0.0, min(dw, spec.car_half("t" if axis == "s" else "s") - spec.car_wall_t - dw))   # 부딪치지 않게 카 외곽까지
+            o = door_open_at(spec, n) * travel
             code = ("P" if sign > 0 else "N") + axis.upper()
-            f = face_n(axis, sign) - sign * spec.door_gap
-            n0, n1 = sorted((f, f - sign * spec.door_t))
+            base = face_n(axis, sign)
+            f = base - sign * spec.door_gap
             mid = tc if axis == "s" else sc
+            if spec.car_gap is not None:
+                deep = (cs if axis == "s" else ct) + sign * (spec.car_half(axis) + spec.car_gap + spec.door_t)
+                if sign * (f - deep) > _EPS:
+                    f = deep
+                    c, w = f"LPORT_{code}_{st.level_name(n)}", PORTAL_T
+                    sill0 = base - sign * sill_in
+
+                    def put(k, a, b, u0, u1, z0, z1, axis=axis, c=c):
+                        if abs(a - b) < _EPS:
+                            return
+                        a, b = sorted((a, b))
+                        if axis == "s":
+                            box(c, K.DOOR_FRAME, a, b, u0, u1, z0, z1, k)
+                        else:
+                            box(c, K.DOOR_FRAME, u0, u1, a, b, z0, z1, k)
+                    zf = rel[n]
+                    put(1, base, f, mid - dw - w, mid - dw, zf, zf + spec.door_h)
+                    put(2, base, f, mid + dw, mid + dw + w, zf, zf + spec.door_h)
+                    put(3, base, f, mid - dw - w, mid + dw + w, zf + spec.door_h, zf + spec.door_h + w)
+                    put(4, sill0, f - sign * spec.door_t, mid - dw - w, mid + dw + w, zf - w, zf)
+            n0, n1 = sorted((f, f - sign * spec.door_t))
             for tag, u0, u1, d in (("N", mid - dw - o, mid - o, -1), ("P", mid + o, mid + dw + o, 1)):
-                slide = ((0.0, d) if axis == "s" else (d, 0.0), dw)
+                slide = ((0.0, d) if axis == "s" else (d, 0.0), travel)
                 c = f"LDOOR_{code}_{st.level_name(n)}_{tag}"
                 if axis == "s":
                     box(c, K.LANDING_DOOR, n0, n1, u0, u1, rel[n], rel[n] + spec.door_h, 0, slide, n)
@@ -306,7 +336,7 @@ def pit_ladder(spec, rel, pit_top, face_n, box, car_box=None):
     c = face_n(axis, sign) - sign * 0.15
     n0, n1 = c - 0.015, c + 0.015
     mid = spec.t_center if axis == "s" else spec.s_center
-    z0, z1 = pit_top, rel[spec.lower_floor]
+    z0, z1 = pit_top, rel[spec.lower_floor] - (PORTAL_T if spec.car_gap is not None else 0.0)     # 깊은 문틀 바닥판 아래까지
     if car_box is not None and z1 > car_box[0]:
         z1 = car_box[0]                                             # 카가 최하층에 서 있으면 카 바닥 아래까지
     if z1 - z0 < 0.3:
@@ -328,7 +358,7 @@ def pit_ladder(spec, rel, pit_top, face_n, box, car_box=None):
 def _car_bottom(spec, zc):
     """사다리 위 끝 상한: 카 평면이 사다리 평면을 덮으면 카 바닥판 하면 (아니면 None)"""
     axis = spec.door_axis
-    half = (spec.car_depth / 2.0 + spec.car_wall_t)
+    half = (spec.car_depth / 2.0 + spec.car_wall_t) - spec.door_sign * (spec.car_shift()[0] + spec.car_shift()[1])   # 사다리 쪽
     inner = (spec.inner_s if axis == "s" else spec.inner_t) / 2.0
     return (zc - spec.car_floor_t,) if half > inner - 0.18 else None
 
@@ -477,7 +507,7 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     zc = car_z(spec, rel)
     car_parts(spec, zc, spec.door_open, box)
     glass_in = lambda axis, sign: ((S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)) - sign * gt
-    landing_doors(spec, rel, st, glass_in, box)
+    landing_doors(spec, rel, st, glass_in, box, sill_in=max(0.0, pt - gt))
     if spec.fixtures:                                              # 문틀(유리 평면) 앞: 오른쪽 잼에 호출 판, 상부에 표시기
         glass_out = lambda axis, sign, n: (S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)
         add_fixtures(spec, st, rel, box, glass_out, spec.door_w / 2.0 + fw / 2.0, min(0.08, 0.8 * fw),

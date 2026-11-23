@@ -52,6 +52,7 @@ class ExtEvDraft:
     door_open: str = "0"
     line_name: str = ""
     sign_bg: str = _SPEC.sign_bg
+    car_gap: str = "0.03"                 # 카 문 ↔ 승강장 문 간격 (비우면 카를 승강로 중심에, 모델 기본)
     fixtures: bool = True                 # 호출 버튼 판·층 표시기 (화면 기본, 모델 기본 끔)
     low_finish: str = LOW_GLASS           # 지하 정면 마감 (화면 기본 투시형, 모델 기본 폐쇄형)
 
@@ -72,7 +73,8 @@ class ExtEvDraft:
         v = dict(name=self.name.strip(), host=HOSTS[self.host], face=self.face, ground_el=blank(self.ground_el, "지표 EL"),
                  car_at=CAR_AT[self.car_at], car_offset=_num(self.car_offset, where, "카 위치 오프셋"),
                  door_open=_num(self.door_open, where, "문 열림", nonneg=True), line_name=str(self.line_name).strip(),
-                 sign_bg="#" + h.upper(), low_finish=LOW_FINISHES[self.low_finish], fixtures=bool(self.fixtures))
+                 sign_bg="#" + h.upper(), low_finish=LOW_FINISHES[self.low_finish], fixtures=bool(self.fixtures),
+                 car_gap=None if not str(self.car_gap).strip() else _num(self.car_gap, where, "카 문 간격", positive=True))
         if self.host == HOST_PASSAGE:                              # 지하 문·지하 바닥 = 통로 쪽 자동
             return ExtEvSpec(host_name=self.host_name.strip(), along=_num(self.along, where, "통로 거리", nonneg=True),
                              host_side=SIDES[self.side], **v)

@@ -217,3 +217,98 @@ def test_wall_finish_leaves_door_openings(through):
             assert not hit(lay.spec.t_center), n                                               # 문 가운데
             assert hit(T1 - 0.3), n                                                            # 문 옆에는 마감이 있음
     assert st.floors == 3
+
+
+# ===================================================== 카 문 ↔ 승강장 문 간격 (car_gap)
+def _boxes(lay):
+    """외접 상자가 겹치는 부재 쌍 (내부 엘리베이터 부재는 상자·강관이라 외접 상자로 충분)"""
+    bad, ps = set(), lay.parts
+    for i, a in enumerate(ps):
+        for b in ps[i + 1:]:
+            if a.solid is not None and b.solid is not None:
+                continue
+            if all(min(x[1], y[1]) - max(x[0], y[0]) > 1e-6 for x, y in ((a.s_range, b.s_range), (a.t_range, b.t_range), (a.z_range, b.z_range))):
+                bad.add((a.code, b.code))
+    return bad
+
+
+def _gaps(parts, rng_of, stops):
+    """면마다 (카 문짝 ↔ 그 층 승강장 문짝) 법선 간격"""
+    out = {}
+    for p in parts:
+        hd = HF.parse_code(p.code)
+        if not hd or hd[0] not in ("CAR_DOOR", "LDOOR"):
+            continue
+        _, axis, sign = hd
+        out.setdefault((axis, sign), {}).setdefault(hd[0], []).append(rng_of(p, axis))
+    res = {}
+    for k, v in out.items():
+        car = v["CAR_DOOR"][0]
+        res[k] = [(min(r) - max(car)) if k[1] > 0 else (min(car) - max(r)) for r in v["LDOOR"]]
+    return res
+
+
+CAR_CASES = [dict(GLASS), dict(GLASS, door_floors=None, door_side="-s"), dict(GLASS, door_floors=["-s/+s"] * 3), dict(GLASS, door_floors=["-s/+t"] * 3),
+             RC, dict(RC, through=True), dict(RC, door_floors=["-s", "+t", "-s/+t"])]
+
+
+@pytest.mark.parametrize("kw", CAR_CASES)
+def test_internal_car_gap(kw):
+    for o, off in ((0.0, 0.0), (1.0, 0.0), (1.0, 4.7), (0.0, 1.3)):
+        cfg = make([dict(kw, car_gap=0.03, door_open=o, car_offset=off)])
+        (lay,) = cfg.elevator_layouts()
+        assert _boxes(lay) == set(), (o, off)
+    gaps = _gaps(lay.parts, lambda p, a: p.s_range if a == "s" else p.t_range, lay.stops)
+    assert set(gaps) == lay.spec.door_faces_all()
+    for v in gaps.values():
+        assert v == pytest.approx([0.03] * len(v), abs=1e-9)                                   # 모든 층·면에서 간격 = 입력값
+    faces = lay.spec.door_faces_all()
+    ds, dt = lay.spec.car_shift()
+    if len(faces) == 1:
+        (axis, sign), = faces
+        assert sign * (ds if axis == "s" else dt) > 0.2 and (dt if axis == "s" else ds) == 0.0
+    else:
+        assert (ds, dt) == (0.0, 0.0)                                                          # 관통형·90도형 = 가운데 + 깊은 문틀
+        assert any(p.code.startswith("LPORT") for p in lay.parts)
+    if kw is RC:
+        assert not any(p.code.startswith("LPORT") for p in lay.parts)                          # RC 한 면: 카가 벽에 붙어 깊은 문틀 없음
+
+
+def test_car_gap_blank_is_previous_layout():
+    a, b = make([RC]).elevator_layouts()[0], make([dict(RC, car_gap=None)]).elevator_layouts()[0]
+    assert [(p.code, p.s_range, p.t_range, p.z_range) for p in a.parts] == [(p.code, p.s_range, p.t_range, p.z_range) for p in b.parts]
+    assert a.spec.car_shift() == (0.0, 0.0) and not any(p.code.startswith("LPORT") for p in a.parts)
+    for bad in (0.0, 0.8):
+        with pytest.raises(ValueError, match="간격"):
+            make([dict(RC, car_gap=bad)])
+        with pytest.raises(ValueError, match="간격"):
+            make(ext=[dict(car_gap=bad)])
+    with pytest.raises(ValueError, match="문틀 폭"):
+        make([dict(GLASS, car_gap=0.03, door_frame_w=0.04)])
+
+
+@pytest.mark.parametrize("low", ["glass", "closed"])
+@pytest.mark.parametrize("face", ["+u", "-u", "+t", "-t"])
+def test_external_car_gap(low, face):
+    for o, at in ((0.0, "low"), (1.0, "low"), (1.0, "ground"), (0.0, "ground")):
+        cfg = make(ext=[dict(low_finish=low, face=face, car_gap=0.03, door_open=o, car_at=at)])
+        (x,) = cfg.ext_ev_layouts()
+        assert _ext_overlaps(x.frame, x.parts, 16) == [], (o, at)
+    gaps = _gaps(x.parts, lambda p, a: (p.strips[0].s0, p.strips[0].s1) if a == "s" else p.t_range, x.stops)
+    for v in gaps.values():
+        assert v == pytest.approx([0.03] * len(v), abs=1e-9)
+
+
+def test_deep_frame_ifc_and_animation(tmp_path):
+    eng = StationCADEngine(make([dict(GLASS, car_gap=0.03)], [dict(low_finish="closed", car_gap=0.03)]))
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "p.ifc"))
+    by = {e.Name: e for e in f.by_type("IfcElement")}
+    for ev in (eng.elevators.elevators[0], eng.ext_evs.ext_evs[0]):
+        ports = [e for e in ev.elements if "LPORT" in e.code]
+        assert ports and all(by[e.name].is_a("IfcMember") for e in ports)
+        assert all(ifc_world_volume(by[e.name]) == pytest.approx(e.volume, rel=1e-4) for e in ports)
+    evs, tags = ev_anim.build(eng, (0.0, 0.0, 0.0))
+    d = [np.hypot(*p["d"][:2]) for p in evs[0]["parts"].values() if p["role"] == "landing"]
+    assert max(d) < 0.45 + 1e-6 and min(d) > 0.3                                               # 90도형: 카 외곽까지만 열림
+    assert ElevatorDraft().to_spec("x", 0).car_gap == 0.03 and ElevatorDraft(car_gap="").to_spec("x", 0).car_gap is None
+    assert ExtEvDraft().to_spec("x", 0).car_gap == 0.03 and ExtEvDraft(car_gap=" ").to_spec("x", 0).car_gap is None

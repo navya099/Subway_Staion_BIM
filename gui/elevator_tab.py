@@ -231,7 +231,8 @@ class ElevatorTab:
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
-        for n, (attr, label) in enumerate(NUM_FIELDS + GLASS_FIELDS + [("glass_rows", "유리 줄 높이(쉼표)")]):
+        for n, (attr, label) in enumerate(NUM_FIELDS + GLASS_FIELDS + [("glass_rows", "유리 줄 높이(쉼표)"),
+                                                                                  ("car_gap", "카 문 간격(비우면 가운데)")]):
             r, col = divmod(n, 2)
             tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
             self._entry(grid, it, attr, (i, attr), ENTRY_W).grid(row=r, column=col * 2 + 1, padx=(2, 12), pady=1)
@@ -372,6 +373,8 @@ class ElevatorTab:
         entry(row, "car_offset", "카 오프셋(m)", 5)
         entry(row, "door_open", "문 열림(0~1)", 4)
 
+        row = line()
+        entry(row, "car_gap", "카 문 간격(비우면 가운데)", 5)
         row = line()
         combo(row, "low_finish", "지하 마감", X.LOW_LABELS, 16)
         entry(row, "ground_el", "지표 EL(비우면 자동)", 8)

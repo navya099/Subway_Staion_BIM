@@ -1,5 +1,5 @@
 from config.layout_cache import cached_layout
-from elevators.elevator_layout import layout_elevator
+from elevators.elevator_layout import PORTAL_T, layout_elevator
 from elevators.elevator_spec import DOOR_SIDES, SHAFTS, ElevatorSpec, resolve_elevator_names
 from openings.decompose import overlap_area
 
@@ -65,6 +65,10 @@ def check_elevator_spec(station, spec, name: str):
         if car_half > room + _EPS:
             raise ValueError(f"엘리베이터 {name}: 카(+ 카 문짝)가 {ax} 방향 승강장 문짝에 닿습니다 (카 반폭 {car_half:.3f} > "
                              f"{room:.3f}m) — 승강로 내공을 키우거나 카를 줄이세요")
+    if spec.car_gap is not None and not 0.01 <= spec.car_gap <= 0.5:
+        raise ValueError(f"엘리베이터 {name}: 카 문 ↔ 승강장 문 간격은 0.01 ~ 0.5m 여야 합니다 ({spec.car_gap:g})")
+    if spec.car_gap is not None and spec.shaft == "glass" and PORTAL_T > spec.door_frame_w + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 승강장 문틀 폭({spec.door_frame_w:g}m)이 깊은 문틀 두께({PORTAL_T:g}m)보다 작습니다")
     if spec.pit_depth < spec.car_floor_t - _EPS:
         raise ValueError(f"엘리베이터 {name}: 피트 깊이({spec.pit_depth:g}m)가 카 바닥 두께보다 작습니다")
     if spec.overhead < spec.car_height + spec.car_roof_t - _EPS:

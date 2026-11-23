@@ -93,6 +93,7 @@ class ElevatorTab:
         if n == self.floor_count:
             return
         self.drafts.ensure_floors(n)
+        self.ext.ensure_floors(n)
         self.floor_count = n
         self.render()
 
@@ -278,7 +279,7 @@ class ElevatorTab:
         """위치 기준을 바꾸면 입력칸이 달라짐. 이름이 새 기준 목록에 없으면 첫 이름으로"""
         it = self.ext.items[idx]
         it.host = label
-        names = self._host_names(label) if label != X.HOST_STATION else []
+        names = self._host_names(label) if label in (X.HOST_PASSAGE, X.HOST_ENTRANCE) else []
         if it.host_name.strip() not in names:
             it.host_name = names[0] if names else ""
         self.render()
@@ -287,8 +288,15 @@ class ElevatorTab:
         def done(pts):
             s, t = pts[0]
             self._vars[("ext", idx, "sta")].set(f"{self._start_station() + s:.3f}")
-            self._vars[("ext", idx, "t")].set(f"{t:.3f}")
-        PB.request(self, POINT, 1, f"외부 엘리베이터 {idx + 1} 중심", done)
+            if self.ext.items[idx].host == X.HOST_WALL:             # 측벽 쪽 = 고른 점의 t 부호
+                label = X.SIDE_LABELS[0 if t >= 0 else 1]
+                self.ext.items[idx].side = label
+                self._combos[("ext", idx, "side")].set(label)
+                self.refresh_info()
+            else:
+                self._vars[("ext", idx, "t")].set(f"{t:.3f}")
+        floor = self.ext.items[idx].floor if self.ext.items[idx].host == X.HOST_WALL else 1
+        PB.request(self, POINT, floor, f"외부 엘리베이터 {idx + 1} 중심", done)
 
     def _build_ext_ev(self, i, it):
         box = tk.LabelFrame(self.body, text=f" 외부 엘리베이터 {i + 1} (지상 노출) ", font=FONT_B, fg="#00695C", padx=6, pady=4)
@@ -324,7 +332,7 @@ class ElevatorTab:
         tk.Button(row, text="삭제", font=FONT, command=lambda: self.remove_ext_ev(i)).pack(side="right")
 
         row = line()
-        if it.host != X.HOST_STATION:                              # 붙는 통로·출입구 (이름 직접 입력도 가능)
+        if it.host in (X.HOST_PASSAGE, X.HOST_ENTRANCE):           # 붙는 통로·출입구 (이름 직접 입력도 가능)
             tk.Label(row, text="통로" if it.host == X.HOST_PASSAGE else "출입구", font=FONT).pack(side="left", padx=(0, 2))
             var = tk.StringVar(value=it.host_name)
             self._vars[("ext", i, "host_name")] = var
@@ -337,16 +345,28 @@ class ElevatorTab:
             c.configure(postcommand=lambda: c.configure(values=self._host_names(it.host)))
             c.pack(side="left", padx=(0, 8))
             self._combos[("ext", i, "host_name")] = c
+        if it.host == X.HOST_WALL:
+            names = self.floor_names()
+            tk.Label(row, text="층", font=FONT).pack(side="left", padx=(0, 2))
+            fc = ttk.Combobox(row, values=names, state="readonly", width=5, font=FONT)
+            fc.current(min(max(it.floor, 1), len(names)) - 1)
+
+            def on_floor(_e):
+                it.floor = fc.current() + 1
+                self.refresh_info()
+            fc.bind("<<ComboboxSelected>>", on_floor)
+            fc.pack(side="left", padx=(0, 8))
+            self._combos[("ext", i, "floor")] = fc
         for attr, text in X.PLACE_FIELDS.get(it.host, []):
             entry(row, attr, text, 8)
-        if it.host == X.HOST_PASSAGE:
+        if it.host in (X.HOST_PASSAGE, X.HOST_WALL):
             combo(row, "side", "쪽", X.SIDE_LABELS, 9)
-        elif it.host == X.HOST_STATION:
+        if it.host in (X.HOST_WALL, X.HOST_STATION):
             PB.button(row, "위치 선택", lambda: self.pick_ext(i)).pack(side="left")
 
         row = line()
         combo(row, "face", "지상 문", X.FACES, 4)
-        if it.host != X.HOST_PASSAGE:                              # 통로 옆은 지하 문 = 통로 쪽
+        if it.host not in (X.HOST_PASSAGE, X.HOST_WALL):           # 벽에 붙으면 지하 문 = 그 벽 쪽
             combo(row, "low_face", "지하 문", [X.SAME_FACE] + X.FACES, 12)
         combo(row, "car_at", "카", X.CAR_LABELS, 5)
         entry(row, "car_offset", "카 오프셋(m)", 5)

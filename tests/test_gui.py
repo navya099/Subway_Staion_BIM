@@ -1519,6 +1519,16 @@ def test_external_elevator_is_separate_object_in_elevator_tab(app, monkeypatch, 
     assert tab.ext.items == []
     app.on_open(path)
     assert tab._vars[("ext", 0, "along")].get() == "7.5" and tab._combos[("ext", 0, "side")].get() == "오른쪽 (−)" and not app.is_dirty()
+    it = tab.ext.items[0]                                                                       # 본체 측벽 옆: 층·STA·쪽
+    tab.set_host(0, "본체 측벽 옆"); app.root.update()
+    assert ("ext", 0, "along") not in tab._vars and ("ext", 0, "host_name") not in tab._vars
+    tab._combos[("ext", 0, "floor")].current(2)
+    tab._combos[("ext", 0, "floor")].event_generate("<<ComboboxSelected>>"); app.root.update()
+    monkeypatch.setitem(app.entries, "pick", lambda req: req.on_done([(25.0, -8.0)]) or req.floor == 3)   # 고른 점 → STA·쪽
+    tab.pick_ext(0)
+    base = float(app.entries["start_station"].get())
+    assert it.floor == 3 and float(tab._vars[("ext", 0, "sta")].get()) == base + 25.0 and it.side == "오른쪽 (−)"
+    assert f"{base + 25.0:.2f}" in tab._ext_infos[0][0].get()
     tab.remove_ext_ev(0); app.root.update()
     assert tab.ext.items == []
 

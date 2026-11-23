@@ -50,6 +50,12 @@
     <select id="evsel"></select> <span id="evstate" class="help"></span>
     <div id="evstops"></div>
   </div>
+  <div id="escbox" style="display:none">
+    <h2>에스컬레이터</h2>
+    <label><input type="checkbox" id="escrun" checked> 운행</label>
+    <select id="escsel"></select> <span id="escstate" class="help"></span><br>
+    <button id="escup">상행</button><button id="escdn">하행</button><button id="escstop">정지</button>
+  </div>
   <h2>보기</h2>
   <button id="fit">전체 보기</button><button id="walk">걷기 (W)</button>
   <h2>조작</h2>
@@ -199,6 +205,7 @@ const LIVE = /*__LIVE__*/false;
     }
     applyVisibility();
     EV.load();
+    ESC.load();
 
     // 층 목록 (같은 이름의 층을 계속 고름)
     const keep = fsel.selectedIndex > 0 ? fsel.options[fsel.selectedIndex].text : null;
@@ -352,7 +359,7 @@ const LIVE = /*__LIVE__*/false;
       for (let i = 0; i < el_.length; i++) {
         if (el_[i] !== id) continue;
         for (let k = 0; k < 3; k++) { const v = idx.getX(i * 3 + k); pos.push(p.getX(v), p.getY(v), p.getZ(v)); }
-        if (m.userData.chunk.anim) follow = m;
+        if (m.userData.chunk.anim && m.userData.chunk.anim[0] !== "E") follow = m;
       }
     }
     const g = new THREE.BufferGeometry();
@@ -550,15 +557,150 @@ const LIVE = /*__LIVE__*/false;
     return { load, press, step, call: (name, i) => { const c = cars.find((q) => q.ev.name === name); if (c) call(c, i); }, inCarKey, get cars() { return cars; } };
   })();
 
+  // ---------------------------------------------------------------- 에스컬레이터 (스텝 순환 · 탑승)
+  // 대표 스텝 하나의 삼각형을 스텝마다 복사해 코 선(path)을 따라 옮김. 위상 ph(0~1) = 한 칸(스텝 깊이) 안의 위치, 한 칸마다 되풀이
+  const ESC = (function () {
+    const V = 0.45;                         // 스텝 수평 속도 m/s (경사 30° 에서 약 0.5m/s)
+    let list = [];
+    const at = (e, u, out) => {             // 코 선 위 점과 왼쪽 방향: u 는 첫 스텝 코(lo) 기준, 표본 시작 = −dep
+      const f = Math.max(0, Math.min(e.path.length - 1.000001, (u + e.dep) / e.du)), i = Math.floor(f), t = f - i;
+      const a = e.path[i], b = e.path[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], n = Math.hypot(dx, dy) || 1;
+      out.x = a[0] + dx * t; out.y = a[1] + dy * t; out.z = a[2] + (b[2] - a[2]) * t; out.tx = dx / n; out.ty = dy / n;
+      return out;
+    };
+    const P = {}, Q = {};
+    function load() {
+      list = (DATA.escs || []).map((d, i) => ({ ...d, ph: 0, run: d.dir, hi: d.n * d.dep, parts: [], center: new THREE.Vector3() }));
+      const idOf = new Map();
+      DATA.elements.forEach((e, k) => { if (!idOf.has(e.name)) idOf.set(e.name, k); });
+      list.forEach((e, i) => {
+        const mid = e.path[e.path.length >> 1]; e.center.set(mid[0], mid[1], mid[2]);
+        const ids = e.steps.map((s) => idOf.get(s)), tid = ids[e.template], stepOf = new Map(ids.map((v, k) => [v, k]));
+        const u0 = e.template * e.dep;
+        for (let mi = meshes.length - 1; mi >= 0; mi--) {
+          const src = meshes[mi];
+          if (src.userData.chunk.anim !== "E|" + i) continue;
+          const g0 = src.geometry, p0 = g0.attributes.position, uv0 = g0.attributes.uv, sh0 = g0.attributes.aSH, ix = g0.index, el_ = src.userData.elem;
+          const tri = [];
+          const shSum = e.steps.map(() => [0, 0, 0]);           // 스텝마다 (s, h) 평균 (잘라 보기용)
+          for (let k = 0; k < el_.length; k++) {
+            if (el_[k] === tid) tri.push(k);
+            const q = stepOf.get(el_[k]);
+            if (q !== undefined) for (let c = 0; c < 3; c++) { const v = ix.getX(k * 3 + c); shSum[q][0] += sh0.getX(v); shSum[q][1] += sh0.getY(v); shSum[q][2]++; }
+          }
+          const nv = tri.length * 3, N = e.n + 1;
+          const du = new Float32Array(nv), dt = new Float32Array(nv), dz = new Float32Array(nv), low = new Uint8Array(nv);
+          const pos = new Float32Array(nv * N * 3), sh = new Float32Array(nv * N * 2), uv = uv0 ? new Float32Array(nv * N * 2) : null;
+          const elem = new Uint32Array(tri.length * N), index = new Uint32Array(nv * N);
+          at(e, u0, P);
+          tri.forEach((k, q) => {
+            for (let c = 0; c < 3; c++) {
+              const v = ix.getX(k * 3 + c), j = q * 3 + c, x = p0.getX(v) - P.x, y = p0.getY(v) - P.y;
+              du[j] = x * P.tx + y * P.ty; dt[j] = -x * P.ty + y * P.tx; dz[j] = p0.getZ(v) - P.z;
+              low[j] = dz[j] < -e.plate - 1e-3 ? 1 : 0;                       // 챌판 아래 끝 = 아래 스텝 디딤판 높이
+              for (let s = 0; s < N; s++) {
+                const w = shSum[Math.max(0, s - 1)], m = w[2] || 1, o = (s * nv + j) * 2;
+                sh[o] = w[0] / m; sh[o + 1] = w[1] / m;
+                if (uv) { uv[o] = uv0.getX(v); uv[o + 1] = uv0.getY(v); }
+              }
+            }
+          });
+          for (let s = 0; s < N; s++) for (let q = 0; q < tri.length; q++) elem[s * tri.length + q] = ids[Math.max(0, s - 1)];
+          for (let k = 0; k < index.length; k++) index[k] = k;
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+          g.setAttribute("aSH", new THREE.BufferAttribute(sh, 2));
+          if (uv) g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+          g.setIndex(new THREE.BufferAttribute(index, 1));
+          g.boundingBox = g0.boundingBox.clone(); g.boundingSphere = g0.boundingSphere.clone(); g.boundingSphere.radius += e.dep;
+          const mesh = new THREE.Mesh(g, src.material);
+          mesh.userData = { chunk: src.userData.chunk, elem, tex: src.userData.tex };
+          mesh.visible = src.visible; mesh.renderOrder = src.renderOrder;
+          scene.remove(src); g0.dispose();
+          scene.add(mesh); meshes[mi] = mesh;
+          e.parts.push({ mesh, du, dt, dz, low, nv });
+        }
+        place(e);
+      });
+      const sel = $("escsel"), keep = sel.value; sel.innerHTML = "";
+      list.forEach((e, i) => sel.add(new Option(e.name, String(i))));
+      if (keep && +keep < list.length) sel.value = keep;
+      $("escbox").style.display = list.length ? "block" : "none";
+      state();
+    }
+    function place(e) {                     // 스텝을 지금 위상 위치로
+      const N = e.n + 1;
+      for (const p of e.parts) {
+        const a = p.mesh.geometry.attributes.position.array;
+        for (let s = 0; s < N; s++) {
+          const u = (s - 1 + e.ph) * e.dep;
+          const zn = at(e, u, P).z, rise = Math.max(e.plate, zn - at(e, u - e.dep, P).z);
+          let last = NaN;
+          for (let j = 0; j < p.nv; j++) {
+            const w = Math.max(0, Math.min(e.hi, u + p.du[j])), o = (s * p.nv + j) * 3;
+            if (w !== last) { at(e, w, Q); last = w; }
+            a[o] = Q.x - Q.ty * p.dt[j]; a[o + 1] = Q.y + Q.tx * p.dt[j];
+            a[o + 2] = p.low[j] ? zn - rise : zn + p.dz[j];
+          }
+        }
+        p.mesh.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+    function step(dt) {
+      const on = $("escrun").checked;
+      for (const e of list) {
+        const v = on ? e.run * V : 0;
+        if (v) {
+          e.ph = (e.ph + v * dt / e.dep) % 1; if (e.ph < 0) e.ph += 1;
+          if (e.parts.some((p) => p.mesh.visible) && camera.position.distanceTo(e.center) < 150) place(e);
+        }
+        if (walking) ride(e, v * dt);
+      }
+      const e = list[+$("escsel").value];
+      if (e) state();
+    }
+    function ride(e, move) {                // 걷기 중 스텝 위에 있으면 코 선 높이를 따르고 스텝과 함께 움직임 (멈춰 있으면 높이만)
+      const c = camera.position, foot = c.z - 1.6;
+      let bd = 1e9, bi = -1;
+      for (let i = 0; i + 1 < e.path.length; i += 4) { const p = e.path[i], d = (p[0] - c.x) ** 2 + (p[1] - c.y) ** 2; if (d < bd) { bd = d; bi = i; } }
+      if (bd > 1.5) return;
+      const u0 = bi * e.du - e.dep;
+      at(e, u0, P);
+      const x = c.x - P.x, y = c.y - P.y, u = u0 + x * P.tx + y * P.ty, lat = -x * P.ty + y * P.tx;
+      if (Math.abs(lat) > e.width / 2 + 0.05 || u < 0 || u > e.hi) return;
+      if (Math.abs(foot - at(e, u, P).z) > 0.8) return;
+      const u2 = u + move, px = P.x, py = P.y;
+      at(e, u2, Q);
+      c.x += Q.x - px; c.y += Q.y - py;
+      const cl = nearestCl(c.x, c.y);
+      eye = Q.z + 1.6 - cl[3];
+      c.z = Q.z + 1.6;
+      for (let i = 0; i < DATA.floors.length; i++) if (eye - 1.6 + 0.3 >= DATA.floors[i].fl) walkFloor = i;
+    }
+    function set(dir) { const e = list[+$("escsel").value]; if (e) { e.run = dir; state(); } }
+    function state() {
+      const e = list[+$("escsel").value]; if (!e) return;
+      const t = !$("escrun").checked || !e.run ? "정지" : e.run > 0 ? "상행" : "하행";
+      if ($("escstate").textContent !== t) $("escstate").textContent = t;
+    }
+    $("escup").onclick = () => set(1); $("escdn").onclick = () => set(-1); $("escstop").onclick = () => set(0);
+    $("escsel").onchange = state; $("escrun").onchange = state;
+    return { load, step, place, at, get list() { return list; } };
+  })();
+
   // ---------------------------------------------------------------- 그리기
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
+  function tick(dt) {                        // 시뮬레이션 한 걸음 (엘리베이터·에스컬레이터·걷기)
+    EV.step(dt);
+    ESC.step(dt);
+    if (walking) stepWalk(dt);
+  }
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    EV.step(dt);
-    if (walking) stepWalk(dt);
+    tick(dt);
     $("status").textContent = walking ? "걷기" : "";
     $("status").style.display = walking ? "block" : "none";
     renderer.render(scene, camera);
@@ -602,7 +744,7 @@ ${st.message}`, true);
       fit();
     }
   } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
-  window.__viewer = { EV, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
+  window.__viewer = { EV, ESC, tick, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

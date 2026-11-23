@@ -11,6 +11,7 @@ three.js(assets/web/three.min.js, MIT)와 모델 자료를 HTML 한 파일에 �
 - 텍스처: DAE 와 같은 재질·텍스처 좌표(dae_exporter.texture_axes / frame_uv) — 텍스처 이미지(assets/image/tile)가 있는 재질은
   꼭짓점 uv(float32 ×2), 이미지는 긴 변 IMAGE_MAX px 로 줄여 data URL(JPEG, 투명 PNG 는 PNG). 사인은 그린 이미지를 면에 한 장
 - 엘리베이터: 움직이는 부재는 태그(exporter.ev_anim)별 묶음, evs = 정지층·문짝 이동·호출 버튼, 층 표시기 이미지
+- 에스컬레이터: 스텝은 태그(exporter.esc_anim)별 묶음, escs = 스텝 코 선 표본·스텝 깊이·운행 방향
 - 표시 묶음(미리보기와 같은 LAYER_GROUPS), 층(이름, 천장 하면 h, FL h), 선형 중심 표본(1m: s, x, y, FL 표고 — 걷기 높이)
 """
 import base64
@@ -22,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from exporter import ev_anim
+from exporter import esc_anim, ev_anim
 from exporter.dae_exporter import element_materials, frame_uv, stair_face_frames, texture_axes, tread_uv
 from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, layer_material
 from preview.preview_render import LAYER_GROUPS, station_of
@@ -124,6 +125,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     skip = set() if frames else SKIP_LAYERS
 
     evs, tag_of = ev_anim.build(engine, (0.0, 0.0, 0.0))                 # 움직이는 부재 태그 (원점은 아래에서 뺌)
+    escs, esc_tags = esc_anim.build(engine)
+    tag_of.update(esc_tags)
     chunks = {}                                          # (레이어, 재질 이름, 엘리베이터 태그) → [꼭짓점 목록, 부재 번호]
     mats = {}
     elems, elem_id = [], {}
@@ -152,6 +155,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         ev["z"] = round(ev["z"] - float(origin[2]), 5)
         for stop in ev["stops"]:
             stop["z"] = round(stop["z"] - float(origin[2]), 5)
+    for es in escs:
+        es["path"] = [[round(float(v - o), 4) for v, o in zip(p, origin)] for p in es["path"]]
     a, base = cfg.align, st.start_station
     lo = max(a.start_station, base - 300.0) - base
     hi = min(a.end_station, base + st.length + 300.0) - base
@@ -253,7 +258,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
             "groups": [{"name": n, "on": on} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
             "floors": floors, "length": st.length,
             "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
-            "title": "정거장 3D 뷰어", "triangles": tri_total, "images": images, "evs": evs, "missing_textures": sorted(missing)}
+            "title": "정거장 3D 뷰어", "triangles": tri_total, "images": images, "evs": evs, "escs": escs, "missing_textures": sorted(missing)}
     return data, gzip.compress(bytes(blob), compresslevel=6)
 
 

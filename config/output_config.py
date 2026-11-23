@@ -24,7 +24,9 @@ class OutputOptions:
     plan: bool = True
     plan_floors: Optional[list] = None
     plan_cut_h: float = PLAN_CUT_H
+    plan_ground: bool = True     # 지상 평면 (출입구·외부 EV·환기구 지상부가 있을 때)
     profile: bool = True
+    profile_outer: str = "both"  # 종단면도의 본체 밖 구조물 투영: both | left(+t) | right(−t) | none
     profile_offsets: list = field(default_factory=lambda: [0.0])
     section: bool = True
     section_stations: list = field(default_factory=list)
@@ -36,8 +38,11 @@ class OutputOptions:
     path_profile: bool = False   # 통로 종단면도 (출구통로마다 경로를 따라 펼친 종단 + 끝 출입구)
 
     def floors(self, cfg) -> list:
+        """평면도 층 번호 (지상 = 층수 + 1 — plan_ground 이고 지상 구조물이 있을 때)"""
+        from engine.outer_views import ground_floor, has_ground
         n = cfg.station.floors
-        return list(range(1, n + 1)) if self.plan_floors is None else sorted(set(self.plan_floors))
+        out = list(range(1, n + 1)) if self.plan_floors is None else sorted(set(self.plan_floors))
+        return out + [ground_floor(cfg)] if self.plan_ground and has_ground(cfg) else out
 
     def section_s(self, cfg) -> list:
         """단면을 자를 정거장 로컬 거리 s 목록 (오름차순, 1mm 안의 중복 제거)"""
@@ -73,15 +78,18 @@ class OutputOptions:
         if self.plan:
             if self.plan_floors is not None and not self.plan_floors:
                 raise ValueError("평면도: 출력할 층을 하나 이상 선택하세요")
-            bad = [n for n in self.floors(cfg) if not 1 <= n <= p.floors]
+            body = list(range(1, p.floors + 1)) if self.plan_floors is None else sorted(set(self.plan_floors))   # 지상 제외
+            bad = [n for n in body if not 1 <= n <= p.floors]
             if bad:
                 raise ValueError(f"평면도: 층 번호가 범위(1~{p.floors}) 밖입니다 ({bad})")
             if not self.plan_cut_h > 0:
                 raise ValueError(f"평면도: 절단 높이는 0보다 커야 합니다 ({self.plan_cut_h})")
-            low = min(p.clear_height(n) for n in self.floors(cfg))
+            low = min((p.clear_height(n) for n in body), default=1e9)
             if self.plan_cut_h >= low:
                 raise ValueError(f"평면도: 절단 높이({self.plan_cut_h:g}m)가 선택한 층의 내공 높이({low:.2f}m) 이상입니다")
         if self.profile:
+            if self.profile_outer not in ("both", "left", "right", "none"):
+                raise ValueError(f"종단면도: 외부 구조물 투영 값이 올바르지 않습니다 ({self.profile_outer!r})")
             if not self.profile_offsets:
                 raise ValueError("종단면도: 절단 축(선형 중심 offset)을 하나 이상 입력하세요")
             half = p.width / 2.0 + p.max_wall_t

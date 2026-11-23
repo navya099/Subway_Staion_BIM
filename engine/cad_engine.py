@@ -15,6 +15,7 @@ from slabs.slab_engine import SlabEngine
 from entrances.entrance_engine import EntranceEngine
 from elevators.elevator_engine import ElevatorEngine
 from elevators.ext_ev_engine import ExtEvEngine
+from engine import outer_views as OV
 from escalators.escalator_engine import EscalatorEngine
 from finishes.finish_engine import FinishEngine
 from passages.passage_engine import PassageEngine
@@ -201,9 +202,11 @@ class StationCADEngine:
             raise ValueError(f"평면도 mode 는 auto / developed / world 중 하나여야 합니다 ({mode!r})")
         p = self.cfg.station
         floors = sorted(set(floors)) if floors else [1]
-        bad = [n for n in floors if not (isinstance(n, int) and 1 <= n <= p.floors)]
+        ground = OV.ground_floor(self.cfg)                        # 지상 평면 (층수 + 1) — 지상 구조물이 있을 때만
+        hi = ground if OV.has_ground(self.cfg) else p.floors
+        bad = [n for n in floors if not (isinstance(n, int) and 1 <= n <= hi)]
         if bad:
-            raise ValueError(f"평면도 층 번호가 범위(1~{p.floors}) 밖입니다: {bad}")
+            raise ValueError(f"평면도 층 번호가 범위(1~{hi}) 밖입니다: {bad}")
         cut_h = self.PLAN_CUT_H if cut_h is None else float(cut_h)
         if cut_h <= 0:
             raise ValueError(f"평면도 절단 높이는 0보다 커야 합니다 ({cut_h})")
@@ -225,10 +228,12 @@ class StationCADEngine:
         for k, n in enumerate(floors):
             dv = k * step
             self._plan_frame(msp, xy, world_mode, half_w, dv)
-            items = self._collect('plan_items', p.floor_level(n) + cut_h, n)
-            draw_view_items(msp, self._plan_items_world(items) if world_mode else items, dv=dv)
-            level = f" {p.level_name(n)}" if p.floors > 1 else ""
-            msp.add_text(f"STATION PLAN VIEW{level} (CUT LEVEL: FL+{cut_h:.1f}m, CLEAR L={p.length}m, W={p.width}m, STA {self._fmt_sta(0.0)} ~ {self._fmt_sta(p.length)}){suffix}",
+            items = OV.body_outline_items(self.cfg) if n == ground else self._collect('plan_items', p.floor_level(n) + cut_h, n)
+            items = self._plan_items_world(items) if world_mode else items
+            items += OV.to_plan_coords(self.cfg, OV.plan_outer_items(self, n, cut_h), world_mode)
+            draw_view_items(msp, items, dv=dv)
+            level = " GROUND" if n == ground else f" {p.level_name(n)}" if p.floors > 1 else ""
+            msp.add_text(f"STATION PLAN VIEW{level} (CUT LEVEL: {'GL' if n == ground else 'FL'}+{cut_h:.1f}m, CLEAR L={p.length}m, W={p.width}m, STA {self._fmt_sta(0.0)} ~ {self._fmt_sta(p.length)}){suffix}",
                          dxfattribs={'height': 1.5, 'layer': 'PLAN_TEXT'}).set_placement((title_at[0], title_at[1] + dv))
         return doc
 
@@ -278,30 +283,34 @@ class StationCADEngine:
         return out
 
     # --- [4. 2D 종단면도 생성 엔진] --- (선형 중심에서 offset 떨어진 연직면 절단, 기본 선형 중심)
-    def generate_profile_dxf(self, filename="output/정거장종단면도.dxf", offsets=None) -> str:
+    def generate_profile_dxf(self, filename="output/정거장종단면도.dxf", offsets=None, outer="both") -> str:
         """종단면도. offsets: 절단 축 목록 = 선형 중심에서의 직교 거리 t (m, 진행방향 왼쪽 +, 기본 [0]).
         여러 축이면 입력 순서대로 아래로 늘어놓음 (첫 축만 실제 표고, 나머지는 아래로 평행 이동)"""
-        doc = self.build_profile_doc(offsets)
+        doc = self.build_profile_doc(offsets, outer)
         self._save(doc, filename)
         return os.path.abspath(filename)
 
-    def build_profile_doc(self, offsets=None) -> ezdxf.document.Drawing:
-        """종단면도 DXF 문서 (offsets 는 generate_profile_dxf 와 같음)"""
+    def build_profile_doc(self, offsets=None, outer="both") -> ezdxf.document.Drawing:
+        """종단면도 DXF 문서 (offsets 는 generate_profile_dxf 와 같음).
+        outer: 본체 밖 구조물(통로·출입구·외부 EV·환기구) 투영 both | left(+t) | right(−t) | none"""
         doc, msp = self._init_doc()
         p = self.cfg.station
         start_lv = self.cfg.lv(0)
         offsets = [0.0] if not offsets else [float(t) for t in offsets]
         lo = min(self.cfg.lv(s) for s in self.cfg.sample_s(-10.0, p.length + 10.0)) - p.offset - p.floor_t
         hi = max(self.cfg.lv(s) for s in self.cfg.sample_s(-10.0, p.length + 10.0)) - p.offset + p.height
+        outer_items = OV.profile_outer_items(self, outer)
+        for it in outer_items:
+            lo, hi = min(lo, min(z for _, z in it.pts)), max(hi, max(z for _, z in it.pts))
         step = (hi - lo) + 15.0                                   # 축 사이 세로 간격 (제목 포함)
         label = "SLOPE" if self.cfg.align.is_straight else "GRADE AT START"
 
         for k, t in enumerate(offsets):
             dv = -k * step
             msp.add_line((-10.0, self.cfg.lv(-10.0) + dv), (p.length + 10.0, self.cfg.lv(p.length + 10.0) + dv), dxfattribs={'layer': 'PROF_CENTER'})
-            draw_view_items(msp, self._collect('profile_items', t), dv=dv)
+            draw_view_items(msp, self._collect('profile_items', t) + outer_items, dv=dv)
             axis = "" if t == 0 and len(offsets) == 1 else f", AXIS: C.L.{t:+.3f}m" if t else ", AXIS: C.L."
-            msp.add_text(f"STATION PROFILE VIEW ({label}: {self.cfg.grade_permil(0.0):.2f}‰{axis})", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, start_lv + p.height + 5.0 + dv))
+            msp.add_text(f"STATION PROFILE VIEW ({label}: {self.cfg.grade_permil(0.0):.2f}‰{axis})", dxfattribs={'height': 1.5, 'layer': 'PROF_TEXT'}).set_placement((0, max(start_lv + p.height, hi if outer_items else -1e9) + 5.0 + dv))
         return doc
 
     def build_path_profile_doc(self, names=None, t_off: float = 0.0) -> ezdxf.document.Drawing:

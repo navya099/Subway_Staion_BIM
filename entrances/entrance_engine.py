@@ -303,17 +303,3 @@ class EntranceEngine:
                                           u0=min(w for w, _ in poly), u1=max(w for w, _ in poly), pts=poly,
                                           hatch_layer="SEC_HATCH" if concrete else None, label=label))
         return items
-
-    def plan_items(self, cut_h, floor=1):
-        """평면도(floor 층 절단): 그 층 통로에 붙은 출입구의 외곽 (정거장 로컬 (s, t) 다각형)"""
-        items = []
-        for ent in self.entrances:
-            if ent.floor != floor:
-                continue
-            u_end = ent.layout.u["end"]
-            b = ent.layout.spec.inner_width / 2.0 + ent.layout.spec.wall_t
-            pts = [self.cfg.to_station(*ent.frame.to_world(u, t)) for u, t in ((0.0, -b), (u_end, -b), (u_end, b), (0.0, b))]
-            s_lab, t_lab = self.cfg.to_station(*ent.frame.to_world(u_end / 2.0, 0.0))
-            items.append(ViewItem(ent.name, "PLAN_PASSAGE", u0=min(p[0] for p in pts), u1=max(p[0] for p in pts), pts=pts,
-                                  label=(f"{ent.name} ENTRANCE", s_lab, t_lab, 0.5, "PLAN_TEXT")))
-        return items

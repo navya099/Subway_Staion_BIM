@@ -16,6 +16,7 @@ from config.output_config import PLAN_CUT_H
 from engine.cad_engine import StationCADEngine
 from exporter import live_viewer
 from gui import path_edit as PE
+from gui.print_draft import OUTER_LABELS
 from preview import pick as P
 from preview import preview_render as R
 
@@ -184,6 +185,11 @@ class PreviewWindow:
         self.profile_axis.bind("<<ComboboxSelected>>", lambda e: self.draw_profile())
         self.profile_axis.bind("<Return>", lambda e: self.draw_profile())
         self._button(bar, "그리기", self.draw_profile)
+        self._label(bar, "외부 구조물 투영 (통로·출입구·외부 EV·환기구)")
+        self.profile_outer = ttk.Combobox(bar, state="readonly", width=11, font=FONT, values=list(OUTER_LABELS))
+        self.profile_outer.set(next(iter(OUTER_LABELS)))
+        self.profile_outer.pack(side="left")
+        self.profile_outer.bind("<<ComboboxSelected>>", lambda e: self.draw_profile())
 
     def _build_section_bar(self, sta):
         bar = self.section.bar
@@ -324,10 +330,11 @@ class PreviewWindow:
     def _update_choices(self):
         """층·축·측점 선택지를 새 모델에 맞춤 (고른 값은 가능하면 유지)"""
         cfg, p = self.cfg, self.cfg.station
+        plans = [n for n, _ in R.plan_choices(cfg)]
         names = [n for n, _ in R.floor_choices(cfg)]
         cur = self.plan_floor.get()
-        self.plan_floor["values"] = names
-        self.plan_floor.set(cur if cur in names else names[0])
+        self.plan_floor["values"] = plans
+        self.plan_floor.set(cur if cur in plans else names[0])
         cur = self.d3_floor.get()
         vals = [ALL_FLOORS] + [f"{n}까지" for n in names]
         self.d3_floor["values"] = vals
@@ -366,7 +373,7 @@ class PreviewWindow:
         if not self._ready():
             return
         try:
-            names = dict(R.floor_choices(self.cfg))
+            names = dict(R.plan_choices(self.cfg))
             n = names[self.plan_floor.get()]
             h = R.parse_cut_h(self.plan_cut.get(), self.cfg, n)
             doc = self.engine.build_plan_doc(floors=[n], cut_h=h)
@@ -377,7 +384,7 @@ class PreviewWindow:
         self._path_artists = []
         self.plan.draw_2d(doc, ("plan", n))
         self._draw_paths()
-        self._say(self.pick.prompt() if self.pick else f"평면 {self.plan_floor.get()} (FL+{h:g}m)")
+        self._say(self.pick.prompt() if self.pick else f"평면 {self.plan_floor.get()} ({'GL' if n > self.cfg.station.floors else 'FL'}+{h:g}m)")
 
     def draw_profile(self):
         if not self._ready():
@@ -390,7 +397,7 @@ class PreviewWindow:
                 doc = self.engine.build_path_profile_doc([name], t)
             else:
                 t = R.parse_axis(self.profile_axis.get(), self.cfg)
-                doc = self.engine.build_profile_doc([t])
+                doc = self.engine.build_profile_doc([t], OUTER_LABELS.get(self.profile_outer.get(), "both"))
         except Exception as e:
             self._fail("종단", e)
             return
@@ -495,6 +502,8 @@ class PreviewWindow:
             # 지금 입력에 오류가 있어도(예: 막 추가한 부재가 기둥과 겹침) 직전 모델 평면에서 위치를 고를 수 있게
             stale_note = f"  ※ 입력 오류로 직전 모델에서 선택: {self.last_error}"
         names = [n for n, k in R.floor_choices(self.cfg) if k == request.floor]
+        if not names and self.plan_floor.get() not in dict(R.floor_choices(self.cfg)):
+            names = [R.floor_choices(self.cfg)[-1][0]]             # 지상 평면을 보는 중이면 최상층 평면에서 고름
         if names:
             self.plan_floor.set(names[0])
         request.to_world = self.cfg.to_world
@@ -729,7 +738,7 @@ class PreviewWindow:
     _PATH_COLOR = {PE.PASSAGE: "#00E5FF", PE.VENT: "#76FF03", PE.TACTILE: "#FFD600"}
 
     def _plan_floor_no(self) -> int:
-        return dict(R.floor_choices(self.cfg)).get(self.plan_floor.get(), 1) if self.cfg is not None else 1
+        return dict(R.plan_choices(self.cfg)).get(self.plan_floor.get(), 1) if self.cfg is not None else 1
 
     def _visible_paths(self) -> list:
         if not self._vars["paths"].get() or self.cfg is None:

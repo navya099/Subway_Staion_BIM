@@ -65,18 +65,20 @@ def test_parts_and_volume_by_hand():
     ev = eng_with(UPPER).elevators.elevators[0]
     codes = {e.code for e in ev.elements}
     assert codes == {"PIT", "TOP", "WALL_PS", "WALL_NS", "WALL_PT", "WALL_NT", "CAR_FLOOR", "CAR_ROOF",
-                     "CAR_WALL_PS", "CAR_WALL_NS", "CAR_WALL_PT", "CAR_WALL_NT", "CAR_DOOR_PS", "CAR_DOOR_NS"}
+                     "CAR_WALL_PS", "CAR_WALL_NS", "CAR_WALL_PT", "CAR_WALL_NT", "LADDER",
+                     "CAR_DOOR_PS_N", "CAR_DOOR_PS_P", "CAR_DOOR_NS_N", "CAR_DOOR_NS_P"} |         {f"LDOOR_{f}_{lv}_{h}" for f in ("PS", "NS") for lv in ("B2F", "B1F") for h in "NP"}     # 승강장 문 = 층마다 두 짝
     H = (12 + 4.0) - (6 - 1.5)                                   # 벽 높이: 피트 바닥 상면 ~ 오버헤드
     door = 0.9 * 2.1 * 0.3
     assert ev.element("WALL_PS").volume == pytest.approx(3.0 * 0.3 * H - 2 * door)     # 정지층 2개 출입구
     assert ev.element("WALL_PT").volume == pytest.approx(2.4 * 0.3 * H)
     assert ev.element("PIT").volume == pytest.approx(3.0 * 3.0 * 0.6)
     assert ev.element("TOP").volume == pytest.approx(3.0 * 3.0 * 0.3)
-    # 카 (+s 문: 깊이 s 1.5, 폭 t 1.6, 벽 0.05) — 벽 + 문 = 닫힌 상자 벽
+    # 카 (+s 문: 깊이 s 1.5, 폭 t 1.6, 벽 0.05) — 벽은 문 자리를 비움, 문 = 카 벽 바깥 평면의 두 짝 (반폭씩)
     cw, ch = 0.05, 2.3
     assert ev.element("CAR_FLOOR").volume == pytest.approx(1.6 * 1.7 * 0.1)
-    assert ev.element("CAR_WALL_PS").volume + ev.element("CAR_DOOR_PS").volume == pytest.approx(cw * 1.7 * ch)
-    assert ev.element("CAR_DOOR_PS").volume == pytest.approx(cw * 0.9 * 2.1)
+    assert ev.element("CAR_WALL_PS").volume == pytest.approx(cw * 1.7 * ch - cw * 0.9 * 2.1)
+    assert ev.element("CAR_DOOR_PS_N").volume == pytest.approx(cw * 0.45 * 2.1)
+    assert ev.element("LDOOR_PS_B2F_N").volume == pytest.approx(0.03 * 0.45 * 2.1)
 
 
 def test_car_parks_on_chosen_floor():
@@ -85,8 +87,8 @@ def test_car_parks_on_chosen_floor():
         ev = StationCADEngine(cfg).elevators.elevators[0]
         top = ev.element("CAR_FLOOR").parts[0].z_range[1]
         assert rel(cfg, 60, top) == pytest.approx(z)
-        door = ev.element("CAR_DOOR_NT").parts[0]
-        assert door.t_range[0] == pytest.approx(6.5 - 0.75 - 0.05)                      # −t 쪽 카 벽 자리
+        door = ev.element("CAR_DOOR_NT_N").parts[0]
+        assert door.t_range == pytest.approx((6.5 - 0.75 - 0.1, 6.5 - 0.75 - 0.05))     # −t 쪽 카 벽 바깥 평면
 
 
 def test_station_slabs_and_platform_are_cut():
@@ -249,6 +251,7 @@ def test_glass_shaft_layout():
     door = [p for p in parts["GLASS_NS_B2F"] if abs(sum(p.t_range) / 2 - sp.t_center) < 1e-6]
     assert len(door) == 1 and r(door[0].z_range[0]) == pytest.approx(6 + 2.57)
     assert [(d[1], d[2]) for d in lay.door_openings] == [("GLASS_NS_B2F", 2), ("GLASS_PT_B1F", 3)]
+    assert lay.door_openings[0][3][3] - lay.door_openings[0][3][2] == pytest.approx(0.9 + 2 * 0.1)   # 문 + 문틀
     # 가로재: 줄눈 3곳 × 4면, 문 면은 문 머리(2.57)보다 낮은 줄(1.37)만 문 자리에서 끊김
     assert len(parts["GIRT_PS_B2F"]) == 3 and len(parts["GIRT_NS_B2F"]) == 2 + 1 + 1
     # 금속 패널 띠: 유리 윗면 ~ 다음 정지층 유리 아래 / 최상층은 위 슬래브 하면
@@ -304,7 +307,7 @@ def test_glass_shaft_outputs(tmp_path, curved):
         assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=rel_tol), e.name
     assert not [o for o in f.by_type("IfcOpeningElement") if o.ObjectType == "ELEVATOR_DOOR"]   # 유리는 문 자리를 비워 만듦
     car = next(k for k in f.by_type("IfcTransportElement") if k.Name == "EV1_CAR")
-    assert len([k for k in ifcopenshell.util.element.get_decomposition(car) if k.is_a("IfcDoor")]) == 2   # 90도형 = 카 문 2
+    assert len([k for k in ifcopenshell.util.element.get_decomposition(car) if k.is_a("IfcDoor")]) == 4   # 90도형 = 카 문 2면 × 두 짝
     doc = eng.build_3d_doc()
     layers = {e.kind.name: {x.dxf.layer for x in e.source_element} for e in ev.elements}
     assert layers["GLASS"] == {"STRUCT_ELEVATOR_GLASS"} and layers["COLUMN"] == layers["PANEL"] == {"STRUCT_ELEVATOR_FRAME"}
@@ -340,3 +343,120 @@ def test_glass_doors_tactile_and_rules():
     assert sp.shaft == "glass" and sp.door_floors == ["-s", "+t/-s"] and sp.glass_rows == (1.3, 1.2, 0.5)
     assert sp.doors_at(2) == {("t", 1), ("s", -1)}
     assert ElevatorDraft(shaft="RC 승강로").to_spec("e", 0.0).shaft == "rc"
+
+
+# ===================================================== 2단계: 애니메이션 대비 (카 이동·문 열림) · 승강장 문 · 문틀 · 스파이더 · 사다리
+def _overlaps(cfg, lay, n=12):
+    """상자 부재 내부 점이 다른 상자·기둥·가로재 안에 들어가는 개수"""
+    import random
+    import numpy as np
+    boxes = [p for p in lay.parts if p.solid is None]
+    solids = [p for p in lay.parts if p.solid is not None]
+
+    def inside(faces, q):
+        for f in faces:
+            a, b, c = (np.array(f[i]) for i in range(3))
+            if np.dot(np.cross(b - a, c - a), np.array(q) - a) > -1e-7:
+                return False
+        return True
+    rng, bad = random.Random(5), []
+    for p in boxes:
+        st = p.shape.strips[0]
+        for _ in range(n):
+            s, t, z = rng.uniform(st.s0, st.s1), rng.uniform(*p.t_range), rng.uniform(st.zb0, st.zt)
+            for q in boxes:
+                s2 = q.shape.strips[0]
+                if q is not p and s2.s0 + 1e-7 < s < s2.s1 - 1e-7 and q.t_range[0] + 1e-7 < t < q.t_range[1] - 1e-7 \
+                        and s2.zb0 + 1e-7 < z < s2.zt - 1e-7:
+                    bad.append((p.code, q.code))
+            x, y = cfg.to_world(s, t)
+            bad += [(p.code, q.code) for q in solids if inside(q.solid.faces(), (x, y, z))]
+    return bad
+
+
+def test_car_move_and_door_open_parameters():
+    base = cfg_with(GLASS).elevator_layouts()[0]
+    moved = cfg_with(dict(GLASS, car_offset=-2.5, door_open=1.0)).elevator_layouts()[0]
+    car0 = {(p.code, p.piece): p for p in base.parts if p.kind.is_car and not p.code.startswith("CAR_DOOR")}
+    car1 = {(p.code, p.piece): p for p in moved.parts if p.kind.is_car and not p.code.startswith("CAR_DOOR")}
+    assert car0.keys() == car1.keys()
+    for k, p in car0.items():                                                                  # 카 묶음이 통째로 2.5m 아래로
+        assert car1[k].z_range[0] - p.z_range[0] == pytest.approx(-2.5) and car1[k].s_range == pytest.approx(p.s_range)
+    # 카 문: 가운데 열림 두 짝, 열림 거리 = min(반폭, 카 외곽 반폭 − 문 반폭) = min(0.45, 0.85 − 0.45) = 0.4 (직각 면 문짝과 안 부딪침)
+    d0 = {p.code: p for p in base.parts if p.code.startswith("CAR_DOOR")}
+    d1 = {p.code: p for p in moved.parts if p.code.startswith("CAR_DOOR")}
+    (ds, dt), mx = d0["CAR_DOOR_NS_N"].slide
+    assert (ds, dt, mx) == pytest.approx((0.0, -1.0, 0.4))
+    assert d1["CAR_DOOR_NS_N"].t_range[0] - d0["CAR_DOOR_NS_N"].t_range[0] == pytest.approx(-0.4)
+    assert d1["CAR_DOOR_NS_P"].t_range[0] - d0["CAR_DOOR_NS_P"].t_range[0] == pytest.approx(0.4)
+    # 승강장 문: 카가 정지층에 딱 서 있을 때 그 층만 열림 (오프셋 있으면 모두 닫힘)
+    open_at = cfg_with(dict(GLASS, door_open=1.0)).elevator_layouts()[0]
+    ld = {p.code: p for p in open_at.parts if p.kind.name == "LANDING_DOOR"}
+    ld0 = {p.code: p for p in base.parts if p.kind.name == "LANDING_DOOR"}
+    assert ld["LDOOR_PT_B1F_P"].s_range[0] - ld0["LDOOR_PT_B1F_P"].s_range[0] == pytest.approx(0.45)     # 카 정지층 B1F
+    assert ld["LDOOR_NS_B2F_P"].t_range == pytest.approx(ld0["LDOOR_NS_B2F_P"].t_range)                    # 다른 층 닫힘
+    assert ld0["LDOOR_PT_B1F_P"].slide == ((1.0, 0.0), pytest.approx(0.45)) and ld0["LDOOR_PT_B1F_P"].stop == 3
+    assert {p.code for p in moved.parts if p.kind.name == "LANDING_DOOR"} == set(ld0)
+    assert all(lp.t_range == pytest.approx(ld0[lp.code].t_range) and lp.s_range == pytest.approx(ld0[lp.code].s_range)
+               for lp in moved.parts if lp.kind.name == "LANDING_DOOR")
+    ev = StationCADEngine(cfg_with(dict(GLASS, car_offset=-2.5, door_open=1.0))).elevators.elevators[0]
+    assert ev.car_z == pytest.approx(ev.stops[3] - 2.5) and ev.travel == pytest.approx((ev.stops[2], ev.stops[3]))
+    assert ev.element("CAR_DOOR_NS_N").slide[1] == pytest.approx(0.4) and ev.door_open == 1.0
+    with pytest.raises(ValueError, match="운행 범위"):
+        cfg_with(dict(GLASS, car_offset=1.0)).elevator_layouts()
+    with pytest.raises(ValueError, match="문 열림"):
+        cfg_with(dict(GLASS, door_open=1.5)).elevator_layouts()
+
+
+@pytest.mark.parametrize("kw", [dict(GLASS, door_open=1.0, car_glass=True), dict(GLASS, car_offset=-3.0, door_open=0.5),
+                                dict(UPPER, door_open=1.0), dict(PLAT, car_floor=2, car_offset=-2.0)])
+def test_parts_never_overlap_while_moving(kw):
+    cfg = cfg_with(kw)
+    assert _overlaps(cfg, cfg.elevator_layouts()[0]) == []
+
+
+def test_glass_frame_spiders_ladder_and_outputs(tmp_path):
+    from elevators.elevator_engine import ev_part_faces
+    eng = eng_with(dict(GLASS, car_glass=True))
+    cfg = eng.cfg
+    lay = cfg.elevator_layouts()[0]
+    sp = lay.spec
+    S0, S1, T0, T1 = sp.outer_rect()
+    parts = _glass_parts(lay)
+    fr = parts["DFRAME_NS_B2F"]                                                                   # 문틀: 잼 둘 + 상부 (유리 평면)
+    assert len(fr) == 3 and all(p.s_range == pytest.approx((S0, S0 + sp.glass_t)) for p in fr)
+    assert sorted(p.t_range[1] - p.t_range[0] for p in fr)[:2] == pytest.approx([0.1, 0.1])
+    assert rel(cfg, 100, fr[2].z_range[0]) == pytest.approx(6 + 2.1)                             # 상부 = 문 높이 ~ 문 열림 높이
+    # 스파이더: 유리 안쪽 면에서 깊이 0.03, 문 없는 면 (패널 2장 → 세로 줄눈 3) × (가로 줄눈 4) = 12
+    spd = parts["SPIDER_PS_B2F"]
+    assert len(spd) == 12 and all(p.s_range == pytest.approx((S1 - 0.012 - 0.03, S1 - 0.012)) for p in spd)
+    assert len(parts["SPIDER_NS_B2F"]) == 2 * 4                                                   # 문 면: 문틀 자리 줄눈 제외
+    # 사다리: 최하 정지층 대표 문(−s) 반대 면(+s), 피트 바닥 ~ 최하 정지 바닥, 가로대 0.3 간격
+    lad = parts["LADDER"]
+    assert all(abs(sum(p.s_range) / 2 - (S1 - 0.15)) < 1e-9 for p in lad)
+    assert [rel(cfg, 100, z) for z in lad[0].z_range] == pytest.approx([4.5, 6.0]) and len(lad) == 2 + 5
+    assert {p.kind.name for p in parts["CAR_WALL_PS"]} == {"CAR_GLASS"}                           # 투시형 카: 문 없는 면 = 유리
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "s2.ifc"))
+    by = {e.Name: e for e in f.by_type("IfcElement")}
+    assert by["EV1_LDOOR_NS_B2F_N"].is_a("IfcDoor") and by["EV1_SPIDER_PS_B2F"].is_a("IfcDiscreteAccessory")
+    assert by["EV1_LADDER"].is_a("IfcMember") and by["EV1_DFRAME_NS_B2F"].is_a("IfcMember")
+    ev = eng.elevators.elevators[0]
+    for e in ev.elements:
+        mesh = sum(PM.mesh_volume(ev_part_faces(cfg, p)) for p in e.parts)
+        assert mesh == pytest.approx(e.volume, rel=1e-7) and ifc_world_volume(by[e.name]) == pytest.approx(e.volume, rel=1e-7)
+    eng.build_3d_doc()
+    assert {x.dxf.layer for x in ev.element("CAR_WALL_PS").source_element} == {"STRUCT_ELEVATOR_GLASS"}
+    assert {x.dxf.layer for x in ev.element("LDOOR_NS_B2F_N").source_element} == {"STRUCT_ELEVATOR_FRAME"}
+
+
+def test_stage2_rules_and_draft():
+    from gui.elevator_draft import ElevatorDraft
+    with pytest.raises(ValueError, match="승강장 문짝에 닿습니다"):
+        cfg_with(dict(PLAT, car_depth=2.2)).elevator_layouts()
+    with pytest.raises(ValueError, match="금속 패널 두께"):
+        cfg_with(dict(GLASS, panel_t=0.06)).elevator_layouts()
+    assert "LADDER" not in {p.code for p in cfg_with(dict(GLASS, ladder=False)).elevator_layouts()[0].parts}
+    sp = ElevatorDraft(car_offset="-1.5", door_open="0.5").to_spec("e", 0.0)
+    assert (sp.car_offset, sp.door_open, sp.car_glass, sp.ladder, sp.door_frame_w) == (-1.5, 0.5, True, True, 0.1)
+    with pytest.raises(ValueError, match="문 열림"):
+        ElevatorDraft(door_open="-1").to_spec("e", 0.0)

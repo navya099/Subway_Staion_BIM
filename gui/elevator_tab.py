@@ -201,6 +201,22 @@ class ElevatorTab:
         tk.Label(row, text="층별 문(최하층부터, 예 -s, +t)", font=FONT).pack(side="left")
         self._entry(row, it, "door_floors", (i, "door_floors"), 12).pack(side="left", padx=(2, 0))
 
+        row = tk.Frame(box)                              # 애니메이션 대비: 카 위치·문 열림, 투시형 카·사다리
+        row.pack(fill="x", pady=(4, 0))
+        tk.Label(row, text="카 오프셋(m)", font=FONT).pack(side="left")
+        self._entry(row, it, "car_offset", (i, "car_offset"), 5).pack(side="left", padx=(2, 8))
+        tk.Label(row, text="문 열림(0~1)", font=FONT).pack(side="left")
+        self._entry(row, it, "door_open", (i, "door_open"), 4).pack(side="left", padx=(2, 8))
+        for attr, label in (("car_glass", "투시형 카"), ("ladder", "피트 사다리")):
+            bv = tk.BooleanVar(value=getattr(it, attr, True))
+            self._vars[(i, attr)] = bv
+
+            def on_b(*_, obj=it, v=bv, a=attr):
+                setattr(obj, a, bool(v.get()))
+                self.refresh_info()
+            bv.trace_add("write", on_b)
+            tk.Checkbutton(row, text=label, variable=bv, font=FONT).pack(side="left", padx=(0, 6))
+
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
         for n, (attr, label) in enumerate(NUM_FIELDS + GLASS_FIELDS + [("glass_rows", "유리 줄 높이(쉼표)")]):

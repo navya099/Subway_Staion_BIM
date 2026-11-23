@@ -37,6 +37,10 @@ class ElevatorSpec:
                - 가로재 강관 girt_d: 기둥 선을 따라 유리 가로 줄눈·윗면 높이 (문 자리 끊김)
                - 금속 패널 띠(panel_t): 유리 윗면 ~ 다음 정지층 유리 아래 (슬래브 두께·천장 속), 최상층은 위 슬래브 하면까지
                - RC 피트: 피트 바닥 슬래브 + 둘레 벽(외곽 바깥 wall_t, 피트 바닥 ~ 그 위 첫 슬래브 하면). 오버헤드는 위 슬래브 하면 안
+        car_offset / door_open: 애니메이션 대비 — 카 바닥 = 카 정지층 정지 바닥 + car_offset (정지층 범위 안),
+                     door_open = 카 문·(카가 정지층에 딱 서 있으면) 그 층 승강장 문 열림 비율 0~1 (가운데 열림 두 짝, 반폭만큼 밀림)
+        car_glass: 투시형 카 (문 없는 카 벽 = 유리), door_frame_w: 투시형 승강장 문틀 폭, door_t / door_gap: 승강장 문짝 두께 /
+                   승강로 안쪽 면에서 띄움, spider / spider_d: DPG 스파이더 크기·깊이, ladder: 피트 점검 사다리
         door_floors: 층별 문 방향 (최하 정지층부터, 항목마다 '+t' 또는 '+t/-s' 처럼 여러 면, None = 모든 층 door_side(+관통형))
                      — 실무 90도형 (층마다 다른 면)
     """
@@ -74,6 +78,16 @@ class ElevatorSpec:
     col_inset: float = 0.25          # 기둥 중심 ← 유리 바깥면
     girt_d: float = 0.0891           # 가로재 Ø89.1
     panel_t: float = 0.05            # 금속 패널 띠 (□50 각관 + T1.2 갈바륨)
+    # 2단계: 애니메이션 대비 (카 이동·문 열림) + 문·문틀·부속
+    car_offset: float = 0.0          # 카 바닥 = 카 정지층 정지 바닥 + 오프셋 (m, 정지층 사이 이동)
+    door_open: float = 0.0           # 문 열림 비율 0~1 (카 문 + 카가 서 있는 층 승강장 문)
+    car_glass: bool = False          # 투시형 카 (문 없는 카 벽 = 유리)
+    door_frame_w: float = 0.1        # 투시형 승강장 문틀 폭 (유리 문 자리 = 문 폭 + 2 × 문틀)
+    door_t: float = 0.03             # 승강장 문짝 두께
+    door_gap: float = 0.04           # 승강장 문짝 ← 승강로 안쪽 면 (유리 안쪽 면 / RC 벽 안쪽 면)
+    spider: float = 0.1              # DPG 스파이더 철물 크기 (유리 줄눈 교차점, 유리 안쪽)
+    spider_d: float = 0.03           # 스파이더 깊이 (< door_gap)
+    ladder: bool = True              # 피트 점검 사다리
 
     def doors_at(self, floor: int) -> set:
         """그 층 문 면 {('s'|'t', ±1)}"""

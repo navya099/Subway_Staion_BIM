@@ -15,6 +15,8 @@ class ElevatorElementData(CommonBIMData):
     kind: ElevatorPartKind = ElevatorPartKind.HOIST_WALL
     code: str = ""
     parts: list = field(default_factory=list)
+    slide: tuple = None          # 문짝 애니메이션: ((ds, dt) 정거장 단위 방향, 최대 이동) — 열림 비율 × 최대 이동만큼 그 방향
+    stop: int = None             # 승강장 문짝의 층
 
     @property
     def volume(self) -> float:
@@ -42,6 +44,9 @@ class ElevatorData(CommonBIMData):
     inner: tuple = (0.0, 0.0, 0.0, 0.0)
     door_openings: list = field(default_factory=list)
     elements: list = field(default_factory=list)
+    car_z: float = 0.0           # 카 바닥 상면 절대 표고 (애니메이션: 이 값을 바꾸면 카 묶음(is_car)이 연직 이동)
+    travel: tuple = (0.0, 0.0)   # 카 바닥 상면 운행 범위 (최하·최상 정지 바닥, 절대 표고)
+    door_open: float = 0.0       # 현재 문 열림 비율 (카 문 + 카가 선 층 승강장 문)
 
     def element(self, code: str) -> ElevatorElementData:
         return next(e for e in self.elements if e.code == code)

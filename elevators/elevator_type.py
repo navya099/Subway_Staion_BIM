@@ -15,6 +15,11 @@ class ElevatorPartKind(Enum):
     GIRT = "GIRT"                # 투시형: 가로재 강관
     GLASS = "GLASS"              # 투시형: 승강로 유리
     PANEL = "PANEL"              # 투시형: 천장 위 금속 패널 띠
+    CAR_GLASS = "CAR_GLASS"      # 투시형 카: 유리 벽 (문 없는 면)
+    LANDING_DOOR = "LANDING_DOOR"   # 승강장 문짝 (층마다 두 짝, 열림 비율로 밀림)
+    DOOR_FRAME = "DOOR_FRAME"    # 투시형: 승강장 문틀 (양옆 잼 + 상부)
+    SPIDER = "SPIDER"            # 투시형: DPG 스파이더 철물
+    LADDER = "LADDER"            # 피트 점검 사다리
 
     @property
     def is_car(self) -> bool:

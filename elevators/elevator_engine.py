@@ -8,10 +8,15 @@ from helper.view_item import ViewItem
 _FAMILY = {K.HOIST_WALL: "콘크리트-승강로벽", K.PIT_SLAB: "콘크리트-엘리베이터피트슬래브", K.TOP_SLAB: "콘크리트-승강로천장슬래브",
            K.CAR_FLOOR: "엘리베이터-카바닥", K.CAR_WALL: "엘리베이터-카벽", K.CAR_ROOF: "엘리베이터-카천장",
            K.CAR_DOOR: "엘리베이터-카문", K.PIT_WALL: "콘크리트-엘리베이터피트벽", K.COLUMN: "강관-승강로기둥",
-           K.GIRT: "강관-승강로가로재", K.GLASS: "강화유리-승강로", K.PANEL: "금속패널-승강로띠"}
-_MATERIAL = {K.COLUMN: "EV_Steel_Pipe", K.GIRT: "EV_Steel_Pipe", K.GLASS: "EV_Glass", K.PANEL: "갈바륨 패널"}
+           K.GIRT: "강관-승강로가로재", K.GLASS: "강화유리-승강로", K.PANEL: "금속패널-승강로띠",
+           K.CAR_GLASS: "엘리베이터-카유리", K.LANDING_DOOR: "엘리베이터-승강장문", K.DOOR_FRAME: "엘리베이터-승강장문틀",
+           K.SPIDER: "DPG-스파이더", K.LADDER: "엘리베이터-점검사다리"}
+_MATERIAL = {K.COLUMN: "EV_Steel_Pipe", K.GIRT: "EV_Steel_Pipe", K.GLASS: "EV_Glass", K.PANEL: "갈바륨 패널",
+             K.CAR_GLASS: "EV_Glass", K.LANDING_DOOR: "Stainless_Steel", K.DOOR_FRAME: "Stainless_Steel",
+             K.SPIDER: "Stainless_Steel", K.LADDER: "EV_Steel_Pipe"}
 _LAYER = {K.COLUMN: "STRUCT_ELEVATOR_FRAME", K.GIRT: "STRUCT_ELEVATOR_FRAME", K.PANEL: "STRUCT_ELEVATOR_FRAME",
-          K.GLASS: "STRUCT_ELEVATOR_GLASS"}
+          K.GLASS: "STRUCT_ELEVATOR_GLASS", K.LANDING_DOOR: "STRUCT_ELEVATOR_FRAME", K.DOOR_FRAME: "STRUCT_ELEVATOR_FRAME",
+          K.SPIDER: "STRUCT_ELEVATOR_FRAME", K.LADDER: "STRUCT_ELEVATOR_FRAME"}
 CONCRETE_KINDS = (K.HOIST_WALL, K.PIT_SLAB, K.TOP_SLAB, K.PIT_WALL)
 
 
@@ -60,19 +65,23 @@ class ElevatorEngine:
                 thick = {K.HOIST_WALL: spec.wall_t, K.PIT_SLAB: spec.pit_slab_t, K.TOP_SLAB: spec.top_slab_t,
                          K.CAR_FLOOR: spec.car_floor_t, K.CAR_WALL: spec.car_wall_t, K.CAR_ROOF: spec.car_roof_t,
                          K.CAR_DOOR: spec.car_wall_t, K.PIT_WALL: spec.wall_t, K.COLUMN: spec.col_d,
-                         K.GIRT: spec.girt_d, K.GLASS: spec.glass_t, K.PANEL: spec.panel_t}[kind]
+                         K.GIRT: spec.girt_d, K.GLASS: spec.glass_t, K.PANEL: spec.panel_t, K.CAR_GLASS: spec.car_wall_t,
+                         K.LANDING_DOOR: spec.door_t, K.DOOR_FRAME: spec.door_frame_w, K.SPIDER: spec.spider_d,
+                         K.LADDER: 0.03}[kind]
                 elements.append(ElevatorElementData(
                     name=f"{lay.name}_{code}", family_name=_FAMILY[kind], type_name=f"{int(round(thick * 1000))}mm",
                     level=level, pos_z=min(p.z_range[0] for p in parts),
-                    material="Steel" if car else _MATERIAL.get(kind, "Concrete_C24"),
-                    kind=kind, code=code, parts=parts))
+                    material=_MATERIAL.get(kind, "Steel" if car else "Concrete_C24"),
+                    kind=kind, code=code, parts=parts, slide=parts[0].slide, stop=parts[0].stop))
             self.elevators.append(ElevatorData(
                 name=lay.name, family_name="엘리베이터",
                 type_name=("투시형 " if spec.shaft == "glass" else "") + f"승강로 {spec.inner_s:g}x{spec.inner_t:g}",
                 level=level, pos_x=spec.s_center, pos_y=spec.t_center, pos_z=lay.z_range[0],
                 lower_floor=lay.lower_floor, upper_floor=lay.upper_floor, car_floor=spec.stop_car,
                 on_platform=lay.on_platform, stops=lay.stops, outer=spec.outer_rect(), inner=spec.inner_rect(),
-                door_openings=lay.door_openings, elements=elements))
+                door_openings=lay.door_openings, elements=elements,
+                car_z=lay.stops[spec.stop_car] + spec.car_offset, travel=(lay.stops[lay.lower_floor], lay.stops[lay.upper_floor]),
+                door_open=spec.door_open))
 
     def all_elevators(self) -> list[ElevatorData]:
         return list(self.elevators)
@@ -87,7 +96,8 @@ class ElevatorEngine:
         유리 = STRUCT_ELEVATOR_GLASS). 한 번만 호출할 것"""
         for ev in self.elevators:
             for e in ev.elements:
-                layer = "STRUCT_ELEVATOR_CAR" if e.kind.is_car else _LAYER.get(e.kind, "STRUCT_ELEVATOR")
+                layer = ("STRUCT_ELEVATOR_GLASS" if e.kind == K.CAR_GLASS else "STRUCT_ELEVATOR_CAR") if e.kind.is_car \
+                    else _LAYER.get(e.kind, "STRUCT_ELEVATOR")
                 faces = tri_faces([f for p in e.parts for f in ev_part_faces(self.cfg, p)])
                 e.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
 

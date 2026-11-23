@@ -15,7 +15,7 @@ SHAFT_LABELS = list(SHAFTS)
 
 # 투시형 승강로 제원 (양수 입력칸)
 GLASS_FIELDS = [("glass_offset", "유리 바깥 간격"), ("glass_t", "유리 두께"), ("col_d", "기둥 지름"), ("col_inset", "기둥 위치"),
-                ("girt_d", "가로재 지름"), ("glass_max_w", "유리 최대 폭")]
+                ("girt_d", "가로재 지름"), ("glass_max_w", "유리 최대 폭"), ("door_frame_w", "승강장 문틀 폭")]
 
 # (속성, 라벨) 양수 입력칸
 NUM_FIELDS = [("inner_s", "승강로 내공 s"), ("inner_t", "승강로 내공 t"), ("wall_t", "승강로 벽"),
@@ -61,6 +61,11 @@ class ElevatorDraft:
     girt_d: str = f"{_SPEC.girt_d:g}"
     glass_max_w: str = f"{_SPEC.glass_max_w:g}"
     glass_rows: str = ", ".join(f"{h:g}" for h in _SPEC.glass_rows)
+    door_frame_w: str = f"{_SPEC.door_frame_w:g}"
+    car_offset: str = "0"                 # 카 위치 = 카 정지층 + 오프셋 (애니메이션 대비)
+    door_open: str = "0"                  # 문 열림 비율 0~1
+    car_glass: bool = True                # 투시형 카 (화면 기본, 모델 기본 끔)
+    ladder: bool = True                   # 피트 점검 사다리
 
     def to_spec(self, where: str, start_station: float) -> ElevatorSpec:
         if self.door not in DOORS:
@@ -76,7 +81,9 @@ class ElevatorDraft:
                             s_center=_num(self.sta_center, where, "승강로 중심 측점") - start_station,
                             t_center=_num(self.t_center, where, "t 위치"), door_side=DOORS[self.door],
                             through=bool(self.through), name=self.name.strip(), shaft=SHAFTS[self.shaft],
-                            door_floors=floors, glass_rows=rows, **vals)
+                            door_floors=floors, glass_rows=rows, car_offset=_num(self.car_offset, where, "카 위치 오프셋"),
+                            door_open=_num(self.door_open, where, "문 열림", nonneg=True), car_glass=bool(self.car_glass),
+                            ladder=bool(self.ladder), **vals)
 
 
 class ElevatorDrafts:

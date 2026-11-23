@@ -13,6 +13,7 @@ from openings import decompose
 from rooms.room_spec import PARTITION, SEPARATION
 
 _EPS = 1e-6
+_SLIVER = 1e-4               # 이보다 얇은 칸막이벽 조각은 만들지 않음 (반올림 자투리)
 
 
 @dataclass
@@ -195,7 +196,8 @@ def layout_floor_rooms(cfg, floor: int, specs: list, names: list) -> FloorRoomsL
             continue
         h = th / 2.0
         for r in decompose.subtract_rects((*clip(s - h, s + h, 0.0, L), a, b), s_rects):
-            t_walls.append((r, kind, th, tops.get(("t", s))))
+            if r[1] - r[0] > _SLIVER and r[3] - r[2] > _SLIVER:    # 선 좌표는 1e-6 반올림이라 끝에 그만큼의 얇은 조각이 남음 → 버림
+                t_walls.append((r, kind, th, tops.get(("t", s))))
 
     # ---- 높이 (최하층 승강장 위는 승강장 상면부터)
     z0, z1 = st.floor_level(floor), ceiling_rel(st, floor)
@@ -304,7 +306,8 @@ def _layout_pocket_floor(cfg, floor: int, specs: list, names: list) -> FloorRoom
             continue
         h = th / 2.0
         reg = T.intersect(clear, [T.rect(max(s - h, 0.0), min(s + h, L), a, b)])
-        t_walls.append((T.subtract(reg, s_regs) if s_regs else reg, kind, th))
+        ps = T.subtract(reg, s_regs) if s_regs else reg
+        t_walls.append(([p for p in ps if T.bbox(p)[1] - T.bbox(p)[0] > _SLIVER and T.bbox(p)[3] - T.bbox(p)[2] > _SLIVER], kind, th))
 
     z0, z1 = st.floor_level(floor), ceiling_rel(st, floor)
     plat = [T.rect(0.0, L, a, b) for a, b in (platform_ranges(cfg) if (floor == 1 and pl.exists) else [])]

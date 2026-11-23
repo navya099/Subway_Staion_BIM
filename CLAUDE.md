@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1264개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1283개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -67,17 +67,18 @@ passages/                   출구통로: spec(경로 꼭짓점 입력), layout(
 ventilations/               환기구: spec(연속박스 단면·그릴 입력), layout(수직구·칸별 오프닝·그릴 조각), check(검증·간섭), data/engine
 entrances/                  출입구: spec(입력·구역 폭), layout(지표 EL 기준 자동 계산: 박스·계단·에스컬레이터 띠, EntranceFrame), check(검증), data/engine
 helper/                     prism_member.py(각기둥/스윕 기하), strip_member.py(s 방향 띠 부재: 계단·에스컬레이터 공통), box_piece.py(세계 좌표 곧은 압출 조각 + 연귀 끝단·평면 절단: 출구통로), view_item.py(2D 윤곽), geometry_helper.py, trap_region.py(사다리꼴 영역 불 연산·경계·덩어리: 확폭 실·마감)
-engine/                     outer_views.py(평면·본체 종단의 본체 밖 구조물), path_profile.py(통로 경로 종단), cad_engine.py(StationCADEngine: DXF 4종 + IFC, build_*_doc = 저장 없는 DXF 문서), bim_engine.py(BIMEngine.build)
+engine/                     face_sink.py(DXF 없이 3DFACE 모으기), outer_views.py(평면·본체 종단의 본체 밖 구조물), path_profile.py(통로 경로 종단), cad_engine.py(StationCADEngine: DXF 4종 + IFC, build_*_doc = 저장 없는 DXF 문서), bim_engine.py(BIMEngine.build)
 preview/                    preview_render.py(미리보기 작도, 화면 비의존: DXF 문서 → matplotlib 2D, 3DFACE → 3D 면·잘라 보기), pick.py(평면 위치 선택: PickRequest/PickSession·스냅·명령줄 좌표)
 exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프닝 IfcRelVoidsElement)
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
 exporter/ev_anim.py         웹 뷰어 엘리베이터 애니메이션 자료, esc_anim.py(에스컬레이터 스텝)
+exporter/mesh_reduce.py     웹 뷰어 자료 줄이기(맞닿아 가려진 면 찾기)
 exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·stair_stone·tactile_*·Polished Concrete New 등, **저장소에 포함** — 출처·라이선스는 README) + README
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -112,6 +113,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - **실(구획) 1단계**: 마감을 실별로 다르게 적용하기 위한 선행 단계. `RoomSpec`(층, 용도, s 범위 × t 범위 = **칸막이벽 중심선**, 이름) + `RoomSettings`(층별 기본 실 용도 — 없으면 최하층 승강장층·그 위 대합실, 칸막이벽 두께 0.2, 재질 Masonry_Block). 용도는 `ROOM_USES` 목록 또는 직접 입력.
   - 층마다 내공 영역에서 입력 실을 뺀 나머지 = 기본 실(직사각형 조각들, `decompose.subtract_rects`). **나머지가 입력 실로 끊겨 여러 덩어리면 덩어리마다 기본 실**(`connected_groups`: 변을 길이 > 0 공유하면 연결, 꼭짓점만 닿으면 따로, 이름 `{층}_{용도}{k}` — 하나면 번호 없음, s 순). 실끼리 겹치면 오류, 내공 밖이면 오류.
   - **내공면 자동 붙임**(`snap_to_clear`, `StationProjectConfig.validate` 가 맨 앞에서(계단·ESC 오프닝이 실 천장 높이를 찾기 전) `cfg.rooms` 를 정규화): 실의 각 변이 자기 쪽 내공면(s0 → 0, s1 → L, t0 → −W/2, t1 → +W/2)에서 경계 벽 두께(구획분리면 sep_t, 칸막이벽이면 공통 두께, 최소 칸막이벽 두께) 이내면 내공면으로 — 안쪽·바깥쪽 모두. 실무 샘플(내공 ±10.1 에 ±10 입력)에서 본체 벽에 붙은 얇은 벽과 0.1m 자투리 기본 실이 생기던 문제. 붙여서 크기가 0 이하가 되면 원래 값(검증이 알림). 실 탭 안내문에 '(내공면에 붙임: t1 10→10.1)' 표시.
+  - 두께 1e-4 미만의 자투리 벽 조각은 만들지 않음(`_SLIVER` — 벽 선 좌표가 1e-6 반올림이라 계단실·창고처럼 좌표가 잘게 나오면 두께 0 인 벽이 문 앞을 가렸음).
   - 칸막이벽: 입력 실의 변 중 본체 벽(내공면) 위가 아닌 부분, 같은 선은 합쳐 한 번만, 중심선 양쪽 반 두께. s 방향 벽(t 일정)은 끝을 반 두께씩 늘리고 t 방향 벽에서는 s 방향 벽 띠를 뺌(모서리 중복·빈틈 없음). 높이 = 층 FL ~ 위 슬래브 하면, 최하층 승강장 슬래브 위(t 범위)는 승강장 상면부터. 이름 `PW_{층}_S{k}/T{k}`.
   - 실·칸막이벽 조각 = 선형 각기둥(`helper.prism_member`, 하면이 종단을 따름, 곡선 스윕). 3D DXF 는 칸막이벽만(STRUCT_PARTITION), 횡단 SEC_PARTITION·종단 PROF_PARTITION(해치), 평면 PLAN_PARTITION + 실 이름·면적 글자(PLAN_ROOM, 윤곽 없음 — `ViewItem(pts=[])` = 글자만).
   - IFC: 실 = `IfcSpace`(INTERNAL, LongName = 용도, 면 집합) → IfcRelAggregates 로 층 storey, 칸막이벽 = `IfcWall`(PARTITIONING, 재질) → 층 storey 포함.
@@ -334,11 +336,14 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 기본 마감 재질 이름 변경: 바닥 기본 `석재` → **화강석**, 벽 기본 `패널` → **금속패널**(FinishType·마감 탭 초안). 옛 프로젝트 파일의 마감표는 저장된 이름 그대로라 텍스처를 쓰려면 마감 탭에서 이름을 바꿔야 함.
 - **3D 웹 뷰어(`exporter/web_viewer.py`, 출력 탭 '3D 웹 뷰어(HTML)', 기본 끔 → `정거장3d뷰어.html`)**: matplotlib 3D 미리보기가 느려서 만든 브라우저 뷰어. three.js(`assets/web/three.min.js` r147, MIT)와 모델 자료를 HTML 한 파일에 넣어 인터넷 없이 열림.
   - **에스컬레이터 애니메이션(`exporter/esc_anim.py`, 정거장·출입구 ES)**: 스텝 3DFACE 를 ES 마다 태그 'E|순번' 묶음으로 나누고 `data.escs`(스텝 코 선 표본 path(0.05m, 스텝 폭 가운데)·스텝 깊이·개수·대표 스텝(챌판이 있는 경사부)·운행 방향)를 넣음. 템플릿 JS `ESC`: 대표 스텝 삼각형을 스텝마다 복사해 코 선을 따라 옮김 — 간격이 같으므로 한 칸(스텝 깊이) 안의 위상만 되풀이, 디딤판 = N(u), 챌판 아래 끝 = N(u − dep), 스텝 범위 밖은 콤 아래로 잘림, 위상 0 = BIM 스텝. 수평 0.45m/s, 왼쪽 '에스컬레이터' 운행 체크·상행/하행/정지. 처음 방향: 나란한 묶음(사이 ≤ 1m, 같은 층·방향 또는 같은 출입구)은 오르는 방향 오른쪽부터 상행·하행 번갈아(우측 통행), 혼자면 상행. 걷기 중 스텝 위(폭 안, 발 높이 0.8 이내)면 코 선 높이를 따르고 함께 이동(멈춘 ES 는 계단처럼). 150m 밖은 갱신 안 함. `window.__viewer.tick(dt)` = 시뮬레이션 한 걸음(브라우저 시험용). 검증: 뷰어 배치 식을 옮긴 파이썬 식의 위상 0 = 실제 스텝 꼭짓점(test_esc_anim). 핸드레일 움직임·강조 따라 움직임은 없음.
-  - 자료 = `build_3d_doc` 의 3DFACE 그대로(단일 원천, 천장틀 FIN_FRAME 은 기본 제외). 묶음(레이어 × 보기 재질 `render_material`)마다 꼭짓점(float32, 정수 원점 기준 상대)·꼭짓점별 (s, FL 기준 h)·삼각형 번호·삼각형 → 부재 번호를 한 바이트 열로 이어 gzip + base64(브라우저 `DecompressionStream`). 부재 표 = 서브 엔진의 BIM 객체 중 `source_element` 를 가진 것(이름·층·재질·종류, `_element_index` 가 훑음). h 의 FL 은 선형 끝 밖을 끝 구배로 연장.
+  - 자료 = 3D DXF 와 같은 3DFACE(`StationCADEngine.build_3d_faces` — `engine/face_sink.py` 가 ezdxf 문서 없이 면만 모음, `build_3d_doc` 과 작도 코드 `_add_3d` 공유, 천장틀 FIN_FRAME 은 기본 제외). 묶음(레이어 × 보기 재질 `render_material`)마다 꼭짓점(float32, 정수 원점 기준 상대)·꼭짓점별 (s, FL 기준 h)·삼각형 번호·삼각형 → 부재 번호를 한 바이트 열로 이어 gzip + base64(브라우저 `DecompressionStream`). 부재 표 = 서브 엔진의 BIM 객체 중 `source_element` 를 가진 것(이름·층·재질·종류, `_element_index` 가 훑음). h 의 FL 은 선형 끝 밖을 끝 구배로 연장.
   - 조명: 실내 기준으로 위·아래를 거의 고르게(반구광) + 약한 해·카메라 빛 — 위에서만 비추던 때는 천장판 아랫면이 어두워 윗면과 뒤집힌 것처럼 보였음(사용자 지적, 면 방향은 정상).
   - 뷰어(템플릿 JS): Z 위 궤도 조작(왼쪽 회전, 오른쪽/Shift 이동, 휠 확대, 더블클릭 = 회전 중심), 표시 묶음(미리보기 `LAYER_GROUPS`), 보이는 층(그 층 천장 하면 위를 버림)·STA 범위 = 셰이더 discard(모든 재질 공통 uniform), 클릭 = 부재 정보 + 강조(잘린 면은 건너뜀), 걷기(포인터 잠금, WASD·Shift·E/Q·PgUp/PgDn 층 — **시작할 때 보던 화면(카메라 위치·시선) 그대로**(사용자 지정), W 로 시작하면 그 W 를 뗄 때까지 안 움직임, PgUp/PgDn 을 누르면 층 눈높이 = 선형 중심 표본 FL + 층 바닥(최하층은 승강장 상면) + 1.6, 높이 떠 있을 때 PgDn 은 먼저 아래 첫 층으로). `window.__viewer` 로 상태 접근(디버그).
   - **텍스처**: DAE 와 같은 재질·텍스처 좌표(`dae_exporter.texture_axes`(면마다 u·v 방향, `texture_uv` 가 씀)·`frame_uv`). 텍스처 이미지가 있는 묶음만 꼭짓점 uv(면마다 넓은 쪽 삼각형으로 방향), 이미지는 긴 변 `IMAGE_MAX` 1024px 로 줄인 data URL(`DATA.images`, 투명 PNG 는 PNG·나머지 JPEG), 이미지 없는 텍스처는 `missing_textures`(통계 줄에 표시). 사인은 그린 이미지 한 장(ClampToEdge). 뷰어 '텍스처' 체크(기본 켬, 끄면 재질 색), 같은 data URL 의 THREE.Texture 는 실시간 갱신에서도 재사용.
-  - 실무 샘플: 삼각형 8.4만, 4.7MB(텍스처 포함, 없으면 2.2MB), 약 11초.
+  - **경량화(사용자: 조명·비품을 더하면 감당이 되는지 걱정)**: 실무 샘플(통로·출입구·외부 EV·ES 모두) 삼각형 34.5만 → 21.5만, 자료 만들기 22초 → 8.5초, gzip 4.1 → 3.3MB.
+    - **가려진 면 빼기(`exporter/mesh_reduce.py` `hidden_faces`)**: 같은 평면에서 반대를 보는 두 면 중 다른 면 안에 완전히 들어간 면(똑같으면 둘 다)을 뷰어 자료에서만 뺌(3D DXF·IFC·DAE 그대로). 같은 표시 묶음끼리만(묶음을 끄면 보여야 함), 움직이는 부재(EV·ES 태그)·투명·그린 이미지 면은 제외. `data.hidden` = 뺀 삼각형 수(통계 줄). 층·STA 로 잘라 보면 부재 속 맞닿은 면은 안 보임. 검증: 빠른 벡터 계산 = 전수 비교, 1,128 시점 픽셀 비교에서 부재 밖 시점은 같음(카메라가 벽 속·벽 면일 때와 모서리 1px 만 다름).
+    - 빠른 광선 검사: 템플릿 JS `BVH`(메쉬마다 처음 쓸 때 만듦, `mesh.raycast` 대체, ES 스텝 메쉬는 기본 검사) — 광선 하나 5.3 → 0.18ms(클릭·호출 버튼·걷기). 선형 중심 1m 표본 `preview_render.centerline_samples` 는 `cfg._centerline_memo` 에 한 번만(선형 객체가 바뀌면 다시), 측점은 모든 꼭짓점을 한꺼번에, 호출 버튼·표시기 그림은 `lru_cache`.
+    - 앞으로: 반복 부재(조명·비품)는 인스턴싱(형상 하나 + 배치 목록)으로 보낼 것. ES 스텝은 전체의 2.6% 라 아직 안 함.
   - **실시간 갱신(`exporter/live_viewer.py`)**: 미리보기 창 [브라우저 3D (실시간)] → 앱 안의 로컬 HTTP 서버(`127.0.0.1`, 빈 포트, 앱 전체 하나 `shared()`)로 기본 브라우저를 열고 지금 모델을 올림. 이후 미리보기 갱신(F5)마다 `update(cfg)` = **설정 사본(deepcopy)으로 별도 엔진**을 백그라운드 스레드에서 만들어 올림(미리보기 엔진과 3D 문서를 함께 쓰지 않음, 만드는 중에 들어온 갱신은 끝나고 최신 것 한 번). 경로 `/`(LIVE 뷰어), `/version`(version·status idle|building|ok|error·message), `/data.json`, `/data.bin`(gzip). 뷰어는 1초마다 `/version` 을 물어 새 버전이면 `loadModel` 로 모델만 바꿈 — 카메라·표시 묶음·보이는 층(이름)·STA 범위·고른 부재(이름) 유지, 원점이 바뀌면 카메라를 같은 세계 위치로. 입력 오류면 이전 모델 + 왼쪽 아래에 오류, 서버가 꺼지면 '연결 끊김'(다시 켜지면 이어짐). 미리보기 머리줄 오른쪽 `live_label` 에 상태. 템플릿은 정적(`DATA_EMBED` + `BLOB`)·실시간(`LIVE = true`) 겸용.
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE, 3D 웹 뷰어(HTML).
 

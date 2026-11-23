@@ -16,6 +16,7 @@ from entrances.entrance_engine import EntranceEngine
 from elevators.elevator_engine import ElevatorEngine
 from elevators.ext_ev_engine import ExtEvEngine
 from engine import outer_views as OV
+from engine.face_sink import FaceSink
 from escalators.escalator_engine import EscalatorEngine
 from finishes.finish_engine import FinishEngine
 from passages.passage_engine import PassageEngine
@@ -95,6 +96,16 @@ class StationCADEngine:
         msp.add_polyline3d([(*a.point_at(st), a.elevation_at(st)) for st in a.polyline_stations()],
                            dxfattribs={"layer": "ALIGNMENT_CL"})
 
+        self._add_3d(msp)
+        return doc
+
+    def build_3d_faces(self) -> list:
+        """3D 모델의 3DFACE 목록 (FaceRef) — DXF 문서를 만들지 않아 빠름 (웹 뷰어 자료). 순서·좌표는 build_3d_doc 과 같음"""
+        sink = FaceSink()
+        self._add_3d(sink)
+        return sink.faces
+
+    def _add_3d(self, msp):
         # 모든 부재는 객체당 1회 작도 (구배는 부재 자체의 rise로 표현)
         for engine in self.sub_engines:
             if hasattr(engine, 'add_platform_mesh'):
@@ -135,7 +146,6 @@ class StationCADEngine:
                 engine.add_smoke_mesh(msp)
             if hasattr(engine, 'add_passage_finish_mesh'):
                 engine.add_passage_finish_mesh(msp)
-        return doc
 
     # --- [2D 공통] ---
     PLAN_CUT_H = PLAN_CUT_H   # 평면도 절단 높이 기본값 (각 층 바닥 슬래브 상면 기준, m)

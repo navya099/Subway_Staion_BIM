@@ -136,14 +136,23 @@ def _clip(f, col, lim, sign):
     return np.array(out) if len(out) >= 3 else None
 
 
+def centerline_samples(cfg, lo: float, hi: float) -> tuple:
+    """선형 중심 1m 표본 (s, (x, y), 방위각) — 같은 선형·범위면 다시 계산하지 않음 (웹 뷰어·DAE 가 재질마다 부름)"""
+    key = (cfg.station.start_station, lo, hi)
+    memo = cfg.__dict__.get("_centerline_memo")          # (선형 객체, 범위, 표본)
+    if memo is None or memo[0] is not cfg.align or memo[1] != key:
+        ss = np.arange(lo, hi + 1e-9, 1.0)
+        memo = (cfg.align, key, (ss, np.array([cfg.to_world(s, 0.0) for s in ss]), np.array([cfg.theta_at(s) for s in ss])))
+        cfg.__dict__["_centerline_memo"] = memo
+    return memo[2]
+
+
 def station_of(cfg, pts_xy: np.ndarray, lo: float, hi: float):
     """세계 평면 좌표 → 정거장 로컬 s 근사 (1m 간격 중심선 표본 중 가장 가까운 점 + 접선 방향 투영).
     가장 가까운 표본은 성긴 표본(COARSE m 간격)에서 먼저 찾고 그 둘레 ±WINDOW 표본에서 다시 찾음 (모든 표본과 비교하던 것보다
     수십 배 빠름 — 실무 샘플 웹 뷰어 갱신의 큰 몫)"""
     COARSE, WINDOW = 16, 24
-    ss = np.arange(lo, hi + 1e-9, 1.0)
-    c = np.array([cfg.to_world(s, 0.0) for s in ss])
-    th = np.array([cfg.theta_at(s) for s in ss])
+    ss, c, th = centerline_samples(cfg, lo, hi)
     cos_t, sin_t = np.cos(th), np.sin(th)
     coarse = np.arange(0, len(ss), COARSE)
     win = np.arange(-WINDOW, WINDOW + 1)

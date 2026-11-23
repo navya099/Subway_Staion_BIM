@@ -113,7 +113,8 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     base = cfg.lv(sc) - st.offset                                  # FL(z=0) 의 절대 표고
     on_plat = _on_platform(cfg, spec, name)
     k0, k1 = spec.lower_floor, spec.upper_floor
-    rel = {n: (pl.top_level if (n == 1 and on_plat) else st.floor_level(n)) for n in range(k0, k1 + 1)}
+    rel = {n: (pl.top_level if (n == 1 and on_plat) else st.floor_level(n)) for n in range(k0, k1 + 1)}       # 구조 바닥
+    ffl = {n: stop_ffl(cfg, spec, n) for n in rel}                 # 문 앞 실의 바닥 마감 높이 (마감 끔 = 0)
 
     # ---- 높이 (FL 기준) 와 본체·승강장 슬래브 관통
     pit_top = rel[k0] - spec.pit_depth
@@ -128,9 +129,9 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
         wall_top = rel[k1] + spec.overhead
         lo, hi = pit_top - spec.pit_slab_t, wall_top + spec.top_slab_t
     for n in range(k0, k1 + 1):                                    # 출입구가 그 층 위 슬래브(번호 n)에 닿지 않을 것
-        if rel[n] + spec.door_h > ranges[n][0] + _EPS:
+        if rel[n] + ffl[n] + spec.door_h > ranges[n][0] + _EPS:
             raise ValueError(f"엘리베이터 {name}: 문 높이({spec.door_h:g}m)가 {st.level_name(n)} 정지 바닥 위 내공 높이"
-                             f"({ranges[n][0] - rel[n]:.3f}m)보다 큽니다")
+                             f"({ranges[n][0] - rel[n] - ffl[n]:.3f}m)보다 큽니다")
     roof_bottom = ranges[st.floors][0]
     if hi > roof_bottom + _EPS:
         raise ValueError(f"엘리베이터 {name}: 승강로 천장 슬래브 상면(FL+{hi:.3f})이 본체 천장 슬래브 하면(FL+{roof_bottom:.3f})보다 "
@@ -143,6 +144,12 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     if k0 > 1 and lo < st.floor_level(k0 - 1) + _EPS:
         raise ValueError(f"엘리베이터 {name}: 피트 바닥(FL+{lo:.3f})이 아래층({st.level_name(k0 - 1)}) 바닥에 닿습니다 "
                          "(피트 깊이·피트 슬래브 두께를 줄이세요)")
+
+    # ---- 정지 바닥 = 바닥 마감면 (피트·승강로 벽·오버헤드는 위처럼 구조 바닥 기준 — 구조는 마감에 따라 바뀌지 않음)
+    rel = {n: v + ffl[n] for n, v in rel.items()}
+    if rel[k1] + spec.car_height + spec.car_roof_t > wall_top + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 최상 정지층 바닥 마감면에서 카 높이 + 카 천장({spec.car_height + spec.car_roof_t:g}m)이 "
+                         f"승강로 천장 하면({wall_top - rel[k1]:.3f}m)보다 큽니다")
 
     # ---- 부재 (상자 = 띠 1개)
     parts = []
@@ -158,7 +165,7 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
                          f"({st.level_name(k0)} ~ {st.level_name(k1)} 정지 바닥) 밖입니다")
 
     if spec.shaft == "glass":
-        return _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts)
+        return _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts, ffl)
     s0, s1, t0, t1 = spec.inner_rect()
     S0, S1, T0, T1 = spec.outer_rect()
     box("PIT", K.PIT_SLAB, S0, S1, T0, T1, lo, pit_top)
@@ -187,6 +194,15 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     car_parts(spec, zc, spec.door_open, box)
     inner_face = lambda axis, sign: (s1 if sign > 0 else s0) if axis == "s" else (t1 if sign > 0 else t0)
     landing_doors(spec, rel, st, inner_face, box)
+    if spec.fixtures:
+        from finishes.finish_clear import room_finish_at
+
+        def rc_face(axis, sign, n):                                # 승강로 바깥면 + 그 층 벽 마감 표면 거리
+            out = ((S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0))
+            p = (out + sign * 0.3, tc) if axis == "s" else (sc, out + sign * 0.3)
+            ft = room_finish_at(cfg, n, *p)
+            return out + sign * (ft.face if ft is not None and ft.wall_t > 0 else 0.0)
+        add_fixtures(spec, st, rel, box, rc_face, spec.door_w / 2.0 + 0.25, 0.12, spec.door_h + 0.18)
     if spec.ladder:
         pit_ladder(spec, rel, pit_top, inner_face, box, _car_bottom(spec, zc))
     opening = None
@@ -197,6 +213,15 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     return ElevatorLayout(name=name, spec=spec, on_platform=on_plat, stops={n: base + r for n, r in rel.items()},
                           stop_rel=rel, parts=parts, opening=opening, platform_hole=hole, door_openings=doors,
                           z_range=(base + lo, base + hi))
+
+
+def stop_ffl(cfg, spec, n: int) -> float:
+    """정지층 n 의 바닥 마감 높이: 문 앞 실(승강로 바깥면 0.3 밖)의 ffl, 문 면이 여럿이면 큰 값"""
+    from finishes.finish_layout import floor_ffl_at
+    S0, S1, T0, T1 = spec.outer_rect()
+    pts = [((S1 + 0.3 if sg > 0 else S0 - 0.3), spec.t_center) if a == "s" else (spec.s_center, (T1 + 0.3 if sg > 0 else T0 - 0.3))
+           for a, sg in spec.doors_at(n)]
+    return max((floor_ffl_at(cfg, n, *p) for p in pts), default=0.0)
 
 
 def car_z(spec, rel) -> float:
@@ -214,7 +239,7 @@ def car_parts(spec, z: float, open_ratio: float, box):
     바닥·천장 = 카 외곽, 벽 4면 (문 면은 문 자리를 비움, car_glass 면 문 없는 면 = 유리 CAR_GLASS),
     카 문 = 문 면마다 가운데 열림 두 짝 CAR_DOOR_{면}_N / _P (카 벽 바깥면 밖 평면, 접선 방향으로 open × 반폭만큼 밀림).
     box(code, kind, s0, s1, t0, t1, z0, z1, piece=0, slide=None)"""
-    sc, tc = spec.s_center, spec.t_center
+    sc, tc = spec.car_center()
     door_faces = spec.door_faces_all()
     cw, dw = spec.car_wall_t, spec.door_w / 2.0
     if spec.door_axis == "s":
@@ -254,25 +279,70 @@ def car_parts(spec, z: float, open_ratio: float, box):
                 box(f"CAR_WALL_{code}", kind, u0, u1, b0, b1, z0, z1, k)
 
 
-def landing_doors(spec, rel, st, face_n, box, floors=None):
+PORTAL_T = 0.05              # 깊은 문틀(car_gap)의 잼·상부·바닥판 두께
+
+
+def landing_doors(spec, rel, st, face_n, box, floors=None, sill_in=0.0):
     """정지층마다 문 면의 승강장 문 두 짝 LDOOR_{면}_{층}_N / _P (승강로 안쪽 평면 — face_n(axis, sign) = 문 평면 바깥쪽 경계,
-    그 안쪽으로 door_gap 띄우고 두께 door_t, 열림 = door_open_at)"""
+    그 안쪽으로 door_gap 띄우고 두께 door_t, 열림 = door_open_at).
+    car_gap 을 주면 문짝 안쪽 면 = 카 문 바깥면 + car_gap (더 안쪽일 때만) 이고, 그 사이를 깊은 문틀 LPORT_{면}_{층}
+    (양 잼·상부·바닥판)으로 메움. sill_in = 바닥판이 시작하는 깊이 (face_n 에서 안쪽, 투시형 금속 패널 띠 두께만큼)"""
     sc, tc = spec.s_center, spec.t_center
     dw = spec.door_w / 2.0
+    cs, ct = spec.car_center()
     for n in (floors if floors is not None else range(spec.lower_floor, spec.upper_floor + 1)):
-        o = door_open_at(spec, n) * dw
         for axis, sign in sorted(spec.doors_at(n)):
+            travel = dw
+            if spec.car_gap is not None and len({a for a, _ in spec.door_faces_all()}) > 1:     # 90도형: 카 모서리에서 직각 면 문짝과
+                travel = max(0.0, min(dw, spec.car_half("t" if axis == "s" else "s") - spec.car_wall_t - dw))   # 부딪치지 않게 카 외곽까지
+            o = door_open_at(spec, n) * travel
             code = ("P" if sign > 0 else "N") + axis.upper()
-            f = face_n(axis, sign) - sign * spec.door_gap
-            n0, n1 = sorted((f, f - sign * spec.door_t))
+            base = face_n(axis, sign)
+            f = base - sign * spec.door_gap
             mid = tc if axis == "s" else sc
+            if spec.car_gap is not None:
+                deep = (cs if axis == "s" else ct) + sign * (spec.car_half(axis) + spec.car_gap + spec.door_t)
+                if sign * (f - deep) > _EPS:
+                    f = deep
+                    c, w = f"LPORT_{code}_{st.level_name(n)}", PORTAL_T
+                    sill0 = base - sign * sill_in
+
+                    def put(k, a, b, u0, u1, z0, z1, axis=axis, c=c):
+                        if abs(a - b) < _EPS:
+                            return
+                        a, b = sorted((a, b))
+                        if axis == "s":
+                            box(c, K.DOOR_FRAME, a, b, u0, u1, z0, z1, k)
+                        else:
+                            box(c, K.DOOR_FRAME, u0, u1, a, b, z0, z1, k)
+                    zf = rel[n]
+                    put(1, base, f, mid - dw - w, mid - dw, zf, zf + spec.door_h)
+                    put(2, base, f, mid + dw, mid + dw + w, zf, zf + spec.door_h)
+                    put(3, base, f, mid - dw - w, mid + dw + w, zf + spec.door_h, zf + spec.door_h + w)
+                    put(4, sill0, f - sign * spec.door_t, mid - dw - w, mid + dw + w, zf - w, zf)
+            n0, n1 = sorted((f, f - sign * spec.door_t))
             for tag, u0, u1, d in (("N", mid - dw - o, mid - o, -1), ("P", mid + o, mid + dw + o, 1)):
-                slide = ((0.0, d) if axis == "s" else (d, 0.0), dw)
+                slide = ((0.0, d) if axis == "s" else (d, 0.0), travel)
                 c = f"LDOOR_{code}_{st.level_name(n)}_{tag}"
                 if axis == "s":
                     box(c, K.LANDING_DOOR, n0, n1, u0, u1, rel[n], rel[n] + spec.door_h, 0, slide, n)
                 else:
                     box(c, K.LANDING_DOOR, u0, u1, n0, n1, rel[n], rel[n] + spec.door_h, 0, slide, n)
+
+
+def add_fixtures(spec, st, rel, box, face_n, panel_off, panel_w, ind_z):
+    """정지층 문마다 호출 버튼 판·버튼·층 표시기 (face_n(axis, sign, 층) = 붙는 면의 법선 좌표)"""
+    from elevators.hall_fixture import hall_fixtures, right_sign
+    for n in range(spec.lower_floor, spec.upper_floor + 1):
+        for axis, sign in sorted(spec.doors_at(n)):
+            mid = spec.t_center if axis == "s" else spec.s_center
+            for code, kind, (n0, n1), (v0, v1), (z0, z1) in hall_fixtures(
+                    axis, sign, face_n(axis, sign, n), mid, rel[n], st.level_name(n), n, panel_at=mid + right_sign(axis, sign) * panel_off,
+                    panel_w=panel_w, ind_z=ind_z, up=n < spec.upper_floor, down=n > spec.lower_floor):
+                if axis == "s":
+                    box(code, kind, n0, n1, v0, v1, z0, z1, 0, None, n)
+                else:
+                    box(code, kind, v0, v1, n0, n1, z0, z1, 0, None, n)
 
 
 def pit_ladder(spec, rel, pit_top, face_n, box, car_box=None):
@@ -282,7 +352,7 @@ def pit_ladder(spec, rel, pit_top, face_n, box, car_box=None):
     c = face_n(axis, sign) - sign * 0.15
     n0, n1 = c - 0.015, c + 0.015
     mid = spec.t_center if axis == "s" else spec.s_center
-    z0, z1 = pit_top, rel[spec.lower_floor]
+    z0, z1 = pit_top, rel[spec.lower_floor] - (PORTAL_T if spec.car_gap is not None else 0.0)     # 깊은 문틀 바닥판 아래까지
     if car_box is not None and z1 > car_box[0]:
         z1 = car_box[0]                                             # 카가 최하층에 서 있으면 카 바닥 아래까지
     if z1 - z0 < 0.3:
@@ -304,12 +374,12 @@ def pit_ladder(spec, rel, pit_top, face_n, box, car_box=None):
 def _car_bottom(spec, zc):
     """사다리 위 끝 상한: 카 평면이 사다리 평면을 덮으면 카 바닥판 하면 (아니면 None)"""
     axis = spec.door_axis
-    half = (spec.car_depth / 2.0 + spec.car_wall_t)
+    half = (spec.car_depth / 2.0 + spec.car_wall_t) - spec.door_sign * (spec.car_shift()[0] + spec.car_shift()[1])   # 사다리 쪽
     inner = (spec.inner_s if axis == "s" else spec.inner_t) / 2.0
     return (zc - spec.car_floor_t,) if half > inner - 0.18 else None
 
 
-def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts):
+def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open, lo, pit_top, box, parts, ffl):
     """투시형 승강로 (실무 표준도 068·069): RC 피트 + 모서리 강관 기둥 + 가로재 + 층마다 유리 + 천장 위 금속 패널 띠 + 카.
     면 코드 PS/NS (±s 면), PT/NT (±t 면). ±s 면 유리·패널이 t 방향 외곽 전체, ±t 면은 그 사이 (모서리 겹침 없음)"""
     st, pl = cfg.station, cfg.platform
@@ -351,9 +421,20 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     for h in spec.glass_rows:
         joints.append((acc, acc + h))
         acc += h
+    all_joints, door_top = joints, oh
+
+    def floor_joints(n):
+        """(층 n 유리 줄, 문 자리 높이): 정지 바닥이 마감만큼 올라가 위 슬래브 하면을 넘으면 맨 위 줄을 그만큼 줄임"""
+        z0, z1 = all_joints[-1]
+        over = rel[n] + z1 - ranges[n][0]
+        if _EPS < over <= ffl[n] + _EPS and z1 - over - z0 > 0.05 and z1 - over >= spec.door_h:
+            z1 -= over
+        return all_joints[:-1] + [(z0, z1)], min(door_top, z1)
+
     for n in range(k0, k1 + 1):
         lvl = st.level_name(n)
-        zg1 = rel[n] + spec.glass_z0 + spec.glass_height
+        joints, oh = floor_joints(n)
+        zg1 = rel[n] + joints[-1][1]
         if zg1 > ranges[n][0] + _EPS:
             raise ValueError(f"엘리베이터 {name}: {lvl} 유리 윗면(FL+{zg1:.3f})이 위 슬래브 하면(FL+{ranges[n][0]:.3f})보다 높습니다 "
                              "(유리 줄 높이를 줄이세요)")
@@ -425,6 +506,7 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     rg = spec.girt_d / 2.0
     for n in range(k0, k1 + 1):
         lvl = st.level_name(n)
+        joints, oh = floor_joints(n)
         on = spec.doors_at(n)
         for tag, axis, sign in faces:
             if axis == "s":                                         # ±s 면 가로재: 축 = t 방향, s = 기둥 선
@@ -453,7 +535,11 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     zc = car_z(spec, rel)
     car_parts(spec, zc, spec.door_open, box)
     glass_in = lambda axis, sign: ((S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)) - sign * gt
-    landing_doors(spec, rel, st, glass_in, box)
+    landing_doors(spec, rel, st, glass_in, box, sill_in=max(0.0, pt - gt))
+    if spec.fixtures:                                              # 문틀(유리 평면) 앞: 오른쪽 잼에 호출 판, 상부에 표시기
+        glass_out = lambda axis, sign, n: (S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)
+        add_fixtures(spec, st, rel, box, glass_out, spec.door_w / 2.0 + fw / 2.0, min(0.08, 0.8 * fw),
+                     max((spec.door_h + oh) / 2.0, spec.door_h + 0.1))
     if spec.ladder:
         outer_face = lambda axis, sign: (S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)
         pit_ladder(spec, rel, pit_top, outer_face, box, _car_bottom(spec, zc))

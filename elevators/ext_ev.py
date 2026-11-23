@@ -30,9 +30,10 @@ from types import SimpleNamespace
 from typing import Optional
 
 from config.layout_cache import cached_layout
-from elevators.elevator_layout import car_parts, car_z, landing_doors
+from elevators.elevator_layout import PORTAL_T, car_parts, car_z, landing_doors
 from elevators.elevator_spec import ElevatorSpec
 from elevators.elevator_type import ElevatorPartKind as K
+from elevators.hall_fixture import IND_H, hall_fixtures, right_sign
 from helper.box_piece import BoxPiece, cut_faces_by_plane
 from helper.strip_member import Strip
 from helper.vertical_prism import VerticalPrism, circle_points
@@ -109,6 +110,8 @@ class ExtEvSpec:
     girt_d: float = 0.0891
     spider: float = 0.1
     spider_d: float = 0.03
+    fixtures: bool = False           # 승강장 호출 버튼 판 · 층 표시기 (hall_fixture)
+    car_gap: Optional[float] = None  # 카 문 ↔ 승강장 문 간격 (None = 카를 승강로 중심에, 내부 EV 와 같음)
 
     @property
     def axis(self) -> str:
@@ -499,7 +502,9 @@ def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float, shared
     esp = ElevatorSpec(lower_floor=1, upper_floor=2, car_floor=2 if spec.car_at == "ground" else 1, s_center=uc, t_center=tc,
                        inner_s=inner[0], inner_t=inner[1], wall_t=w, door_floors=[_side(lf), _side(spec.face)],
                        door_w=spec.door_w, door_h=spec.door_h, car_width=spec.car_width, car_depth=spec.car_depth,
-                       car_height=spec.car_height, car_offset=spec.car_offset, door_open=spec.door_open)
+                       car_height=spec.car_height, car_offset=spec.car_offset, door_open=spec.door_open, car_gap=spec.car_gap,
+                       clear_in=(PIPE_GAP + spec.col_d / math.cos(math.pi / 16)
+                                 + ElevatorSpec(car_gap=spec.car_gap).pipe_clear()) if spec.low_finish == "glass" else 0.0)
     rel = {1: zl, 2: Zs}
     zc = car_z(esp, rel)
     if not zl - _EPS <= zc <= Zs + _EPS:
@@ -512,6 +517,22 @@ def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float, shared
     low_d = spec.low_glass_t if spec.low_finish == "glass" else 0.0 if shared is not None else w
     landing_doors(esp, rel, names, door_plane(low_d), box, floors=(1,))
     landing_doors(esp, rel, names, door_plane(w), box, floors=(2,))
+
+    if spec.fixtures:                                              # 호출 버튼 판 · 층 표시기
+        fw = spec.door_frame_w
+        glass = spec.low_finish == "glass"
+        depth = 0.0 if glass or recess is None else recess[0] + recess[1]          # 폐쇄형 문틀 앞면 (통로·본체 벽 마감 표면)
+        lo_ = (U1 if lsg > 0 else U0) if lax == "u" else (T1 if lsg > 0 else T0)
+        ind = (spec.door_h + lh) / 2.0 if glass else lh + 0.05 + IND_H / 2.0
+        fx = hall_fixtures(lax, lsg, lo_ + lsg * depth, lmid, zl, "LOW", 1, panel_at=lmid + right_sign(lax, lsg) * (dw + fw / 2.0),
+                           panel_w=min(0.08, 0.8 * fw), ind_z=ind, up=True, down=False)
+        fx += hall_fixtures(ax, sg, o, mid, Zs, "GND", 2, panel_at=mid + dw + pr / 2.0, panel_w=min(0.12, 0.6 * pr),
+                            ind_z=(spec.door_h + spec.sill + spec.low_glass) / 2.0, up=False, down=True)
+        for (code, kind, nn, vv, zz), a in [(x, lax) for x in fx[:3]] + [(x, ax) for x in fx[3:]]:
+            if a == "u":
+                box(code, kind, *nn, *vv, *zz, stop=1 if code.endswith("LOW") else 2)
+            else:
+                box(code, kind, *vv, *nn, *zz, stop=1 if code.endswith("LOW") else 2)
 
     # ---- 기단·경사로·추락방지턱·난간 (문 앞, 박스 폭)
     _approach(spec, frame, parts, box, (U0, U1, T0, T1), mid, G, Zs)
@@ -670,9 +691,13 @@ def check_ext_ev(spec: ExtEvSpec, name: str):
             raise ValueError(f"외부 엘리베이터 {name}: 투시형 개구부 높이({h:g}m)가 문 높이 + 문틀보다 낮습니다")
         if spec.spider_d >= ElevatorSpec().door_gap - _EPS or spec.girt_d > spec.col_d + _EPS:
             raise ValueError(f"외부 엘리베이터 {name}: 스파이더 깊이는 승강장 문 띄움보다, 가로재는 기둥보다 작아야 합니다")
+        if spec.car_gap is not None and PORTAL_T > spec.door_frame_w + _EPS:
+            raise ValueError(f"외부 엘리베이터 {name}: 승강장 문틀 폭({spec.door_frame_w:g}m)이 깊은 문틀 두께({PORTAL_T:g}m)보다 작습니다")
         room = spec.wall_t + PIPE_GAP + spec.col_d + 0.01
         if min(spec.width - 2 * room - spec.car_width, spec.depth - 2 * room - spec.car_depth) < 0.3:
             raise ValueError(f"외부 엘리베이터 {name}: 강관 기둥 안쪽이 카에 비해 좁습니다")
+    if spec.car_gap is not None and not 0.01 <= spec.car_gap <= 0.5:
+        raise ValueError(f"외부 엘리베이터 {name}: 카 문 ↔ 승강장 문 간격은 0.01 ~ 0.5m 여야 합니다 ({spec.car_gap:g})")
     if spec.host not in HOSTS:
         raise ValueError(f"외부 엘리베이터 {name}: 위치 기준은 {', '.join(HOSTS)} 중 하나여야 합니다 ({spec.host!r})")
     if spec.host == "passage" and (spec.host_side not in (1, -1) or spec.along < 0):

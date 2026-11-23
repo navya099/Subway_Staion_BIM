@@ -4,6 +4,7 @@ from typing import Optional
 
 from bim_data.common_bim_data import CommonBIMData
 from config.master_config import StationProjectConfig
+from elevators import hall_fixture as HF
 from elevators.elevator_engine import tri_faces
 from helper.box_piece import cut_faces_by_plane
 from helper.strip_member import StripShape, part_faces, strip_faces
@@ -32,6 +33,9 @@ EXT_EV = {"RC_WALL": ("Concrete_C24", "STRUCT_ELEVATOR", ("IfcWall", "SOLIDWALL"
           "SPIDER": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcDiscreteAccessory", "BRACKET")),
           "COLUMN": ("EV_Steel_Pipe", "STRUCT_ELEVATOR_FRAME", ("IfcColumn", "COLUMN")),
           "GIRT": ("EV_Steel_Pipe", "STRUCT_ELEVATOR_FRAME", ("IfcMember", "MEMBER")),
+          "CALL_PANEL": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcUnitaryControlElement", "CONTROLPANEL")),
+          "CALL_BUTTON": ("EV_Button", "STRUCT_ELEVATOR_FRAME", ("IfcSwitchingDevice", "MOMENTARYSWITCH")),
+          "INDICATOR": ("EV_Indicator", "STRUCT_ELEVATOR_FRAME", ("IfcUnitaryControlElement", "INDICATORPANEL")),
           "LANDING_DOOR": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcDoor", "DOOR")),
           "CAR_FLOOR": ("Steel", "STRUCT_ELEVATOR_CAR", ("IfcBuildingElementPart", "USERDEFINED")),
           "CAR_WALL": ("Steel", "STRUCT_ELEVATOR_CAR", ("IfcBuildingElementPart", "USERDEFINED")),
@@ -129,6 +133,10 @@ class ExtEvEngine:
                 if e.kind == "SIGN_FACE":
                     e.face_entities = e.source_element
 
+    def stop_labels(self, x: ExtEvData) -> dict:
+        """정지 번호 → 층 이름 (지하 = 소속 층, 지상 = 1F)"""
+        return {1: self.sp.level_name(x.layout.floor), 2: "1F"}
+
     def sign_images(self) -> list:
         """역명 띠 사인 [(재질 이름, PIL 이미지, uv 틀, 앞면 3DFACE 목록)] — add_ext_ev_mesh 뒤에 부를 것"""
         from signs.nameplate import render_entrance_sign
@@ -138,7 +146,15 @@ class ExtEvEngine:
         out = []
         for x in self.ext_evs:
             fr, sp = x.frame, x.layout.spec
+            label = self.stop_labels(x)[min(x.stops, key=lambda n: abs(x.stops[n] - x.car_z))]
             for e in x.elements:
+                if e.kind in ("CALL_BUTTON", "INDICATOR"):         # 호출 버튼·층 표시기
+                    _, axis, sign = HF.parse_code(e.code)
+                    st = e.shape.strips[0]
+                    nrm, tan = ((st.s0, st.s1), e.t_range) if axis == "s" else (e.t_range, (st.s0, st.s1))
+                    frame = HF.front_frame(fr.to_world, axis, sign, nrm, tan, (st.zb0, st.zt))
+                    out.append((f"사인 {e.name}", HF.fixture_image(e.code, label), frame, e.source_element))
+                    continue
                 if not getattr(e, "face_entities", None):
                     continue
                 if e.kind == "SIGN":                               # ±u 면: 앞면 띠 = strips[1], 접선 = t

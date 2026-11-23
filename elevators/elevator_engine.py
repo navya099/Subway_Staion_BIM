@@ -1,5 +1,6 @@
 from config.master_config import StationProjectConfig
 from elevators.elevator_data import ElevatorData, ElevatorElementData
+from elevators import hall_fixture as HF
 from elevators.elevator_type import ElevatorPartKind as K
 from helper.geometry_helper import CommonHelper
 from helper.strip_member import part_faces, section_spans
@@ -10,13 +11,16 @@ _FAMILY = {K.HOIST_WALL: "콘크리트-승강로벽", K.PIT_SLAB: "콘크리트-
            K.CAR_DOOR: "엘리베이터-카문", K.PIT_WALL: "콘크리트-엘리베이터피트벽", K.COLUMN: "강관-승강로기둥",
            K.GIRT: "강관-승강로가로재", K.GLASS: "강화유리-승강로", K.PANEL: "금속패널-승강로띠",
            K.CAR_GLASS: "엘리베이터-카유리", K.LANDING_DOOR: "엘리베이터-승강장문", K.DOOR_FRAME: "엘리베이터-승강장문틀",
-           K.SPIDER: "DPG-스파이더", K.LADDER: "엘리베이터-점검사다리"}
+           K.SPIDER: "DPG-스파이더", K.LADDER: "엘리베이터-점검사다리", K.CALL_PANEL: "엘리베이터-호출버튼판",
+           K.CALL_BUTTON: "엘리베이터-호출버튼", K.INDICATOR: "엘리베이터-층표시기"}
 _MATERIAL = {K.COLUMN: "EV_Steel_Pipe", K.GIRT: "EV_Steel_Pipe", K.GLASS: "EV_Glass", K.PANEL: "갈바륨 패널",
              K.CAR_GLASS: "EV_Glass", K.LANDING_DOOR: "Stainless_Steel", K.DOOR_FRAME: "Stainless_Steel",
-             K.SPIDER: "Stainless_Steel", K.LADDER: "EV_Steel_Pipe"}
+             K.SPIDER: "Stainless_Steel", K.LADDER: "EV_Steel_Pipe", K.CALL_PANEL: "Stainless_Steel",
+             K.CALL_BUTTON: "EV_Button", K.INDICATOR: "EV_Indicator"}
 _LAYER = {K.COLUMN: "STRUCT_ELEVATOR_FRAME", K.GIRT: "STRUCT_ELEVATOR_FRAME", K.PANEL: "STRUCT_ELEVATOR_FRAME",
           K.GLASS: "STRUCT_ELEVATOR_GLASS", K.LANDING_DOOR: "STRUCT_ELEVATOR_FRAME", K.DOOR_FRAME: "STRUCT_ELEVATOR_FRAME",
-          K.SPIDER: "STRUCT_ELEVATOR_FRAME", K.LADDER: "STRUCT_ELEVATOR_FRAME"}
+          K.SPIDER: "STRUCT_ELEVATOR_FRAME", K.LADDER: "STRUCT_ELEVATOR_FRAME", K.CALL_PANEL: "STRUCT_ELEVATOR_FRAME",
+          K.CALL_BUTTON: "STRUCT_ELEVATOR_FRAME", K.INDICATOR: "STRUCT_ELEVATOR_FRAME"}
 CONCRETE_KINDS = (K.HOIST_WALL, K.PIT_SLAB, K.TOP_SLAB, K.PIT_WALL)
 
 
@@ -67,7 +71,7 @@ class ElevatorEngine:
                          K.CAR_DOOR: spec.car_wall_t, K.PIT_WALL: spec.wall_t, K.COLUMN: spec.col_d,
                          K.GIRT: spec.girt_d, K.GLASS: spec.glass_t, K.PANEL: spec.panel_t, K.CAR_GLASS: spec.car_wall_t,
                          K.LANDING_DOOR: spec.door_t, K.DOOR_FRAME: spec.door_frame_w, K.SPIDER: spec.spider_d,
-                         K.LADDER: 0.03}[kind]
+                         K.LADDER: 0.03, K.CALL_PANEL: HF.PANEL_T, K.CALL_BUTTON: HF.BTN_T, K.INDICATOR: HF.IND_T}[kind]
                 elements.append(ElevatorElementData(
                     name=f"{lay.name}_{code}", family_name=_FAMILY[kind], type_name=f"{int(round(thick * 1000))}mm",
                     level=level, pos_z=min(p.z_range[0] for p in parts),
@@ -100,6 +104,22 @@ class ElevatorEngine:
                     else _LAYER.get(e.kind, "STRUCT_ELEVATOR")
                 faces = tri_faces([f for p in e.parts for f in ev_part_faces(self.cfg, p)])
                 e.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
+
+    def sign_images(self) -> list:
+        """호출 버튼·층 표시기 앞면 [(재질 이름, PIL 이미지, uv 틀, 3DFACE 목록)] — add_elevator_mesh 뒤에 부를 것"""
+        out = []
+        for ev in self.elevators:
+            label = self.sp.level_name(min(ev.stops, key=lambda n: abs(ev.stops[n] - ev.car_z)))
+            for e in ev.elements:
+                if e.kind not in (K.CALL_BUTTON, K.INDICATOR):
+                    continue
+                _, axis, sign = HF.parse_code(e.code)
+                p = e.parts[0]
+                st = p.shape.strips[0]
+                nrm, tan = ((st.s0, st.s1), p.t_range) if axis == "s" else (p.t_range, (st.s0, st.s1))
+                frame = HF.front_frame(self.cfg.to_world, axis, sign, nrm, tan, (st.zb0, st.zt))
+                out.append((f"사인 {e.name}", HF.fixture_image(e.code, label), frame, e.source_element))
+        return out
 
     # ---------- 2D 도면 ----------
     def section_items(self, sta):

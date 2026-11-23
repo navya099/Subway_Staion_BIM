@@ -147,7 +147,7 @@ def test_column_and_shaft_rings():
     S0, S1, T0, T1 = ev.outer_rect()
     shaft = [p for p in col.pieces if S0 - f - 1e-9 <= PM.s_range(p)[0] and PM.s_range(p)[1] <= S1 + f + 1e-9]
     perim = 2 * (S1 - S0 + 2 * f) + 2 * (T1 - T0)
-    assert sum(p.shape.volume for p in shaft) == pytest.approx(f * (perim * 3.0 - 0.9 * 2.0))   # 출입구(문 0.9 x 마감면 위 2.0)
+    assert sum(p.shape.volume for p in shaft) == pytest.approx(f * (perim * 3.0 - 0.9 * 2.1))   # 출입구(문 0.9 x 2.1, 정지 바닥 = 마감면)
 
 
 # ===================================================== 천장·천장틀

@@ -38,6 +38,8 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("콘크리트", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("논슬립", (0.22, 0.22, 0.24)),
     RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
+    RenderMaterial("스테인리스 헤어라인", (0.72, 0.73, 0.75), "stainless_hairline", 0.5, 0.5),   # 엘리베이터 문·문틀·호출 판
+    RenderMaterial("강관 도장", (0.55, 0.57, 0.60)),                                         # 투시형 승강로 강관 (회색 도장)
     RenderMaterial("알루미늄 프레임", (0.75, 0.76, 0.78)),
     RenderMaterial("흑색 걸레받이", (0.10, 0.10, 0.11), "Skirting", 0.8, 0.2),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),

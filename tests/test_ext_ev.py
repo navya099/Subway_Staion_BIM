@@ -293,7 +293,7 @@ def test_low_front_volumes_and_materials(tmp_path):
     assert any(n.startswith("A_LGLASS") and e.is_a("IfcPlate") for n, e in by.items())
     eng.build_3d_doc()
     mats = element_materials(eng)
-    for code, name in (("LFRAME", "스테인리스"), ("LINING", "스테인리스"), ("LDOOR_NT_LOW_N", "스테인리스"), ("LOW_FLOOR", "화강석")):
+    for code, name in (("LFRAME", "스테인리스 헤어라인"), ("LINING", "스테인리스 헤어라인"), ("LDOOR_NT_LOW_N", "스테인리스 헤어라인"), ("LOW_FLOOR", "화강석")):
         e = next(e for e in x.elements if e.code.startswith(code))
         assert mats[e.source_element[0].dxf.handle].name == name
     assert all(f.dxf.layer == "STRUCT_ELEVATOR_GLASS" for e in x.elements if e.code.startswith("LGLASS") for f in e.source_element)

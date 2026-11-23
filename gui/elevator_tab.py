@@ -219,7 +219,7 @@ class ElevatorTab:
         self._entry(row, it, "car_offset", (i, "car_offset"), 5).pack(side="left", padx=(2, 8))
         tk.Label(row, text="문 열림(0~1)", font=FONT).pack(side="left")
         self._entry(row, it, "door_open", (i, "door_open"), 4).pack(side="left", padx=(2, 8))
-        for attr, label in (("car_glass", "투시형 카"), ("ladder", "피트 사다리")):
+        for attr, label in (("car_glass", "투시형 카"), ("ladder", "피트 사다리"), ("fixtures", "호출 버튼·층 표시")):
             bv = tk.BooleanVar(value=getattr(it, attr, True))
             self._vars[(i, attr)] = bv
 
@@ -231,7 +231,8 @@ class ElevatorTab:
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
-        for n, (attr, label) in enumerate(NUM_FIELDS + GLASS_FIELDS + [("glass_rows", "유리 줄 높이(쉼표)")]):
+        for n, (attr, label) in enumerate(NUM_FIELDS + GLASS_FIELDS + [("glass_rows", "유리 줄 높이(쉼표)"),
+                                                                                  ("car_gap", "카 문 간격(비우면 가운데)")]):
             r, col = divmod(n, 2)
             tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
             self._entry(grid, it, attr, (i, attr), ENTRY_W).grid(row=r, column=col * 2 + 1, padx=(2, 12), pady=1)
@@ -373,11 +374,17 @@ class ElevatorTab:
         entry(row, "door_open", "문 열림(0~1)", 4)
 
         row = line()
+        entry(row, "car_gap", "카 문 간격(비우면 가운데)", 5)
+        row = line()
         combo(row, "low_finish", "지하 마감", X.LOW_LABELS, 16)
         entry(row, "ground_el", "지표 EL(비우면 자동)", 8)
         row = line()
         entry(row, "line_name", "사인 노선명", 8)
         entry(row, "sign_bg", "사인 배경색", 8)
+        bv = tk.BooleanVar(value=it.fixtures)
+        self._vars[("ext", i, "fixtures")] = bv
+        bv.trace_add("write", lambda *_: setattr(it, "fixtures", bool(bv.get())))
+        tk.Checkbutton(row, text="호출 버튼·층 표시", variable=bv, font=FONT).pack(side="left")
         info = tk.StringVar(value="")
         self._ext_infos.append((info, it))
         tk.Label(box, textvariable=info, font=FONT, fg="#1565C0", anchor="w", justify="left", wraplength=560).pack(fill="x")

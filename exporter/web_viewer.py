@@ -10,6 +10,7 @@ three.js(assets/web/three.min.js, MIT)와 모델 자료를 HTML 한 파일에 �
 - 부재 표: 이름·레이어·층·재질·종류 (클릭 정보)
 - 텍스처: DAE 와 같은 재질·텍스처 좌표(dae_exporter.texture_axes / frame_uv) — 텍스처 이미지(assets/image/tile)가 있는 재질은
   꼭짓점 uv(float32 ×2), 이미지는 긴 변 IMAGE_MAX px 로 줄여 data URL(JPEG, 투명 PNG 는 PNG). 사인은 그린 이미지를 면에 한 장
+- 엘리베이터: 움직이는 부재는 태그(exporter.ev_anim)별 묶음, evs = 정지층·문짝 이동·호출 버튼, 층 표시기 이미지
 - 표시 묶음(미리보기와 같은 LAYER_GROUPS), 층(이름, 천장 하면 h, FL h), 선형 중심 표본(1m: s, x, y, FL 표고 — 걷기 높이)
 """
 import base64
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
+from exporter import ev_anim
 from exporter.dae_exporter import element_materials, frame_uv, stair_face_frames, texture_axes, tread_uv
 from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, layer_material
 from preview.preview_render import LAYER_GROUPS, station_of
@@ -111,7 +113,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         sign_img[m.name] = signs.image(e)
         for ent in e.face_entities:
             mat_of[ent.dxf.handle] = m
-    for name, img, frame, faces in [s for k in ("entrances", "ext_evs") if getattr(engine, k, None) is not None
+    for name, img, frame, faces in [s for k in ("entrances", "ext_evs", "elevators") if getattr(engine, k, None) is not None
                                     for s in getattr(engine, k).sign_images()]:    # 출입구 캐노피 출구 사인 · 외부 EV 역명 띠
         m = RenderMaterial(name, (1.0, 1.0, 1.0), frame=frame)
         sign_img[m.name] = img
@@ -121,7 +123,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     tread_frames = stair_face_frames(engine)
     skip = set() if frames else SKIP_LAYERS
 
-    chunks = {}                                          # (레이어, 재질 이름) → [꼭짓점 목록, 부재 번호]
+    evs, tag_of = ev_anim.build(engine, (0.0, 0.0, 0.0))                 # 움직이는 부재 태그 (원점은 아래에서 뺌)
+    chunks = {}                                          # (레이어, 재질 이름, 엘리베이터 태그) → [꼭짓점 목록, 부재 번호]
     mats = {}
     elems, elem_id = [], {}
     first = None
@@ -142,9 +145,13 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
             elem_id[key_e] = len(elems)
             elems.append({"name": key_e[0], "layer": d.layer, "group": _group_of(d.layer), "level": info[1],
                           "material": info[2] or m.name, "type": info[3]})
-        chunks.setdefault((d.layer, m.name), []).append((v, elem_id[key_e], d.handle))
+        chunks.setdefault((d.layer, m.name, tag_of.get(d.handle, "")), []).append((v, elem_id[key_e], d.handle))
     origin = np.floor(np.array(first if first is not None else (0.0, 0.0, 0.0), dtype=float))
 
+    for ev in evs:
+        ev["z"] = round(ev["z"] - float(origin[2]), 5)
+        for stop in ev["stops"]:
+            stop["z"] = round(stop["z"] - float(origin[2]), 5)
     a, base = cfg.align, st.start_station
     lo = max(a.start_station, base - 300.0) - base
     hi = min(a.end_station, base + st.length + 300.0) - base
@@ -180,7 +187,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         blob.extend(np.ascontiguousarray(arr).tobytes())
         return off
 
-    for (layer, mname), faces in chunks.items():
+    for (layer, mname, tag), faces in chunks.items():
         pts = np.array([p for f, *_ in faces for p in f], dtype=float)
         s = station_of(cfg, pts[:, :2], lo, hi)
         h = pts[:, 2] - np.interp(s, sq, flq)
@@ -201,6 +208,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
                 "nv": len(pts), "nt": len(tri_e),
                 "pos": put(rel), "sh": put(sh), "idx": put(np.array(idx, dtype=np.uint32)),
                 "elem": put(np.array(tri_e, dtype=np.uint32)), "tex": None}
+        if tag:
+            item["anim"] = tag
         key = tex_key(m)
         if key is not None:
             if m.frame:                                  # 사인: 이미지 한 장을 면에 맞춤
@@ -233,6 +242,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         meta.append(item)
         tri_total += len(tri_e)
 
+    for key, img in ev_anim.indicator_images(evs).items():
+        images[key] = image_data_url(img)
     # 선형 중심 표본 (걷기·STA 표시): s, 상대 x, y, FL 표고(상대)
     cs = np.arange(max(lo, -50.0), min(hi, st.length + 50.0) + 1e-9, 1.0)
     cl = [[round(float(x), 3), *[round(float(c), 4) for c in (np.array(cfg.to_world(x, 0.0)) - origin[:2])],
@@ -242,7 +253,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
             "groups": [{"name": n, "on": on} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
             "floors": floors, "length": st.length,
             "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
-            "title": "정거장 3D 뷰어", "triangles": tri_total, "images": images, "missing_textures": sorted(missing)}
+            "title": "정거장 3D 뷰어", "triangles": tri_total, "images": images, "evs": evs, "missing_textures": sorted(missing)}
     return data, gzip.compress(bytes(blob), compresslevel=6)
 
 

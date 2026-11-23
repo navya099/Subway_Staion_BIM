@@ -20,6 +20,9 @@ class ElevatorPartKind(Enum):
     DOOR_FRAME = "DOOR_FRAME"    # 투시형: 승강장 문틀 (양옆 잼 + 상부)
     SPIDER = "SPIDER"            # 투시형: DPG 스파이더 철물
     LADDER = "LADDER"            # 피트 점검 사다리
+    CALL_PANEL = "CALL_PANEL"    # 승강장 호출 버튼 판
+    CALL_BUTTON = "CALL_BUTTON"  # 호출 버튼 (위 / 아래)
+    INDICATOR = "INDICATOR"      # 문 위 층 표시기
 
     @property
     def is_car(self) -> bool:

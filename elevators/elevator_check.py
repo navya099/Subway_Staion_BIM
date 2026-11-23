@@ -1,6 +1,6 @@
 from config.layout_cache import cached_layout
 from elevators.elevator_layout import layout_elevator
-from elevators.elevator_spec import DOOR_SIDES, ElevatorSpec, resolve_elevator_names
+from elevators.elevator_spec import DOOR_SIDES, SHAFTS, ElevatorSpec, resolve_elevator_names
 from openings.decompose import overlap_area
 
 _EPS = 1e-6
@@ -24,6 +24,20 @@ def check_elevator_spec(station, spec, name: str):
                          f"{station.level_name(k1)})를 벗어납니다")
     if spec.door_side not in DOOR_SIDES:
         raise ValueError(f"엘리베이터 {name}: 문 방향은 {', '.join(DOOR_SIDES)} 중 하나여야 합니다 ({spec.door_side!r})")
+    if spec.shaft not in SHAFTS:
+        raise ValueError(f"엘리베이터 {name}: 승강로 형식은 {', '.join(SHAFTS)} 중 하나여야 합니다 ({spec.shaft!r})")
+    if spec.door_floors is not None:
+        need = k1 - k0 + 1
+        if len(spec.door_floors) != need:
+            raise ValueError(f"엘리베이터 {name}: 층별 문 방향은 정지층 수({need}개)만큼 입력하세요 ({len(spec.door_floors)}개)")
+        for k, item in enumerate(spec.door_floors):
+            sides = [d for d in str(item).split("/") if d]
+            bad = [d for d in sides if d not in DOOR_SIDES]
+            if not sides or bad:
+                raise ValueError(f"엘리베이터 {name}: {station.level_name(k0 + k)} 문 방향 '{item}' 이(가) 올바르지 않습니다 "
+                                 f"({', '.join(DOOR_SIDES)} 중 하나 또는 '/' 로 여럿)")
+    if spec.shaft == "glass":
+        check_glass(spec, name)
     for label, val in (("승강로 내공(s)", spec.inner_s), ("승강로 내공(t)", spec.inner_t), ("승강로 벽 두께", spec.wall_t),
                        ("문 폭", spec.door_w), ("문 높이", spec.door_h), ("피트 깊이", spec.pit_depth),
                        ("피트 슬래브 두께", spec.pit_slab_t), ("오버헤드", spec.overhead), ("천장 슬래브 두께", spec.top_slab_t),
@@ -39,6 +53,18 @@ def check_elevator_spec(station, spec, name: str):
         raise ValueError(f"엘리베이터 {name}: 문 폭({spec.door_w:g}m)이 카 폭({spec.car_width:g}m) 이상입니다")
     if spec.door_h > spec.car_height - _EPS:
         raise ValueError(f"엘리베이터 {name}: 문 높이({spec.door_h:g}m)가 카 높이({spec.car_height:g}m) 이상입니다")
+    if not 0.0 <= spec.door_open <= 1.0:
+        raise ValueError(f"엘리베이터 {name}: 문 열림 비율은 0 ~ 1 이어야 합니다 ({spec.door_open})")
+    if spec.door_t <= 0 or spec.door_gap < 0:
+        raise ValueError(f"엘리베이터 {name}: 승강장 문 두께는 0보다, 띄움은 0 이상이어야 합니다")
+    for ax in sorted({a for n in range(k0, k1 + 1) for a, _ in spec.doors_at(n)}):    # 카 문짝 ↔ 승강장 문짝 여유
+        car_half = (spec.car_depth if ax == spec.door_axis else spec.car_width) / 2.0 + 2 * spec.car_wall_t
+        room = (spec.inner_s if ax == "s" else spec.inner_t) / 2.0 - spec.door_gap - spec.door_t
+        if spec.shaft == "glass":
+            room += spec.glass_offset - spec.glass_t
+        if car_half > room + _EPS:
+            raise ValueError(f"엘리베이터 {name}: 카(+ 카 문짝)가 {ax} 방향 승강장 문짝에 닿습니다 (카 반폭 {car_half:.3f} > "
+                             f"{room:.3f}m) — 승강로 내공을 키우거나 카를 줄이세요")
     if spec.pit_depth < spec.car_floor_t - _EPS:
         raise ValueError(f"엘리베이터 {name}: 피트 깊이({spec.pit_depth:g}m)가 카 바닥 두께보다 작습니다")
     if spec.overhead < spec.car_height + spec.car_roof_t - _EPS:
@@ -74,3 +100,37 @@ def check_elevator_layouts(cfg, elevators: list, stairs: list, escalators: list)
                 used = {b.lower_floor, b.lower_floor + 1}
                 if used & _floors(a) and overlap_area(ra, (*b.s_range, *b.t_range)) > 1e-9:
                     raise ValueError(f"엘리베이터 {a.name} 와 {kind} {b.name} 이(가) 평면에서 겹칩니다")
+
+
+def check_glass(spec, name: str):
+    """투시형 승강로 치수: 기둥이 유리 안쪽·내공 바깥, 금속 패널 뒤, 문이 기둥 사이"""
+    for label, val in (("유리 바깥 간격", spec.glass_offset), ("유리 두께", spec.glass_t), ("유리 최대 폭", spec.glass_max_w),
+                       ("기둥 지름", spec.col_d), ("기둥 위치", spec.col_inset), ("가로재 지름", spec.girt_d),
+                       ("금속 패널 두께", spec.panel_t)):
+        if not val > 0:
+            raise ValueError(f"엘리베이터 {name}: {label}은(는) 0보다 커야 합니다 ({val})")
+    if spec.glass_z0 < 0 or not spec.glass_rows or any(not h > 0 for h in spec.glass_rows):
+        raise ValueError(f"엘리베이터 {name}: 유리 아래 끝은 0 이상, 유리 줄 높이는 모두 0 보다 커야 합니다")
+    r = spec.col_d / 2.0
+    if spec.col_inset - r < max(spec.glass_t, spec.panel_t) - _EPS:
+        raise ValueError(f"엘리베이터 {name}: 기둥(중심 {spec.col_inset:g}, 지름 {spec.col_d:g})이 유리·금속 패널에 닿습니다")
+    if spec.col_inset + r > spec.glass_offset + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 기둥이 승강로 내공 안으로 들어옵니다 (유리 바깥 간격 {spec.glass_offset:g} < "
+                         f"기둥 위치 + 반지름 {spec.col_inset + r:g})")
+    if spec.door_frame_w <= 0 or spec.spider <= 0 or spec.spider_d <= 0:
+        raise ValueError(f"엘리베이터 {name}: 문틀 폭·스파이더 크기·깊이는 0보다 커야 합니다")
+    if spec.panel_t > spec.glass_t + spec.door_gap + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 금속 패널 두께({spec.panel_t:g})가 유리 + 승강장 문 띄움보다 큽니다")
+    if spec.spider_d >= spec.door_gap - _EPS:
+        raise ValueError(f"엘리베이터 {name}: 스파이더 깊이({spec.spider_d:g})가 승강장 문 띄움({spec.door_gap:g})보다 작아야 합니다")
+    if spec.girt_d > spec.col_d + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 가로재 지름({spec.girt_d:g})이 기둥 지름({spec.col_d:g})보다 큽니다")
+    S0, S1, T0, T1 = spec.outer_rect()
+    for axis, length in (("s", T1 - T0), ("t", S1 - S0)):
+        if any(ax == axis for n in range(spec.lower_floor, spec.upper_floor + 1) for ax, _ in spec.doors_at(n)):
+            room = length / 2.0 - spec.col_inset - r
+            if spec.door_w / 2.0 + spec.door_frame_w > room + _EPS:
+                raise ValueError(f"엘리베이터 {name}: 문 폭 + 문틀({spec.door_w + 2 * spec.door_frame_w:g}m)이 기둥 사이"
+                                 f"({2 * room:.3f}m)보다 넓습니다")
+    if spec.door_open_h() > spec.glass_z0 + spec.glass_height + _EPS:
+        raise ValueError(f"엘리베이터 {name}: 문 높이({spec.door_h:g}m)가 유리 높이보다 큽니다")

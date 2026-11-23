@@ -77,6 +77,8 @@ LAYER_MATERIALS = {
     "STRUCT_RAILING": RenderMaterial("스테인리스", (0.78, 0.79, 0.80)),
     "STRUCT_RAILING_GLASS": RenderMaterial("난간 유리", (0.59, 0.80, 0.75), alpha=0.35),
     "STRUCT_CANOPY": RenderMaterial("캐노피 철골", (0.32, 0.34, 0.37)),
+    "STRUCT_ELEVATOR_FRAME": RenderMaterial("승강로 강관", (0.36, 0.38, 0.41)),
+    "STRUCT_ELEVATOR_GLASS": RenderMaterial("승강로 유리", (0.70, 0.85, 0.92), alpha=0.3),
     "STRUCT_CANOPY_GLASS": RenderMaterial("캐노피 유리", (0.70, 0.85, 0.92), alpha=0.3),
     "STRUCT_SMOKE": RenderMaterial("알루미늄 프레임", (0.75, 0.76, 0.78)),
     "STRUCT_ESC_GLASS": RenderMaterial("에스컬레이터 유리", (0.70, 0.85, 0.85), alpha=0.3),

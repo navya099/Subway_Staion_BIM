@@ -109,6 +109,18 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    xe = getattr(engine, "ext_evs", None)
+    for x in (xe.ext_evs if xe is not None else []):                 # 외부 엘리베이터 기단·경사로·턱 (화강석)
+        for e in x.elements:
+            if e.kind in ("PODIUM", "RAMP", "CURB", "LOW_FLOOR"):
+                put(e, finish_material(e.material))
+            elif e.kind in ("DOOR_FRAME", "REVEAL", "LANDING_DOOR"):     # 문틀·문·개구부 둘레 (벽 패널과 구분)
+                put(e, finish_material("스테인리스"))
+    evs_ = getattr(engine, "elevators", None)
+    for ev in (evs_.elevators if evs_ is not None else []):         # 투시형 승강로 금속 패널 띠
+        for e in ev.elements:
+            if e.kind.name == "PANEL":
+                put(e, finish_material("금속패널"))
     rails = getattr(engine, "railings", None)
     for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
         put(e, railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material))
@@ -236,9 +248,8 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
                 mat_of[ent.dxf.handle] = m
-    ents_e = getattr(engine, "entrances", None)
-    extra = ents_e.sign_images() if ents_e is not None else []
-    if extra:                                                        # 출입구 캐노피 출구 사인
+    extra = [s for k in ("entrances", "ext_evs") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
+    if extra:                                                        # 출입구 캐노피 출구 사인 · 외부 엘리베이터 역명 띠
         tex_dir = path.parent / TEXTURE_FOLDER
         tex_dir.mkdir(exist_ok=True)
         for k, (name, img, frame, faces) in enumerate(extra, start=1):

@@ -110,7 +110,7 @@ def _auto_blocks(cfg, ts, n: int, stairs, escs, evs) -> list:
                 continue
             s0, s1, t0, t1 = lay.outer_rect()
             c, d, half = ts.ev_clear, ts.ev_depth, sp.door_w / 2.0 + ts.size
-            sides = [sp.door_side] + ([{"+": "-", "-": "+"}[sp.door_side[0]] + sp.door_side[1]] if sp.through else [])
+            sides = [("+" if sg > 0 else "-") + ax for ax, sg in sorted(sp.doors_at(n))]
             for side in sides:
                 if side == "+s":
                     r = (s1 + c, s1 + c + d, sp.t_center - half, sp.t_center + half)

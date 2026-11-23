@@ -19,6 +19,7 @@ from config.alignment_landxml import LandXMLOptions
 from config.alignment_text import XYZOptions
 from gui.column_draft import FloorDraft, PatternDraft, RowDraft
 from gui.elevator_draft import ElevatorDraft, ElevatorDrafts
+from gui.ext_ev_draft import ExtEvDraft, ExtEvDrafts, migrate_entrance_evs
 from gui.entrance_draft import EntranceDraft, EntranceDrafts
 from gui.escalator_draft import EscalatorDraft, EscalatorDrafts
 from gui.finish_draft import FinishTypeDraft, StairFinishDraft, default_drafts
@@ -50,7 +51,8 @@ _NESTED = {(FloorDraft, "rows"): RowDraft, (RowDraft, "patterns"): PatternDraft,
 LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": (StairDrafts, StairDraft),
                "escalator_drafts": (EscalatorDrafts, EscalatorDraft), "passage_drafts": (PassageDrafts, PassageDraft),
                "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft),
-               "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "room_drafts": (RoomDrafts, RoomDraft),
+               "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "ext_ev_drafts": (ExtEvDrafts, ExtEvDraft),
+               "room_drafts": (RoomDrafts, RoomDraft),
                "tactile_drafts": (TactileDrafts, TactilePathDraft), "widen_drafts": (WidenDrafts, WidenDraft)}
 
 
@@ -209,6 +211,7 @@ class ProjectState:
     entrance_drafts: list = field(default_factory=list)
     vent_drafts: list = field(default_factory=list)
     elevator_drafts: list = field(default_factory=list)
+    ext_ev_drafts: list = field(default_factory=list)          # 외부 엘리베이터 (엘리베이터 탭)
     print_draft: PrintDraft = field(default_factory=PrintDraft)     # 출력 탭 옵션
     room_drafts: list = field(default_factory=list)
     room_settings: RoomSettingsDraft = field(default_factory=RoomSettingsDraft)   # 칸막이벽 두께·층별 기본 실
@@ -267,6 +270,8 @@ class ProjectState:
             if not isinstance(items, list):
                 raise ValueError(f"{name}: 목록이어야 합니다")
             setattr(st, name, [_build(elem, x, f"{name} {i + 1}") for i, x in enumerate(items)])
+        if "ext_ev_drafts" not in d:                               # 옛 파일: 출입구 입력 안의 외부 EV → 독립 객체
+            st.ext_ev_drafts = migrate_entrance_evs(d.get("entrance_drafts") or [])
         if "finish_enabled" in d:
             st.finish_enabled = bool(d["finish_enabled"])
         if isinstance(d.get("finish_drafts"), list):                 # 옛 파일에는 없음 → 기본 마감표

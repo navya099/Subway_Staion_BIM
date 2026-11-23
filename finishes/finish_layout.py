@@ -467,6 +467,8 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                     if zb is None:
                         continue
                     base_abs = cfg.lv(ev.spec.s_center) - st.offset
+                    if ev.spec.shaft == "glass":
+                        continue                                  # 투시형: 유리·금속 패널이 마감
                     holes = [(rect, z0 - base_abs, z1 - base_abs) for _, _, fnum, rect, z0, z1 in ev.door_openings if fnum == n]
                     rings.append(((S0, S1, T0, T1), zb, holes))
                 for rect, zb, door_holes in rings:

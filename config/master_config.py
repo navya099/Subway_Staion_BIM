@@ -6,6 +6,8 @@ from config.alignment import Alignment
 from config.alignment_config import AlignmentConfig
 from config.station_config import StationParameters
 from elevators.elevator_check import check_elevator_layouts, layout_elevators
+from elevators.ext_ev import layout_ext_evs
+from elevators.ext_ev_overlap import check_ext_ev_overlaps
 from entrances.entrance_check import layout_entrances
 from finishes.finish_check import check_finishes
 from finishes.finish_spec import FinishSettings
@@ -46,6 +48,7 @@ class StationProjectConfig:
     passages: list = dataclasses.field(default_factory=list)      # list[PassageSpec]: 출구통로 (본체 측벽 오프닝 자동 생성)
     entrances: list = dataclasses.field(default_factory=list)     # list[EntranceSpec]: 출입구 (출구통로 끝에 이어 지표까지)
     elevators: list = dataclasses.field(default_factory=list)     # list[ElevatorSpec]: 엘리베이터 (승강로 슬래브 오프닝 자동)
+    ext_evs: list = dataclasses.field(default_factory=list)       # list[ExtEvSpec]: 외부 엘리베이터 (통로·출입구와 별개 객체)
     rooms: list = dataclasses.field(default_factory=list)         # list[RoomSpec]: 실(구획) — 나머지는 층별 기본 실, 경계 칸막이벽 자동
     room_settings: RoomSettings = dataclasses.field(default_factory=RoomSettings)
     finish_settings: FinishSettings = dataclasses.field(default_factory=FinishSettings)   # 용도별 마감표
@@ -127,6 +130,7 @@ class StationProjectConfig:
         check_passage_layouts(self, passages)
         layout_entrances(self, passages)
         check_vent_layouts(self, layout_vents(self), passages)
+        check_ext_ev_overlaps(self, layout_ext_evs(self))
 
     def stair_layouts(self) -> list:
         """계단별 배치 계산 결과 (StairLayout). 계단 엔진·슬래브 엔진이 같은 결과를 쓴다"""
@@ -166,6 +170,10 @@ class StationProjectConfig:
     def entrance_layouts(self) -> list:
         """출입구별 배치 계산 결과 (EntranceLayout). 출입구 엔진이 쓴다"""
         return layout_entrances(self, self.passage_layouts())
+
+    def ext_ev_layouts(self) -> list:
+        """외부 엘리베이터별 배치 계산 결과 (ExtEvLayout). 외부 엘리베이터 엔진이 쓴다"""
+        return layout_ext_evs(self)
 
     def vent_layouts(self) -> list:
         """환기구별 배치 계산 결과 (VentLayout). 환기구·벽체 엔진이 같은 결과를 쓴다"""

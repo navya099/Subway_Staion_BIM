@@ -199,6 +199,14 @@ def layout_passage_finishes(cfg) -> tuple:
         w = lay.spec.half_in - gap
         top = ft.ffl + ft.ceiling_h if fits[lay.name] else lay.spec.inner_height
         _cut_branch(res[lay.parent], by_name[lay.parent], lay.branch_seg, lay.side, lay.branch_a - w, lay.branch_a + w, top)
+    from elevators.ext_ev import passage_front
+    from passages.passage_layout import ext_ev_hosts, host_position
+    for xn, xs, pn in ext_ev_hosts(cfg):                      # 외부 엘리베이터 문 자리 (벽 마감 비움, 위는 인방)
+        if pn in res and pn in by_name:
+            seg_i, a, _ = host_position(by_name[pn], xs.along, f"외부 엘리베이터 {xn}")
+            fs, ffl, _ = passage_front(cfg, by_name[pn].spec, xs, f"외부 엘리베이터 {xn}")
+            half, h = fs.low_front()
+            _cut_branch(res[pn], by_name[pn], seg_i, xs.host_side, a - half, a + half, ffl + h)
     return out, warns
 
 

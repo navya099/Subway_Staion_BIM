@@ -35,6 +35,8 @@ LAYER_DEFINITIONS = {
     "STRUCT_PASSAGE": {"color": 140},    # 출구통로 (하늘색)
     "PLAN_PASSAGE": {"color": 140},      # 평면도 출구통로 벽
     "STRUCT_ENTRANCE": {"color": 170},   # 출입구 (박스·계단·에스컬레이터)
+    "STRUCT_ELEVATOR_FRAME": {"color": 251},  # 투시형 엘리베이터 강관 기둥·가로재·금속 패널 띠
+    "STRUCT_ELEVATOR_GLASS": {"color": 131},  # 투시형 엘리베이터 승강로 유리
     "STRUCT_CANOPY": {"color": 251},     # 출입구 캐노피 철골
     "STRUCT_CANOPY_GLASS": {"color": 131},   # 출입구 캐노피 유리
     "STRUCT_ELEVATOR": {"color": 150},   # 엘리베이터 승강로 (콘크리트)

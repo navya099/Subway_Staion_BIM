@@ -1485,6 +1485,44 @@ def test_project_file_keeps_elevators(app, monkeypatch, tmp_path):
     assert tab._vars[(0, "overhead")].get() == "4.5" and tab._combos[(0, "car")].get() == "B1F" and not app.is_dirty()
 
 
+def test_external_elevator_is_separate_object_in_elevator_tab(app, monkeypatch, tmp_path):
+    set_floors(app, 3)
+    set_entry(app, "start_station", "100")
+    tab = app.elevator_tab
+    tab.add_ext_ev(); app.root.update()
+    it = tab.ext.items[0]
+    assert it.host == "정거장 좌표" and tab.drafts.items == [] and ("ext", 0, "sta") in tab._vars   # 통로가 없으면 정거장 좌표
+    tab._vars[("ext", 0, "sta")].set("130")
+    tab._vars[("ext", 0, "t")].set("25")
+    tab._vars[("ext", 0, "low_z")].set("3")
+    tab._vars[("ext", 0, "ground_el")].set("20")
+    (sp,) = TkAdapter.collect_entries(app.entries).ext_evs
+    assert (sp.host, sp.u, sp.t, sp.low_z, sp.ground_el) == ("station", 30.0, 25.0, 3.0, 20.0)
+    app.passage_tab.add_passage(); app.root.update()
+    combo = tab._combos[("ext", 0, "host")]
+    combo.set("출구통로 옆")
+    combo.event_generate("<<ComboboxSelected>>"); app.root.update()
+    assert it.host == "출구통로 옆" and it.host_name == "EX1"                                     # 첫 통로 이름 자동
+    assert ("ext", 0, "along") in tab._vars and ("ext", 0, "sta") not in tab._vars              # 기준에 맞는 입력칸만
+    tab._combos[("ext", 0, "side")].set("오른쪽 (−)")
+    tab._combos[("ext", 0, "side")].event_generate("<<ComboboxSelected>>")
+    tab._vars[("ext", 0, "along")].set("7.5")
+    assert it.low_finish.startswith("투시형")
+    tab._combos[("ext", 0, "low_finish")].set("폐쇄형 (문+문틀)")
+    tab._combos[("ext", 0, "low_finish")].event_generate("<<ComboboxSelected>>")
+    (var, _), = tab._ext_infos
+    assert "폐쇄형" in var.get() and "7.5m" in var.get() and "오른쪽" in var.get()
+    path = str(tmp_path / "x.ssbim")
+    patch_files(monkeypatch, save_path=path, answer=False)
+    app.on_save()
+    app.on_new()
+    assert tab.ext.items == []
+    app.on_open(path)
+    assert tab._vars[("ext", 0, "along")].get() == "7.5" and tab._combos[("ext", 0, "side")].get() == "오른쪽 (−)" and not app.is_dirty()
+    tab.remove_ext_ev(0); app.root.update()
+    assert tab.ext.items == []
+
+
 # ---------------- 실 탭 ----------------
 def test_room_tab_add_input_and_defaults(app):
     assert app.room_tab.drafts.items == []

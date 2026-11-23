@@ -14,6 +14,7 @@ from rooms.room_engine import RoomEngine
 from slabs.slab_engine import SlabEngine
 from entrances.entrance_engine import EntranceEngine
 from elevators.elevator_engine import ElevatorEngine
+from elevators.ext_ev_engine import ExtEvEngine
 from escalators.escalator_engine import EscalatorEngine
 from finishes.finish_engine import FinishEngine
 from passages.passage_engine import PassageEngine
@@ -43,6 +44,7 @@ class StationCADEngine:
         self.elevators = ElevatorEngine(config)
         self.passages = PassageEngine(config)
         self.entrances = EntranceEngine(config)
+        self.ext_evs = ExtEvEngine(config)
         self.vents = VentEngine(config)
         self.rooms = RoomEngine(config)
         self.finishes = FinishEngine(config, self.columns)
@@ -56,7 +58,7 @@ class StationCADEngine:
         self.stairs.check_columns(self.columns)
         self.escalators.check_columns(self.columns)
         self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs, self.escalators, self.elevators,
-                            self.passages, self.entrances, self.vents, self.rooms, self.finishes, self.tactiles, self.psds, self.signs,
+                            self.passages, self.entrances, self.ext_evs, self.vents, self.rooms, self.finishes, self.tactiles, self.psds, self.signs,
                             self.railings, self.smokes, self.passage_finishes]
     @property
     def warnings(self) -> list:
@@ -118,6 +120,8 @@ class StationCADEngine:
                 engine.add_finish_mesh(msp)
             if hasattr(engine, 'add_entrance_mesh'):
                 engine.add_entrance_mesh(msp)
+            if hasattr(engine, 'add_ext_ev_mesh'):
+                engine.add_ext_ev_mesh(msp)
             if hasattr(engine, 'add_tactile_mesh'):
                 engine.add_tactile_mesh(msp)
             if hasattr(engine, 'add_psd_mesh'):
@@ -357,5 +361,6 @@ class StationCADEngine:
         exporter.export_smoke_barriers(self.smokes)
         exporter.export_signs(self.signs)
         exporter.export_entrances(self.entrances)
+        exporter.export_ext_evs(self.ext_evs)
         exporter.save(str(output_path))
         return os.path.abspath(output_path)

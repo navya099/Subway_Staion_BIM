@@ -111,8 +111,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         sign_img[m.name] = signs.image(e)
         for ent in e.face_entities:
             mat_of[ent.dxf.handle] = m
-    ents_e = getattr(engine, "entrances", None)
-    for name, img, frame, faces in (ents_e.sign_images() if ents_e is not None else []):    # 출입구 캐노피 출구 사인
+    for name, img, frame, faces in [s for k in ("entrances", "ext_evs") if getattr(engine, k, None) is not None
+                                    for s in getattr(engine, k).sign_images()]:    # 출입구 캐노피 출구 사인 · 외부 EV 역명 띠
         m = RenderMaterial(name, (1.0, 1.0, 1.0), frame=frame)
         sign_img[m.name] = img
         for ent in faces:

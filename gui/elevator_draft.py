@@ -66,6 +66,7 @@ class ElevatorDraft:
     door_open: str = "0"                  # 문 열림 비율 0~1
     car_glass: bool = True                # 투시형 카 (화면 기본, 모델 기본 끔)
     ladder: bool = True                   # 피트 점검 사다리
+    fixtures: bool = True                 # 호출 버튼 판·층 표시기 (화면 기본, 모델 기본 끔)
 
     def to_spec(self, where: str, start_station: float) -> ElevatorSpec:
         if self.door not in DOORS:
@@ -83,7 +84,7 @@ class ElevatorDraft:
                             through=bool(self.through), name=self.name.strip(), shaft=SHAFTS[self.shaft],
                             door_floors=floors, glass_rows=rows, car_offset=_num(self.car_offset, where, "카 위치 오프셋"),
                             door_open=_num(self.door_open, where, "문 열림", nonneg=True), car_glass=bool(self.car_glass),
-                            ladder=bool(self.ladder), **vals)
+                            ladder=bool(self.ladder), fixtures=bool(self.fixtures), **vals)
 
 
 class ElevatorDrafts:

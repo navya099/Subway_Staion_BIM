@@ -45,6 +45,11 @@
   <div class="row"><span id="s0lab"></span><span id="s1lab"></span></div>
   <input type="range" id="s0" min="0" max="1000" value="0">
   <input type="range" id="s1" min="0" max="1000" value="1000">
+  <div id="evbox" style="display:none">
+    <h2>엘리베이터</h2>
+    <select id="evsel"></select> <span id="evstate" class="help"></span>
+    <div id="evstops"></div>
+  </div>
   <h2>보기</h2>
   <button id="fit">전체 보기</button><button id="walk">걷기 (W)</button>
   <h2>조작</h2>
@@ -52,7 +57,8 @@
     왼쪽 끌기 = 회전, 오른쪽(또는 Shift) 끌기 = 이동, 휠 = 확대<br>
     클릭 = 부재 정보, 더블클릭 = 그 점을 회전 중심으로<br>
     걷기: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동, 마우스 = 시선, <kbd>Shift</kbd> 달리기,
-    <kbd>E</kbd>/<kbd>Q</kbd> 위·아래, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> 층 이동, <kbd>Esc</kbd> 끝
+    <kbd>E</kbd>/<kbd>Q</kbd> 위·아래, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> 층 이동, <kbd>Esc</kbd> 끝<br>
+    엘리베이터: 호출 버튼 클릭(걷기는 가운데 점), 카 안에서는 <kbd>1</kbd>~<kbd>9</kbd> = 층 선택(아래부터)
   </div>
 </div>
 <div id="info" class="panel"><table id="infotab"></table></div>
@@ -125,9 +131,10 @@ const LIVE = /*__LIVE__*/false;
   function makeMaterial(color, alpha) {
     const m = new THREE.MeshPhongMaterial({ color: new THREE.Color(color[0], color[1], color[2]), flatShading: true,
       side: THREE.DoubleSide, shininess: 8, transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1 });
+    m.userData.uDH = { value: 0 };          // 엘리베이터 카처럼 연직으로 움직인 만큼 (잘라 보기 높이 보정)
     m.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, clip);
-      sh.vertexShader = "attribute vec2 aSH;\nvarying vec2 vSH;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvSH = aSH;");
+      Object.assign(sh.uniforms, clip, { uDH: m.userData.uDH });
+      sh.vertexShader = "attribute vec2 aSH;\nuniform float uDH;\nvarying vec2 vSH;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvSH = aSH + vec2(0.0, uDH);");
       sh.fragmentShader = "uniform float uSMin; uniform float uSMax; uniform float uHMax;\nvarying vec2 vSH;\n" +
         sh.fragmentShader.replace("void main() {", "void main() {\nif (vSH.x < uSMin || vSH.x > uSMax || vSH.y > uHMax) discard;");
     };
@@ -165,6 +172,7 @@ const LIVE = /*__LIVE__*/false;
       mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt), tex: c.tex ? textureOf(c.tex) : null };
       applyTexture(mesh);
       if (c.alpha < 1) mesh.renderOrder = 1;
+      if (c.anim) mesh.matrixAutoUpdate = true;
       scene.add(mesh); meshes.push(mesh);
       box.union(g.boundingBox);
       tris += c.nt;
@@ -186,6 +194,7 @@ const LIVE = /*__LIVE__*/false;
       $("groups").appendChild(lab);
     }
     applyVisibility();
+    EV.load();
 
     // 층 목록 (같은 이름의 층을 계속 고름)
     const keep = fsel.selectedIndex > 0 ? fsel.options[fsel.selectedIndex].text : null;
@@ -296,7 +305,7 @@ const LIVE = /*__LIVE__*/false;
       new THREE.Vector3().fromBufferAttribute(hit.object.geometry.attributes.position, f.b),
       new THREE.Vector3().fromBufferAttribute(hit.object.geometry.attributes.position, f.c), bc);
     const s = a.getX(f.a) * bc.x + a.getX(f.b) * bc.y + a.getX(f.c) * bc.z;
-    const h = a.getY(f.a) * bc.x + a.getY(f.b) * bc.y + a.getY(f.c) * bc.z;
+    const h = a.getY(f.a) * bc.x + a.getY(f.b) * bc.y + a.getY(f.c) * bc.z + hit.object.material.userData.uDH.value;
     return s < clip.uSMin.value || s > clip.uSMax.value || h > clip.uHMax.value ? null : { s, h };
   }
   function firstHit(e) {
@@ -312,6 +321,7 @@ const LIVE = /*__LIVE__*/false;
     if (!hit) { $("info").style.display = "none"; selectedName = null; return; }
     const id = hit.object.userData.elem[hit.faceIndex];
     selectedName = DATA.elements[id].name;
+    EV.press(selectedName);
     const info = DATA.elements[id];
     showInfo(info, hit);
     highlight = buildHighlight(id);
@@ -329,6 +339,7 @@ const LIVE = /*__LIVE__*/false;
   }
   function buildHighlight(id) {
     const pos = [];
+    let follow = null;                      // 움직이는 부재면 강조도 따라 움직임
     for (const m of meshes) {
       const el_ = m.userData.elem; let any = false;
       for (let i = 0; i < el_.length; i++) if (el_[i] === id) { any = true; break; }
@@ -337,6 +348,7 @@ const LIVE = /*__LIVE__*/false;
       for (let i = 0; i < el_.length; i++) {
         if (el_[i] !== id) continue;
         for (let k = 0; k < 3; k++) { const v = idx.getX(i * 3 + k); pos.push(p.getX(v), p.getY(v), p.getZ(v)); }
+        if (m.userData.chunk.anim) follow = m;
       }
     }
     const g = new THREE.BufferGeometry();
@@ -344,6 +356,7 @@ const LIVE = /*__LIVE__*/false;
     const mat = new THREE.MeshBasicMaterial({ color: 0xf0a030, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
       depthTest: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const mesh = new THREE.Mesh(g, mat); mesh.renderOrder = 2;
+    mesh.userData.follow = follow;
     return mesh;
   }
 
@@ -381,6 +394,15 @@ const LIVE = /*__LIVE__*/false;
       updateOrbitCamera();
     }
   });
+  el.addEventListener("mousedown", () => {   // 걷기: 화면 가운데의 호출 버튼 누르기 (3.5m 안)
+    if (!walking) return;
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    for (const h of raycaster.intersectObjects(meshes.filter((m) => m.visible), false)) {
+      if (!clippedAt(h)) continue;
+      if (h.distance < 3.5) EV.press(DATA.elements[h.object.userData.elem[h.faceIndex]].name);
+      return;
+    }
+  });
   document.addEventListener("mousemove", (e) => {
     if (!walking) return;
     yaw -= e.movementX * 0.0022;
@@ -388,6 +410,7 @@ const LIVE = /*__LIVE__*/false;
   });
   window.addEventListener("keydown", (e) => {
     keys[e.code] = true;
+    if (/^Digit[1-9]$/.test(e.code)) EV.inCarKey(+e.code.slice(5) - 1);
     if (e.code === "KeyW" && !walking && document.activeElement.tagName !== "SELECT") { startWalk(); }
     if (walking && (e.code === "PageUp" || e.code === "PageDown")) {
       walkFloor = Math.max(0, Math.min(DATA.floors.length - 1, walkFloor + (e.code === "PageUp" ? 1 : -1)));
@@ -414,6 +437,114 @@ const LIVE = /*__LIVE__*/false;
     $("hud").textContent = `${DATA.floors[walkFloor].name} · STA ${fmtSta(c[0])} · 눈높이 FL+${(eye - DATA.floors[walkFloor].fl).toFixed(2)} m  (Esc 끝)`;
   }
 
+  // ---------------------------------------------------------------- 엘리베이터 (카 이동 · 문 열림 · 층 표시)
+  // 상태: idle(문 닫힘) → opening → hold → closing → idle, 부르면 moving. 이동은 가감속(사다리꼴), 문은 그 정지층의 문 면만 열림
+  const EV = (function () {
+    const V = 1.5, A = 0.8, DOOR = 1.6, HOLD = 4.0;       // 정격 속도 m/s, 가속 m/s², 문 여닫는 시간 s, 열린 채 기다림 s
+    let cars = [];
+    function nearest(c) { let b = 0; c.ev.stops.forEach((s, i) => { if (Math.abs(s.z - c.z) < Math.abs(c.ev.stops[b].z - c.z)) b = i; }); return b; }
+    function load() {
+      const keep = $("evsel").value;
+      cars = (DATA.evs || []).map((ev, i) => {
+        const c = { ev, z: ev.z, v: 0, open: ev.open, state: ev.open > 0 ? "hold" : "idle", t: 0, queue: [], target: -1, parts: [], label: "", bounds: new THREE.Box3() };
+        for (const m of meshes) {
+          const tag = m.userData.chunk.anim;
+          if (!tag || +tag.split("|")[0] !== i) continue;
+          const p = ev.parts[tag];
+          c.parts.push({ m, p });
+          if (p.role === "car") c.bounds.union(m.geometry.boundingBox);
+        }
+        c.at = nearest(c);
+        return c;
+      });
+      const sel = $("evsel"); sel.innerHTML = "";
+      cars.forEach((c, i) => sel.add(new Option(c.ev.name, String(i))));
+      if (cars.length && keep && +keep < cars.length) sel.value = keep;
+      $("evbox").style.display = cars.length ? "block" : "none";
+      buttons();
+      cars.forEach(pose);
+    }
+    function buttons() {
+      const box_ = $("evstops"); box_.innerHTML = "";
+      const c = cars[+$("evsel").value];
+      if (!c) return;
+      c.ev.stops.forEach((s, i) => { const b = document.createElement("button"); b.textContent = s.label; b.onclick = () => call(c, i); box_.appendChild(b); });
+    }
+    $("evsel").onchange = buttons;
+    const moving = (c) => c.state === "moving";
+    const stopped = (c, i) => Math.abs(c.z - c.ev.stops[i].z) < 1e-4;
+    function call(c, i) {
+      if (stopped(c, i) && !moving(c)) { c.at = i; if (c.state !== "hold") c.state = "opening"; c.t = 0; return; }
+      if (!c.queue.includes(i)) c.queue.push(i);
+    }
+    function press(name) {                                  // 호출 버튼 부재 이름
+      for (const c of cars) { const b = c.ev.buttons[name]; if (b) { call(c, b[0]); $("evsel").value = String(cars.indexOf(c)); buttons(); return true; } }
+      return false;
+    }
+    function dirOf(c) { return moving(c) ? (c.ev.stops[c.target].z > c.z ? "up" : "down") : ""; }
+    function pose(c) {                                      // 메쉬를 지금 상태(z, open)로
+      const dz = c.z - c.ev.z, stop = c.ev.stops[c.at], o = moving(c) ? 0 : c.open;
+      for (const { m, p } of c.parts) {
+        let x = 0, y = 0, z = 0;
+        if (p.role === "car") z = dz;
+        else if (p.role === "cardoor") {                    // 기준 자세에 이미 열려 있던 만큼(ev.open)을 뺌
+          const k = (stopped(c, c.at) && stop.faces.includes(p.face) ? o : 0) - c.ev.open;
+          x = p.d[0] * k; y = p.d[1] * k; z = dz;
+        } else if (p.role === "landing") {
+          const base = Math.abs(c.ev.z - c.ev.stops[p.stop].z) < 1e-4 ? c.ev.open : 0;
+          const k = (p.stop === c.at && stopped(c, c.at) ? o : 0) - base;
+          x = p.d[0] * k; y = p.d[1] * k;
+        }
+        m.position.set(x, y, z);
+        m.material.userData.uDH.value = z;
+      }
+      const label = c.ev.stops[nearest(c)].label + "|" + dirOf(c);
+      if (label !== c.label) {
+        c.label = label;
+        const t = textureOf("사인 IND|" + label);
+        for (const { m, p } of c.parts) if (p.role === "indicator" && t) { m.userData.tex = t; if (texOn) { m.material.map = t; m.material.needsUpdate = true; } }
+      }
+    }
+    function inside(c, q) {                                 // 점이 카 안에 있는가 (외접 상자)
+      const b = c.bounds, dz = c.z - c.ev.z;
+      return q.x > b.min.x && q.x < b.max.x && q.y > b.min.y && q.y < b.max.y && q.z > b.min.z + dz && q.z < b.max.z + dz;
+    }
+    function inCarKey(i) { if (!walking) return; for (const c of cars) if (inside(c, camera.position) && i < c.ev.stops.length) call(c, i); }
+    function stepCar(c, dt) {
+      const z0 = c.z, rider = walking && inside(c, camera.position);
+      c.t += dt;
+      if (c.state === "opening") { c.open = Math.min(1, c.open + dt / DOOR); if (c.open >= 1) { c.state = "hold"; c.t = 0; } }
+      else if (c.state === "hold") { if (c.t > HOLD || (c.queue.length && c.t > 1.5)) c.state = "closing"; }
+      else if (c.state === "closing") { c.open = Math.max(0, c.open - dt / DOOR); if (c.open <= 0) c.state = "idle"; }
+      else if (c.state === "idle" && c.queue.length) {
+        c.target = c.queue.shift(); c.v = 0;
+        c.state = stopped(c, c.target) ? "opening" : "moving"; c.t = 0;
+        if (c.state === "opening") c.at = c.target;
+      } else if (c.state === "moving") {
+        const zt = c.ev.stops[c.target].z, left = Math.abs(zt - c.z), sg = Math.sign(zt - c.z);
+        c.v = Math.min(V, c.v + A * dt, Math.sqrt(2 * A * left) + 1e-3);     // 남은 거리에서 멈출 수 있는 속도까지
+        const d = Math.min(left, Math.max(c.v, 0.05) * dt);
+        c.z += sg * d;
+        if (Math.abs(zt - c.z) < 1e-4) { c.z = zt; c.at = c.target; c.v = 0; c.state = "opening"; c.t = 0; }
+      } else return;
+      pose(c);
+      if (rider && c.z !== z0) {                            // 탄 사람은 카와 함께
+        eye += c.z - z0;
+        const cl = nearestCl(camera.position.x, camera.position.y);
+        const h = camera.position.z - cl[3] + (c.z - z0);
+        for (let i = 0; i < DATA.floors.length; i++) if (h + 0.05 >= DATA.floors[i].fl) walkFloor = i;
+      }
+    }
+    const TXT = { idle: "대기", opening: "문 열림", hold: "문 열림", closing: "문 닫힘", moving: "이동" };
+    function step(dt) {
+      for (const c of cars) stepCar(c, dt);
+      if (highlight && highlight.userData.follow) highlight.position.copy(highlight.userData.follow.position);
+      const c = cars[+$("evsel").value];
+      if (c) { const t = `${c.ev.stops[nearest(c)].label} · ${TXT[c.state]}`; if ($("evstate").textContent !== t) $("evstate").textContent = t; }
+    }
+    return { load, press, step, call: (name, i) => { const c = cars.find((q) => q.ev.name === name); if (c) call(c, i); }, inCarKey, get cars() { return cars; } };
+  })();
+
   // ---------------------------------------------------------------- 그리기
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
@@ -421,6 +552,7 @@ const LIVE = /*__LIVE__*/false;
   });
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    EV.step(dt);
     if (walking) stepWalk(dt);
     $("status").textContent = walking ? "걷기" : "";
     $("status").style.display = walking ? "block" : "none";
@@ -465,7 +597,7 @@ ${st.message}`, true);
       fit();
     }
   } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
-  window.__viewer = { scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
+  window.__viewer = { EV, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

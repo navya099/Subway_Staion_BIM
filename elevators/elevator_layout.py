@@ -187,6 +187,15 @@ def layout_elevator(cfg, spec: ElevatorSpec, name: str) -> ElevatorLayout:
     car_parts(spec, zc, spec.door_open, box)
     inner_face = lambda axis, sign: (s1 if sign > 0 else s0) if axis == "s" else (t1 if sign > 0 else t0)
     landing_doors(spec, rel, st, inner_face, box)
+    if spec.fixtures:
+        from finishes.finish_clear import room_finish_at
+
+        def rc_face(axis, sign, n):                                # 승강로 바깥면 + 그 층 벽 마감 표면 거리
+            out = ((S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0))
+            p = (out + sign * 0.3, tc) if axis == "s" else (sc, out + sign * 0.3)
+            ft = room_finish_at(cfg, n, *p)
+            return out + sign * (ft.face if ft is not None and ft.wall_t > 0 else 0.0)
+        add_fixtures(spec, st, rel, box, rc_face, spec.door_w / 2.0 + 0.25, 0.12, spec.door_h + 0.18)
     if spec.ladder:
         pit_ladder(spec, rel, pit_top, inner_face, box, _car_bottom(spec, zc))
     opening = None
@@ -273,6 +282,21 @@ def landing_doors(spec, rel, st, face_n, box, floors=None):
                     box(c, K.LANDING_DOOR, n0, n1, u0, u1, rel[n], rel[n] + spec.door_h, 0, slide, n)
                 else:
                     box(c, K.LANDING_DOOR, u0, u1, n0, n1, rel[n], rel[n] + spec.door_h, 0, slide, n)
+
+
+def add_fixtures(spec, st, rel, box, face_n, panel_off, panel_w, ind_z):
+    """정지층 문마다 호출 버튼 판·버튼·층 표시기 (face_n(axis, sign, 층) = 붙는 면의 법선 좌표)"""
+    from elevators.hall_fixture import hall_fixtures, right_sign
+    for n in range(spec.lower_floor, spec.upper_floor + 1):
+        for axis, sign in sorted(spec.doors_at(n)):
+            mid = spec.t_center if axis == "s" else spec.s_center
+            for code, kind, (n0, n1), (v0, v1), (z0, z1) in hall_fixtures(
+                    axis, sign, face_n(axis, sign, n), mid, rel[n], st.level_name(n), n, panel_at=mid + right_sign(axis, sign) * panel_off,
+                    panel_w=panel_w, ind_z=ind_z, up=n < spec.upper_floor, down=n > spec.lower_floor):
+                if axis == "s":
+                    box(code, kind, n0, n1, v0, v1, z0, z1, 0, None, n)
+                else:
+                    box(code, kind, v0, v1, n0, n1, z0, z1, 0, None, n)
 
 
 def pit_ladder(spec, rel, pit_top, face_n, box, car_box=None):
@@ -454,6 +478,10 @@ def _layout_glass(cfg, spec, name, base, rel, on_plat, ranges, opened, plat_open
     car_parts(spec, zc, spec.door_open, box)
     glass_in = lambda axis, sign: ((S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)) - sign * gt
     landing_doors(spec, rel, st, glass_in, box)
+    if spec.fixtures:                                              # 문틀(유리 평면) 앞: 오른쪽 잼에 호출 판, 상부에 표시기
+        glass_out = lambda axis, sign, n: (S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)
+        add_fixtures(spec, st, rel, box, glass_out, spec.door_w / 2.0 + fw / 2.0, min(0.08, 0.8 * fw),
+                     max((spec.door_h + oh) / 2.0, spec.door_h + 0.1))
     if spec.ladder:
         outer_face = lambda axis, sign: (S1 if sign > 0 else S0) if axis == "s" else (T1 if sign > 0 else T0)
         pit_ladder(spec, rel, pit_top, outer_face, box, _car_bottom(spec, zc))

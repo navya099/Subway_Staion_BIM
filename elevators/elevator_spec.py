@@ -88,6 +88,7 @@ class ElevatorSpec:
     spider: float = 0.1              # DPG 스파이더 철물 크기 (유리 줄눈 교차점, 유리 안쪽)
     spider_d: float = 0.03           # 스파이더 깊이 (< door_gap)
     ladder: bool = True              # 피트 점검 사다리
+    fixtures: bool = False           # 승강장 호출 버튼 판 · 층 표시기 (hall_fixture)
 
     def doors_at(self, floor: int) -> set:
         """그 층 문 면 {('s'|'t', ±1)}"""

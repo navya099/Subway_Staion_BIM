@@ -90,6 +90,11 @@ def frame_uv(frame, rel: np.ndarray, origin) -> np.ndarray:
     return np.stack([du / w, (d @ np.asarray(v) - k * du) / h], axis=2)
 
 
+# 엘리베이터 부재 종류 → 보기 재질 (내부·외부 공통): 문·문틀·카 벽·호출 판 = 스테인리스 헤어라인, 강관 = 회색 도장
+EV_STEEL = ("DOOR_FRAME", "REVEAL", "LANDING_DOOR", "CAR_DOOR", "CAR_WALL", "CALL_PANEL")
+EV_PIPE = ("COLUMN", "GIRT", "POST", "BEAM", "LADDER")
+
+
 def element_materials(engine) -> dict:
     """3DFACE 핸들 → 보기 재질 (부재 자신의 재질을 쓰는 것: 마감·점자블록·계단 마감·유리난간·제연경계벽·에스컬레이터 부재).
     build_3d_doc 뒤에 부를 것. 나머지 면은 레이어 재질 (DAE·웹 뷰어 공통)"""
@@ -114,13 +119,19 @@ def element_materials(engine) -> dict:
         for e in x.elements:
             if e.kind in ("PODIUM", "RAMP", "CURB", "LOW_FLOOR"):
                 put(e, finish_material(e.material))
-            elif e.kind in ("DOOR_FRAME", "REVEAL", "LANDING_DOOR"):     # 문틀·문·개구부 둘레 (벽 패널과 구분)
-                put(e, finish_material("스테인리스"))
+            elif e.kind in EV_STEEL:
+                put(e, finish_material("스테인리스 헤어라인"))
+            elif e.kind in EV_PIPE:
+                put(e, finish_material("강관 도장"))
     evs_ = getattr(engine, "elevators", None)
     for ev in (evs_.elevators if evs_ is not None else []):         # 투시형 승강로 금속 패널 띠
         for e in ev.elements:
             if e.kind.name == "PANEL":
                 put(e, finish_material("금속패널"))
+            elif e.kind.name in EV_STEEL:
+                put(e, finish_material("스테인리스 헤어라인"))
+            elif e.kind.name in EV_PIPE:
+                put(e, finish_material("강관 도장"))
     rails = getattr(engine, "railings", None)
     for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
         put(e, railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material))
@@ -248,7 +259,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
                 mat_of[ent.dxf.handle] = m
-    extra = [s for k in ("entrances", "ext_evs") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
+    extra = [s for k in ("entrances", "ext_evs", "elevators") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
     if extra:                                                        # 출입구 캐노피 출구 사인 · 외부 엘리베이터 역명 띠
         tex_dir = path.parent / TEXTURE_FOLDER
         tex_dir.mkdir(exist_ok=True)

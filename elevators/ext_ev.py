@@ -33,6 +33,7 @@ from config.layout_cache import cached_layout
 from elevators.elevator_layout import car_parts, car_z, landing_doors
 from elevators.elevator_spec import ElevatorSpec
 from elevators.elevator_type import ElevatorPartKind as K
+from elevators.hall_fixture import IND_H, hall_fixtures, right_sign
 from helper.box_piece import BoxPiece, cut_faces_by_plane
 from helper.strip_member import Strip
 from helper.vertical_prism import VerticalPrism, circle_points
@@ -109,6 +110,7 @@ class ExtEvSpec:
     girt_d: float = 0.0891
     spider: float = 0.1
     spider_d: float = 0.03
+    fixtures: bool = False           # 승강장 호출 버튼 판 · 층 표시기 (hall_fixture)
 
     @property
     def axis(self) -> str:
@@ -512,6 +514,22 @@ def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float, shared
     low_d = spec.low_glass_t if spec.low_finish == "glass" else 0.0 if shared is not None else w
     landing_doors(esp, rel, names, door_plane(low_d), box, floors=(1,))
     landing_doors(esp, rel, names, door_plane(w), box, floors=(2,))
+
+    if spec.fixtures:                                              # 호출 버튼 판 · 층 표시기
+        fw = spec.door_frame_w
+        glass = spec.low_finish == "glass"
+        depth = 0.0 if glass or recess is None else recess[0] + recess[1]          # 폐쇄형 문틀 앞면 (통로·본체 벽 마감 표면)
+        lo_ = (U1 if lsg > 0 else U0) if lax == "u" else (T1 if lsg > 0 else T0)
+        ind = (spec.door_h + lh) / 2.0 if glass else lh + 0.05 + IND_H / 2.0
+        fx = hall_fixtures(lax, lsg, lo_ + lsg * depth, lmid, zl, "LOW", 1, panel_at=lmid + right_sign(lax, lsg) * (dw + fw / 2.0),
+                           panel_w=min(0.08, 0.8 * fw), ind_z=ind, up=True, down=False)
+        fx += hall_fixtures(ax, sg, o, mid, Zs, "GND", 2, panel_at=mid + dw + pr / 2.0, panel_w=min(0.12, 0.6 * pr),
+                            ind_z=(spec.door_h + spec.sill + spec.low_glass) / 2.0, up=False, down=True)
+        for (code, kind, nn, vv, zz), a in [(x, lax) for x in fx[:3]] + [(x, ax) for x in fx[3:]]:
+            if a == "u":
+                box(code, kind, *nn, *vv, *zz, stop=1 if code.endswith("LOW") else 2)
+            else:
+                box(code, kind, *vv, *nn, *zz, stop=1 if code.endswith("LOW") else 2)
 
     # ---- 기단·경사로·추락방지턱·난간 (문 앞, 박스 폭)
     _approach(spec, frame, parts, box, (U0, U1, T0, T1), mid, G, Zs)

@@ -482,7 +482,7 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
                             holes = []
                             for (a0, a1, b0, b1), h0, h1 in door_holes:
                                 across = (b0, b1) if axis == "s" else (a0, a1)
-                                if across[0] - _EPS <= c <= across[1] + _EPS:
+                                if across[0] - gap - _EPS <= c <= across[1] + gap + _EPS:   # 마감은 벽면에서 이격(gap)만큼 떨어져 있음
                                     holes.append(((a0, a1) if axis == "s" else (b0, b1)) + (h0, h1))
                             rf.columns += _cut_holes((*rr, z0, wall_top), axis, holes)
 

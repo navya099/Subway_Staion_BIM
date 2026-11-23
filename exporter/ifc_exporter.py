@@ -689,7 +689,10 @@ class IFCExporter:
                   ElevatorPartKind.PANEL: ("IfcCovering", "CLADDING"),
                   ElevatorPartKind.CAR_GLASS: ("IfcBuildingElementPart", "USERDEFINED"),
                   ElevatorPartKind.LANDING_DOOR: ("IfcDoor", "DOOR"), ElevatorPartKind.DOOR_FRAME: ("IfcMember", "USERDEFINED"),
-                  ElevatorPartKind.SPIDER: ("IfcDiscreteAccessory", "BRACKET"), ElevatorPartKind.LADDER: ("IfcMember", "USERDEFINED")}
+                  ElevatorPartKind.SPIDER: ("IfcDiscreteAccessory", "BRACKET"), ElevatorPartKind.LADDER: ("IfcMember", "USERDEFINED"),
+                  ElevatorPartKind.CALL_PANEL: ("IfcUnitaryControlElement", "CONTROLPANEL"),
+                  ElevatorPartKind.CALL_BUTTON: ("IfcSwitchingDevice", "MOMENTARYSWITCH"),
+                  ElevatorPartKind.INDICATOR: ("IfcUnitaryControlElement", "INDICATORPANEL")}
 
     def export_elevators(self, elevator_engine: ElevatorEngine):
         """엘리베이터: IfcElementAssembly(USERDEFINED: ELEVATOR) 가 승강로 벽(IfcWall)·피트 슬래브(IfcSlab BASESLAB)·

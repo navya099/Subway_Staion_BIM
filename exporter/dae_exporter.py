@@ -109,6 +109,11 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    for en in (ents_.entrances if ents_ is not None else []):         # 외부 엘리베이터 기단·경사로·턱 (화강석)
+        for x in en.ext_evs:
+            for e in x.elements:
+                if e.kind in ("EV_PODIUM", "EV_RAMP", "EV_CURB"):
+                    put(e, finish_material("화강석"))
     evs_ = getattr(engine, "elevators", None)
     for ev in (evs_.elevators if evs_ is not None else []):         # 투시형 승강로 금속 패널 띠
         for e in ev.elements:

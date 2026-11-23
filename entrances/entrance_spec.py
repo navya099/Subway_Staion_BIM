@@ -65,6 +65,7 @@ class EntranceSpec:
         cp_sign: 캐노피 앞 가로 보 아래 출구 사인 (폭 cp_sign_w × 높이 cp_sign_h × 두께 cp_sign_t, 바깥(+u)을 향함). 양식 = 왼쪽
                  노선 배지(line_name, 노선색 = 사인 설정 역 정보) · 역명(한글 크게, 영문·한자·일문 작게 — 사인 설정 역 정보) · 오른쪽
                  '출입구 Entrance' + 번호 상자(exit_number, 비우면 사인 설정 출구 안내 → 통로 순번), 배경색 sign_bg
+        ext_evs: 외부 엘리베이터 (entrances.ext_ev.ExtEvSpec — 출입구 좌표 위치, 지하 RC + 지상 유리 박스 + 기단·경사로)
         arch_wall: 건축 마감 벽체 (토목 파라펫 위 화강석 벽, 모델 끔·GUI 켬) — 안쪽 면 = 개구부 내공면, 바깥으로 두께 arch_t, 윗면 =
                    지표 + arch_h (arch_t 비우면 지표 위 측벽(파라펫) 두께 + 0.15 — 실무 300 + 150 = 450). 옆(천장 끝 ~ 상단 끝벽 안쪽 면) · 뒤(가로 파라펫 위), 파라펫 바깥쪽은 지표까지 감쌈, 앞(출구)은 없음.
                    캐노피 기둥·유리벽은 그 윗면에 섬, 개구부 실내 벽 마감도 그 윗면까지
@@ -168,6 +169,7 @@ class EntranceSpec:
     arch_h: float = 1.1              # 건축 벽체 윗면 = 지표 + 높이
     arch_t: Optional[float] = None   # 건축 벽체 두께 (내공면에서 바깥으로, None = 지표 위 파라펫 두께 + 0.15)
     arch_material: str = "화강석"
+    ext_evs: list = dataclasses.field(default_factory=list)   # 외부 엘리베이터 ExtEvSpec 목록 (entrances.ext_ev)
     roof_cover: float = 0.0
     lean_t: float = 0.0
     lean_ext: float = 0.155

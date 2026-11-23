@@ -1,7 +1,7 @@
 import math
 
 from config.master_config import StationProjectConfig
-from entrances.entrance_data import FINISH_LAYER, EntranceData, EntranceElementData, EntranceFinishData
+from entrances.entrance_data import FINISH_LAYER, EntranceData, EntranceElementData, EntranceFinishData, ExtEvData
 from escalators.escalator_data import EscalatorData, EscalatorPartData, EscalatorStepData
 from escalators.escalator_type import EscalatorPartKind
 from helper.strip_member import Strip
@@ -20,6 +20,29 @@ _FAMILY = {"FLOOR": "콘크리트-출입구바닥슬래브", "ROOF": "콘크리�
 _CANOPY = {"CP_POST": ("출입구 캐노피 기둥", "Canopy_Steel"), "CP_BEAM": ("출입구 캐노피 보", "Canopy_Steel"),
            "CP_GLASS": ("출입구 캐노피 유리", "Canopy_Glass"), "CP_SIGN": ("출입구 출구 사인", "Aluminium_Sign"),
            "CP_WALL": ("출입구 캐노피 유리벽", "Canopy_Glass")}
+# 외부 엘리베이터 부재 종류 → (재질, 3D 레이어, IFC (엔티티, 종류))
+EXT_EV = {"RC_WALL": ("Concrete_C24", "STRUCT_ELEVATOR", ("IfcWall", "SOLIDWALL")),
+          "PIT_SLAB": ("Concrete_C24", "STRUCT_ELEVATOR", ("IfcSlab", "BASESLAB")),
+          "GLASS": ("EV_Glass", "STRUCT_ELEVATOR_GLASS", ("IfcPlate", "CURTAIN_PANEL")),
+          "BAND": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcCovering", "CLADDING")),
+          "POST": ("EV_Steel_Tube", "STRUCT_ELEVATOR_FRAME", ("IfcColumn", "COLUMN")),
+          "BEAM": ("EV_Steel_Tube", "STRUCT_ELEVATOR_FRAME", ("IfcBeam", "BEAM")),
+          "PORTAL": ("Portal_Panel", "STRUCT_ELEVATOR_FRAME", ("IfcCovering", "CLADDING")),
+          "CANOPY": ("Canopy_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcSlab", "ROOF")),
+          "LOUVER": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcBuildingElementProxy", "USERDEFINED")),
+          "ROOF": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcSlab", "ROOF")),
+          "SIGN": ("Aluminium_Sign", "STRUCT_SIGN", ("IfcBuildingElementProxy", "USERDEFINED")),
+          "SIGN_FACE": ("Aluminium_Sign", "STRUCT_SIGN_FACE", ("IfcBuildingElementProxy", "USERDEFINED")),
+          "PODIUM": ("화강석", "FIN_FLOOR", ("IfcSlab", "FLOOR")),
+          "RAMP": ("화강석", "FIN_FLOOR", ("IfcRampFlight", "STRAIGHT")),
+          "CURB": ("화강석", "FIN_FLOOR", ("IfcBuildingElementPart", "USERDEFINED")),
+          "RAIL": ("Stainless_Steel", "STRUCT_RAILING", ("IfcRailing", "HANDRAIL")),
+          "LANDING_DOOR": ("Stainless_Steel", "STRUCT_ELEVATOR_FRAME", ("IfcDoor", "DOOR")),
+          "CAR_FLOOR": ("Steel", "STRUCT_ELEVATOR_CAR", ("IfcBuildingElementPart", "USERDEFINED")),
+          "CAR_WALL": ("Steel", "STRUCT_ELEVATOR_CAR", ("IfcBuildingElementPart", "USERDEFINED")),
+          "CAR_GLASS": ("EV_Glass", "STRUCT_ELEVATOR_GLASS", ("IfcBuildingElementPart", "USERDEFINED")),
+          "CAR_ROOF": ("Steel", "STRUCT_ELEVATOR_CAR", ("IfcBuildingElementPart", "USERDEFINED")),
+          "CAR_DOOR": ("Steel", "STRUCT_ELEVATOR_CAR", ("IfcDoor", "DOOR"))}
 _CANOPY_LAYER = {"CP_POST": "STRUCT_CANOPY", "CP_BEAM": "STRUCT_CANOPY", "CP_GLASS": "STRUCT_CANOPY_GLASS",
                  "CP_WALL": "STRUCT_CANOPY_GLASS"}
 
@@ -74,6 +97,34 @@ class EntranceEngine:
                     level=level, pos_z=min(min(s.zb0, s.zb1) for s in p.strips), material=mat, kind=p.kind, code=p.code,
                     t_range=p.t_range, shape=StripShape(strips=p.strips, width=ct1 - ct0)))
             number = self._exit_info(lay)
+            ext_evs = []
+            for xl in lay.ext_evs:
+                groups: dict = {}
+                for p in xl.parts:
+                    groups.setdefault(p.code, []).append(p)
+                els = []
+                for code, ps_ in groups.items():
+                    kind = ps_[0].kind
+                    mat = EXT_EV[kind][0]
+                    tr = (min(p.t_range[0] for p in ps_), max(p.t_range[1] for p in ps_))
+                    if len({p.t_range for p in ps_}) > 1:           # t 범위가 다른 조각 → 부재를 조각마다 (같은 이름 + 번호)
+                        for j, p in enumerate(ps_, start=1):
+                            els.append(EntranceElementData(
+                                name=f"{xl.name}_{code}_{j}", family_name=f"외부엘리베이터-{kind}", type_name=kind, level=level,
+                                pos_z=min(p.strips[0].zb0 if p.strips else p.pieces[0].z_range[0], 1e9), material=mat,
+                                kind="EV_" + kind, code=f"{code}_{j}", t_range=p.t_range,
+                                shape=StripShape(strips=list(p.strips), width=p.t_range[1] - p.t_range[0]),
+                                pieces=list(p.pieces), slide=p.slide, stop=p.stop))
+                        continue
+                    els.append(EntranceElementData(
+                        name=f"{xl.name}_{code}", family_name=f"외부엘리베이터-{kind}", type_name=kind, level=level,
+                        pos_z=0.0, material=mat, kind="EV_" + kind, code=code, t_range=tr,
+                        shape=StripShape(strips=[st for p in ps_ for st in p.strips], width=tr[1] - tr[0]),
+                        pieces=[h for p in ps_ for h in p.pieces], slide=ps_[0].slide, stop=ps_[0].stop))
+                ext_evs.append(ExtEvData(name=xl.name, family_name="외부 엘리베이터", type_name="지상 노출 엘리베이터", level=level,
+                                         pos_x=xl.spec.u, pos_y=xl.spec.t, pos_z=xl.stops[1], elements=els, stops=xl.stops,
+                                         car_z=xl.car_z, travel=(xl.stops[1], xl.stops[2]), door_open=xl.spec.door_open,
+                                         layout=xl))
             n_esc = len(lay.escalators)
             escalators = [self._escalator(lay, level, e, k, n_esc) for k, e in enumerate(lay.escalators)]
             kinds = (["계단"] if lay.stair is not None else []) + ([f"ESC×{n_esc}" if n_esc > 1 else "ESC"] if n_esc else [])
@@ -81,7 +132,7 @@ class EntranceEngine:
                 name=lay.name, family_name="출입구", type_name=f"W{spec.inner_width:g} " + "+".join(kinds),
                 level=level, pos_x=lay.frame.px, pos_y=lay.frame.py, pos_z=lay.z_floor, passage=lay.passage, floor=floor,
                 frame=lay.frame, layout=lay, elements=elements, stair=stair, escalator=escalators[0] if escalators else None,
-                escalators=escalators, finishes=finishes, canopy=canopy, exit_number=number))
+                escalators=escalators, finishes=finishes, canopy=canopy, exit_number=number, ext_evs=ext_evs))
 
     def _exit_info(self, lay) -> str:
         """캐노피 출구 사인 번호: 출입구 입력 → 사인 설정 출구 안내(통로 이름) → 통로 순번"""
@@ -104,6 +155,33 @@ class EntranceEngine:
         from signs.nameplate import render_entrance_sign
         info = self.station_info()
         out = []
+        for ent in self.entrances:                                    # 외부 엘리베이터 역명 띠 사인 (번호 없음)
+            for x in ent.ext_evs:
+                for e in x.elements:
+                    if not getattr(e, "face_entities", None):
+                        continue
+                    fr = ent.frame
+                    sp = ent.layout.spec
+                    if e.kind == "EV_SIGN":                         # ±u 면: 앞면 띠 = strips[1], 접선 = t
+                        st, (a0, a1) = e.shape.strips[1], e.t_range
+                        sgn = 1 if st.s1 > x.layout.spec.u else -1
+                        un = st.s1 if sgn > 0 else st.s0
+                        nx, ny = sgn * fr.ux, sgn * fr.uy
+                        left = a0 if sgn > 0 else a1
+                        x0, y0 = fr.to_world(un, left)
+                    else:                                           # ±t 면: 앞면 부재 (t 범위 = 얇은 판), 접선 = u
+                        st = e.shape.strips[0]
+                        sgn = 1 if e.t_range[0] > x.layout.spec.t else -1
+                        tn = e.t_range[1] if sgn > 0 else e.t_range[0]
+                        nx, ny = -sgn * fr.uy, sgn * fr.ux
+                        left = st.s1 if sgn > 0 else st.s0
+                        x0, y0 = fr.to_world(left, tn)
+                        a0, a1 = st.s0, st.s1
+                    w, h = a1 - a0, st.zt - st.zb0
+                    frame = ((x0, y0, st.zb0), (-ny, nx, 0.0), (0.0, 0.0, 1.0), w, h, 0.0)
+                    img = render_entrance_sign(w, h, sp.line_name, info.kname, info.ename, info.cname, info.jname, None,
+                                               sp.sign_bg, info.rgb)
+                    out.append((f"사인 {e.name}", img, frame, e.face_entities))
         for ent in self.entrances:
             for e in ent.canopy:
                 if e.kind != "CP_SIGN" or not getattr(e, "face_entities", None):
@@ -193,6 +271,7 @@ class EntranceEngine:
             out += [(p.name, p) for p in ent.stair.parts] + [(f.name, f) for f in ent.stair.finishes]
         out += [(f.name, f) for f in ent.finishes]
         out += [(c.name, c) for c in ent.canopy]
+        out += [(e.name, e) for x in ent.ext_evs for e in x.elements]
         for esc in ent.escalators:
             out += [(p.name, p) for p in esc.parts] + [(s.name, s) for s in esc.steps]
         return out
@@ -211,6 +290,19 @@ class EntranceEngine:
                     layer = FINISH_LAYER[m.kind]                        # 앞마당 포장·승강구 바닥 마감 / 건축 마감 벽체
                 if isinstance(m, EntranceElementData) and m.kind in _CANOPY_LAYER:
                     layer = _CANOPY_LAYER[m.kind]                      # 캐노피 철골 / 유리
+                if isinstance(m, EntranceElementData) and m.kind.startswith("EV_"):   # 외부 엘리베이터
+                    kind = m.kind[3:]
+                    layer = EXT_EV[kind][1]
+                    if kind == "SIGN" and len(m.shape.strips) == 2:     # ±u 면 사인: 본체 / 앞면 이미지 판 (띠 두 개)
+                        quads = part_faces(ent.frame, m)
+                        body = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SIGN"}) for f in quads[0]]
+                        m.face_entities = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SIGN_FACE"}) for f in quads[1]]
+                        m.source_element = body + m.face_entities
+                        continue
+                    if kind == "SIGN_FACE":
+                        m.face_entities = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
+                        m.source_element = m.face_entities
+                        continue
                 if isinstance(m, EntranceElementData) and m.kind == "CP_SIGN":   # 출구 사인: 본체 / 앞면 이미지 판
                     quads = part_faces(ent.frame, m)
                     body = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_SIGN"}) for f in quads[0]]
@@ -283,8 +375,9 @@ class EntranceEngine:
                     continue                                    # 천장틀은 단면에 안 그림
                 pave = isinstance(m, EntranceElementData) and m.kind in FINISH_LAYER
                 cp = isinstance(m, EntranceElementData) and m.kind.startswith("CP_")
-                concrete = not pave and not cp and not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData,
-                                                                      EntranceFinishData))
+                xev = isinstance(m, EntranceElementData) and m.kind.startswith("EV_") and m.kind not in ("EV_RC_WALL", "EV_PIT_SLAB")
+                concrete = not pave and not cp and not xev and not isinstance(m, (EscalatorPartData, EscalatorStepData, StairFinishData,
+                                                                                  EntranceFinishData))
                 fin_layer = pave or isinstance(m, (StairFinishData, EntranceFinishData))
                 t0, t1 = m.t_range
                 polys = [cut_faces_by_plane(strip_faces(ent.frame, st, t0, t1), cx, cy, nx, ny) for st in m.shape.strips]
@@ -299,6 +392,8 @@ class EntranceEngine:
                     layer = "SEC_CONCRETE" if concrete else ("SEC_FINISH" if fin_layer else "SEC_ESCALATOR")
                     if cp:
                         layer = "SEC_SIGN" if m.kind == "CP_SIGN" else "SEC_RAILING"
+                    if xev:
+                        layer = "SEC_ELEVATOR"
                     items.append(ViewItem(name, layer,
                                           u0=min(w for w, _ in poly), u1=max(w for w, _ in poly), pts=poly,
                                           hatch_layer="SEC_HATCH" if concrete else None, label=label))

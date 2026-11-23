@@ -78,6 +78,7 @@ class EntranceLayout:
     escalators: list = field(default_factory=list)  # 에스컬레이터 대마다 (모두 같은 제원·u, t 만 다름)
     top_level: float = None            # 상부 승강구 바닥 표고 (지표 + top_rise)
     canopy: list = field(default_factory=list)      # 캐노피 부재 EntrancePartLayout (CP_POST / CP_BEAM / CP_GLASS / CP_SIGN)
+    ext_evs: list = field(default_factory=list)     # 외부 엘리베이터 ExtEvLayout (entrances.ext_ev)
 
 
 class PL:
@@ -762,6 +763,18 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
             canopy = canopy_parts(spec, name, G, Gt, u_re, u_re - pt_re, u_top, end, ai_e + w_side / 2.0,
                                   z_par if spec.parapet > 0 else G)
 
+    # ---------- 외부 엘리베이터 (출입구 좌표, 출입구 박스 부재와 평면에서 겹치면 오류)
+    from entrances.ext_ev import layout_ext_ev
+    ext_evs = []
+    for k, xs in enumerate(spec.ext_evs, start=1):
+        xn = xs.name.strip() or f"{name}_EV{k}"
+        a0, a1, b0, b1 = xs.footprint()
+        for p in parts:
+            pu0, pu1 = min(st.s0 for st in p.strips), max(st.s1 for st in p.strips)
+            if min(a1, pu1) - max(a0, pu0) > 1e-6 and min(b1, p.t_range[1]) - max(b0, p.t_range[0]) > 1e-6:
+                raise ValueError(f"출입구 {name}: 외부 엘리베이터 {xn} 이(가) 출입구 부재 {p.code} 와 평면에서 겹칩니다")
+        ext_evs.append(layout_ext_ev(xs, xn, frame, G, zp))
+
     # ---------- 계단·에스컬레이터 부재 (출입구 좌표의 띠). 개구부 내공 축소: 계단의 개구부 쪽 조각은 벽 쪽 변을 축소된 내공면까지
     if spec.stair and spec.open_narrow > 0:
         z0, z1 = zones["stair"]
@@ -791,4 +804,4 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         u=dict(wp_lo=u_wp, wp_hi=u_up, truss_lo=truss_lo, truss_hi=truss_hi, cross=u_cross, stair0=u_s0,
                arrive=arrive, top=u_top, end=end, roof_end=u_re, roof_knee=u_k),
         roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin,
-        finish=finish, finish_type=eft, ceiling_raise=rz, escalators=escalators, canopy=canopy)
+        finish=finish, finish_type=eft, ceiling_raise=rz, escalators=escalators, canopy=canopy, ext_evs=ext_evs)

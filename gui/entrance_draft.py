@@ -30,6 +30,9 @@ NUM_FIELDS = [("ground_el", "지표 EL", None), ("stair_width", "계단 폭", "p
               ("cp_spacing", "캐노피 기둥 간격", "pos"), ("cp_sign_w", "출구 사인 폭", "pos"), ("cp_sign_h", "출구 사인 높이", "pos"),
               ("arch_h", "건축 벽체 높이", "pos"), ("arch_t", "건축 벽체 두께", "opt")]
 
+EV_FACES = ["+u", "-u", "+t", "-t"]
+EV_SAME = "(지상과 같음)"
+EV_CAR_AT = {"지상": "ground", "지하": "low"}
 OUTDOOR_FORECOURT = "앞마당 슬래브"
 OUTDOOR_STEPS = "경사로·계단"
 OUTDOORS = [OUTDOOR_FORECOURT, OUTDOOR_STEPS]
@@ -94,6 +97,14 @@ class EntranceDraft:
     arch_wall: bool = True                # 건축 마감 벽체 (화면 기본 켬, 모델 끔)
     arch_h: str = f"{_SPEC.arch_h:g}"
     arch_t: str = ""                      # 비우면 파라펫 두께 + 0.15
+    ev_on: bool = False                   # 외부 엘리베이터 (출입구 좌표 위치)
+    ev_u: str = ""
+    ev_t: str = ""
+    ev_face: str = "+u"                   # 지상 문 방향
+    ev_low_face: str = EV_SAME            # 지하 문 방향 (지상과 같음)
+    ev_low_z: str = ""                    # 지하 정지 바닥 EL (비우면 통로 끝 바닥)
+    ev_car_at: str = "지상"
+    ev_door_open: str = "0"
     finish: str = "(통로 기준)"                       # 내부 마감 종류 ('(통로 기준)' = 붙은 출구통로의 마감 종류)
     thick_zones: list = field(default_factory=list)   # 두께 구간 [[u 시작, 두께], ...] (문자열, 비우면 벽·슬래브 두께 일정)
 
@@ -132,6 +143,16 @@ class EntranceDraft:
                 continue
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
         offset = None if not str(self.stair_offset).strip() else _num(self.stair_offset, where, "계단 시작 조정")
+        ext = []
+        if self.ev_on:
+            from entrances.ext_ev import ExtEvSpec
+            if self.ev_face not in EV_FACES or (self.ev_low_face != EV_SAME and self.ev_low_face not in EV_FACES):
+                raise ValueError(f"{where}: 외부 엘리베이터 문 방향이 올바르지 않습니다")
+            ext.append(ExtEvSpec(u=_num(self.ev_u, where, "외부 EV u"), t=_num(self.ev_t, where, "외부 EV t"), face=self.ev_face,
+                                 low_face=None if self.ev_low_face == EV_SAME else self.ev_low_face,
+                                 low_z=None if not str(self.ev_low_z).strip() else _num(self.ev_low_z, where, "외부 EV 지하 EL"),
+                                 car_at=EV_CAR_AT.get(self.ev_car_at, "ground"),
+                                 door_open=_num(self.ev_door_open, where, "외부 EV 문 열림", nonneg=True)))
         if self.outdoor not in _OUTDOOR:
             raise ValueError(f"{where}: 바깥 접근 형식이 올바르지 않습니다 ('{self.outdoor}')")
         if not self.stair and not self.escalator:
@@ -144,7 +165,7 @@ class EntranceDraft:
                             stair=bool(self.stair), escalator_count=n_esc, outdoor=_OUTDOOR[self.outdoor],
                             canopy=bool(self.canopy), cp_wall=bool(self.cp_wall), exit_number=str(self.exit_number).strip(),
                             line_name=str(self.line_name).strip(), sign_bg=self._color(where),
-                            arch_wall=bool(self.arch_wall),
+                            arch_wall=bool(self.arch_wall), ext_evs=ext,
                             stair_offset=offset, name=self.name.strip(), thickness_zones=self.zones(where),
                             finish="" if str(self.finish).strip() in ("", "(통로 기준)") else str(self.finish).strip(), **vals)
 

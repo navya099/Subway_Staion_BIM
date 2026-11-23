@@ -24,10 +24,25 @@ class EntranceElementData(CommonBIMData):
     t_range: tuple = (0.0, 0.0)
     shape: Optional[StripShape] = None
     pieces: list = field(default_factory=list)
+    slide: tuple = None          # 외부 EV 문짝: ((du, dt) 출입구 좌표 단위 방향, 최대 이동)
+    stop: int = None             # 외부 EV 승강장 문짝 층 (1 = 지하, 2 = 지상)
 
     @property
     def volume(self) -> float:
         return (self.shape.volume if self.shape else 0.0) + sum(p.volume for p in self.pieces)
+
+
+@dataclass
+class ExtEvData(CommonBIMData):
+    """출입구 외부 엘리베이터 1대 (IFC: IfcElementAssembly ELEVATOR ⊃ 승강로·박스·기단 부재 + IfcTransportElement 카).
+    elements = EntranceElementData (kind = 'EV_' + 부재 종류), stops = {1: 지하, 2: 지상} 정지 바닥, car_z = 카 바닥 (애니메이션),
+    travel = (지하, 지상), door_open = 문 열림 비율"""
+    elements: list = field(default_factory=list)
+    stops: dict = field(default_factory=dict)
+    car_z: float = 0.0
+    travel: tuple = (0.0, 0.0)
+    door_open: float = 0.0
+    layout: object = None
 
 
 @dataclass
@@ -65,6 +80,7 @@ class EntranceData(CommonBIMData):
     finishes: list = field(default_factory=list)       # EntranceFinishData (내부 마감, 마감 끔 = [])
     canopy: list = field(default_factory=list)         # 캐노피 EntranceElementData (CP_POST·CP_BEAM·CP_GLASS·CP_SIGN)
     exit_number: str = ""                              # 캐노피 출구 사인 번호
+    ext_evs: list = field(default_factory=list)        # 외부 엘리베이터 ExtEvData
 
     def element(self, code: str) -> EntranceElementData:
         return next(e for e in self.elements if e.code == code)

@@ -261,13 +261,16 @@ def render_entrance_sign(w_m: float, h_m: float, line: str, kname: str, ename: s
         size = _fit(line, "EN_B", 18, 48)
         c.text(line, x + 32, 50 - size * 0.62, size, "EN_B", fg_on(lc), "center")
         x += 84
-    bx = W - 16 - 70                               # 번호 상자
-    c.rect(bx, 15, 70, 70, (255, 200, 0))
-    ns = _fit(number or "?", "EN_B", 52, 60)
-    c.text(number or "?", bx + 35, 50 - ns * 0.62, ns, "EN_B", (0, 0, 0), "center")
-    c.text("출입구", bx - 12, 26, 22, "KR_B", fg, "right")
-    c.text("Entrance", bx - 12, 56, 14, "EN", fg, "right")
-    lw = max(text_width("KR_B", 22, "출입구"), text_width("EN", 14, "Entrance"))
+    if number is None:                             # 번호 없음 (외부 엘리베이터 역명 띠): 오른쪽 끝까지 역명
+        bx, lw = W - 4.0, -24.0
+    else:
+        bx = W - 16 - 70                           # 번호 상자
+        c.rect(bx, 15, 70, 70, (255, 200, 0))
+        ns = _fit(number or "?", "EN_B", 52, 60)
+        c.text(number or "?", bx + 35, 50 - ns * 0.62, ns, "EN_B", (0, 0, 0), "center")
+        c.text("출입구", bx - 12, 26, 22, "KR_B", fg, "right")
+        c.text("Entrance", bx - 12, 56, 14, "EN", fg, "right")
+        lw = max(text_width("KR_B", 22, "출입구"), text_width("EN", 14, "Entrance"))
     room = bx - 12 - lw - 24 - x                   # 역명 자리
     small = [s for s in (ename, " ".join(v for v in (cname, jname if jname != cname else "") if v)) if s]
     sw = max([text_width("EN", 16, s) for s in small] + [0.0])

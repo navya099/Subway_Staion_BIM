@@ -1,4 +1,4 @@
-"""본체 밖 구조물(출입구 · 외부 엘리베이터 · 환기구 지상부 · 출구통로)의 평면도 · 본체 종단면도 표시.
+"""본체 밖 구조물(출입구 · 외부 엘리베이터 · 환기구 · 출구통로)의 평면도 · 본체 종단면도 표시.
 
 부재의 3D 면(볼록 조각)을 그대로 써서 2D 윤곽을 만든다 (BIM 객체 = 단일 원천, 도면 코드가 기하를 다시 계산하지 않음).
 
@@ -7,7 +7,7 @@
   → 경사 출입구·승강로가 층마다 그 층 높이만큼 나뉘어 보임 (층 겹쳐 보기 없음)
 - 붙은 층(통로·EV 문 층)의 절단면 = 그 구조물 바닥 + 절단 높이 (아래로 끝까지), 다른 층 = 그 측점 본체 FL + 층 높이 + 절단 높이
 - 지상(층 번호 = 층수 + 1): 절단면 = 지표 + 절단 높이. 출입구 개구부·캐노피·앞마당, EV 유리 박스·기단·경사로, 환기구 지상 돌출 + 본체 외곽선
-종단면도 (`profile_outer_items`): 모든 조각을 (s, 절대 표고)에 투영한 윤곽 (절단되지 않으므로 해치 없음), 왼쪽(+t)·오른쪽(−t)·양쪽·없음 선택.
+종단면도 (`profile_outer_items`): 통로·출입구·외부 EV·환기구의 모든 조각을 (s, 절대 표고)에 투영한 윤곽 (절단되지 않으므로 해치 없음), 왼쪽(+t)·오른쪽(−t)·양쪽·없음 선택.
 """
 import math
 
@@ -339,6 +339,10 @@ def profile_outer_items(engine, sides: str = OUTER_BOTH) -> list:
         mem = [(e.name, f) for e in x.elements if e.kind not in ("SIGN", "SIGN_FACE", "SPIDER", "GIRT")
                for f in _strips(e.frame, e) + [p.faces() for p in e.pieces]]
         groups.append((f"{x.name} EV", side_of(t), mem))
+    for vt in engine.vents.vents:                                  # 환기구: 덕트·수직구 조각, 그릴은 칸마다 윤곽 하나 (살은 생략)
+        mem = [(e.name, p.faces()) for e in vt.elements for p in e.pieces]
+        mem += [(e.name, [f for p in e.pieces for f in p.faces()]) for e in vt.grills]
+        groups.append((f"{vt.name} VENT", vt.side, mem))
     want = {OUTER_BOTH: (1, -1), OUTER_LEFT: (1,), OUTER_RIGHT: (-1,)}[sides]
     items = []
     for label, side, mem in groups:
@@ -358,5 +362,5 @@ def profile_outer_items(engine, sides: str = OUTER_BOTH) -> list:
                 items.append(ViewItem(name, "PROF_OUTER", u0=min(p[0] for p in hull), u1=max(p[0] for p in hull), pts=hull))
                 top, left = max(top, max(p[1] for p in hull)), min(left, min(p[0] for p in hull))
         if len(items) > first:
-            items[first].label = (label + (" (L)" if side > 0 else " (R)"), left, top + 0.5, 0.6, "PROF_TEXT")
+            items[first].label = (label + (" (L)" if side > 0 else " (R)"), left, top + (0.5 if side > 0 else 1.4), 0.6, "PROF_TEXT")   # 양쪽이 겹쳐도 이름표는 위아래로
     return items

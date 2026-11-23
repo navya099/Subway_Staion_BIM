@@ -292,7 +292,7 @@ class StationCADEngine:
 
     def build_profile_doc(self, offsets=None, outer="both") -> ezdxf.document.Drawing:
         """종단면도 DXF 문서 (offsets 는 generate_profile_dxf 와 같음).
-        outer: 본체 밖 구조물(통로·출입구·외부 EV) 투영 both | left(+t) | right(−t) | none"""
+        outer: 본체 밖 구조물(통로·출입구·외부 EV·환기구) 투영 both | left(+t) | right(−t) | none"""
         doc, msp = self._init_doc()
         p = self.cfg.station
         start_lv = self.cfg.lv(0)

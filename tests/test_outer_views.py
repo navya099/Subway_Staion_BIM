@@ -178,6 +178,23 @@ def test_profile_side_options():
         OV.profile_outer_items(eng, "up")
 
 
+@pytest.mark.parametrize("curved", [False, True])
+def test_vent_in_profile(curved):
+    """환기구: 덕트·수직구 윤곽 + 그릴은 칸마다 하나, 범위 = 부재 꼭짓점의 (s, 표고)"""
+    from test_vents import eng_with, vent
+    eng = eng_with(vent([(50, 10, None), (50, 30, 0), (50, 30, 12.0)]), curved=curved)
+    (vt,) = eng.vents.vents
+    its = OV.profile_outer_items(eng, "left" if vt.side > 0 else "right")
+    assert [i.label[0] for i in its if i.label] == [f"{vt.name} VENT " + ("(L)" if vt.side > 0 else "(R)")]
+    assert len([i for i in its if "GRILL" in i.name]) == len(vt.grills) == vt.cells
+    pts = [p for e in vt.elements + vt.grills for q in e.pieces for f in q.faces() for p in f]
+    ss = [eng.cfg.to_station(p[0], p[1])[0] for p in pts[:: max(1, len(pts) // 60)]]
+    u, z = [p[0] for i in its for p in i.pts], [p[1] for i in its for p in i.pts]
+    assert min(u) <= min(ss) + 5e-3 and max(u) >= max(ss) - 5e-3
+    assert (min(z), max(z)) == pytest.approx((min(p[2] for p in pts), max(p[2] for p in pts)), abs=1e-6)
+    assert OV.profile_outer_items(eng, "right" if vt.side > 0 else "left") == []
+
+
 def test_profile_doc_stacks_axes_without_overlap(tmp_path):
     eng = engine()
     base = eng.build_profile_doc([0.0], "none")

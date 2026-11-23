@@ -185,7 +185,7 @@ class PreviewWindow:
         self.profile_axis.bind("<<ComboboxSelected>>", lambda e: self.draw_profile())
         self.profile_axis.bind("<Return>", lambda e: self.draw_profile())
         self._button(bar, "그리기", self.draw_profile)
-        self._label(bar, "외부 구조물 투영 (통로·출입구·외부 EV)")
+        self._label(bar, "외부 구조물 투영 (통로·출입구·외부 EV·환기구)")
         self.profile_outer = ttk.Combobox(bar, state="readonly", width=11, font=FONT, values=list(OUTER_LABELS))
         self.profile_outer.set(next(iter(OUTER_LABELS)))
         self.profile_outer.pack(side="left")

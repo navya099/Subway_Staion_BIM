@@ -71,7 +71,7 @@ class PrintTab:
         e.pack(side="left", padx=4)
         row = tk.Frame(box)
         row.pack(fill="x", pady=(2, 0))
-        tk.Label(row, text="외부 구조물 투영 (통로·출입구·외부 EV)", font=FONT).pack(side="left")
+        tk.Label(row, text="외부 구조물 투영 (통로·출입구·외부 EV·환기구)", font=FONT).pack(side="left")
         var = tk.StringVar(value=self.draft.profile_outer)
         self._vars["profile_outer"] = var
         var.trace_add("write", lambda *_: setattr(self.draft, "profile_outer", var.get()))

@@ -212,3 +212,131 @@ def test_draft_converts_and_follows_floors():
     with pytest.raises(ValueError, match="엘리베이터 1: 승강로 내공 s"):
         ds.to_specs(0.0)
     assert "확인" in preview(d, 0.0, 2)
+
+
+# ===================================================== 투시형 승강로 (실무 표준도 068·069: 강관 + 유리 + 금속 패널, RC 피트, 90도형)
+GLASS = dict(lower_floor=2, upper_floor=3, s_center=100, t_center=-6.5, shaft="glass", inner_s=3.0, inner_t=2.71,
+             door_floors=["-s", "+t"], car_floor=3)
+
+
+def _glass_parts(lay):
+    out = {}
+    for p in lay.parts:
+        out.setdefault(p.code, []).append(p)
+    return out
+
+
+def test_glass_shaft_layout():
+    import random
+    from elevators.elevator_engine import ev_part_faces
+    cfg = cfg_with(GLASS)
+    lay = cfg.elevator_layouts()[0]
+    sp = lay.spec
+    S0, S1, T0, T1 = sp.outer_rect()
+    assert (S1 - S0, T1 - T0) == pytest.approx((3.84, 3.55))                                  # 실무 유리 외곽 3,840 × 3,550
+    parts = _glass_parts(lay)
+    assert "TOP" not in parts and not [c for c in parts if c.startswith("WALL_")]              # RC 승강로 벽·천장 슬래브 없음
+    assert lay.opening.slabs == [1, 2] and lay.opening.width == pytest.approx(3.55)
+    r = lambda z: rel(cfg, 100, z)
+    # 기둥: 유리 바깥면에서 0.25 안쪽, 피트 바닥(6 − 1.5) ~ 최상 정지층(B1F, 12) 위 천장 슬래브 하면(18 − 0.4)
+    (col,) = parts["COL_NN"]
+    assert sum(col.s_range) / 2 == pytest.approx(S0 + 0.25) and sum(col.t_range) / 2 == pytest.approx(T0 + 0.25)
+    assert [r(z) for z in col.z_range] == pytest.approx([4.5, 17.6])
+    # 유리: 정지 바닥 + 0.07 부터 줄 1.3 / 1.2 / 0.5, 문 없는 면은 최대 2.0 폭으로 고르게 (3.55 → 2장)
+    g = parts["GLASS_PS_B2F"]
+    assert len(g) == 2 * 3 and sorted({round(r(p.z_range[0]), 3) for p in g}) == pytest.approx([6.07, 7.37, 8.57])
+    # 문 면 (B2F = −s): 문 자리(폭 0.9)는 맨 위 줄만, 문 열림 높이 = 문 높이(2.1) 이상 첫 줄눈 (0.07 + 2.5)
+    door = [p for p in parts["GLASS_NS_B2F"] if abs(sum(p.t_range) / 2 - sp.t_center) < 1e-6]
+    assert len(door) == 1 and r(door[0].z_range[0]) == pytest.approx(6 + 2.57)
+    assert [(d[1], d[2]) for d in lay.door_openings] == [("GLASS_NS_B2F", 2), ("GLASS_PT_B1F", 3)]
+    # 가로재: 줄눈 3곳 × 4면, 문 면은 문 머리(2.57)보다 낮은 줄(1.37)만 문 자리에서 끊김
+    assert len(parts["GIRT_PS_B2F"]) == 3 and len(parts["GIRT_NS_B2F"]) == 2 + 1 + 1
+    # 금속 패널 띠: 유리 윗면 ~ 다음 정지층 유리 아래 / 최상층은 위 슬래브 하면
+    (pb,) = parts["PANEL_PS_B2F"]
+    assert [r(z) for z in pb.z_range] == pytest.approx([9.07, 12.07])
+    assert [r(z) for z in parts["PANEL_PS_B1F"][0].z_range] == pytest.approx([15.07, 17.6])
+    # RC 피트: 바닥 슬래브 + 둘레 벽 (피트 바닥 ~ B3F/B2F 중간 슬래브 하면)
+    assert [r(z) for z in parts["PIT_WALL_PS"][0].z_range] == pytest.approx([3.9, 5.6])
+    # 부재끼리 겹치지 않음 (상자 내부 점 → 다른 상자·기둥·가로재 밖)
+    import numpy as np
+    boxes = [p for p in lay.parts if p.solid is None]
+    solids = [p for p in lay.parts if p.solid is not None]
+
+    def inside(faces, q):
+        for f in faces:
+            a, b, c = (np.array(f[i]) for i in range(3))
+            if np.dot(np.cross(b - a, c - a), np.array(q) - a) > -1e-7:
+                return False
+        return True
+    rng = random.Random(3)
+    for p in boxes:
+        st = p.shape.strips[0]
+        for _ in range(15):
+            s, t, z = rng.uniform(st.s0, st.s1), rng.uniform(*p.t_range), rng.uniform(st.zb0, st.zt)
+            for q in boxes:
+                if q is not p:
+                    s2 = q.shape.strips[0]
+                    assert not (s2.s0 + 1e-7 < s < s2.s1 - 1e-7 and q.t_range[0] + 1e-7 < t < q.t_range[1] - 1e-7
+                                and s2.zb0 + 1e-7 < z < s2.zt - 1e-7), (p.code, q.code)
+            x, y = cfg.to_world(s, t)
+            assert not any(inside(q.solid.faces(), (x, y, z)) for q in solids), p.code
+    for p in lay.parts:                                                                        # 체적 공식 = 메쉬
+        assert PM.mesh_volume(ev_part_faces(cfg, p)) == pytest.approx(p.volume, rel=1e-7), p.code
+
+
+@pytest.mark.parametrize("curved", [False, True])
+def test_glass_shaft_outputs(tmp_path, curved):
+    from elevators.elevator_engine import ev_part_faces
+    kw = dict(GLASS, s_center=60, t_center=6.5, lower_floor=1, upper_floor=2, car_floor=2) if curved else GLASS
+    eng = eng_with(kw, curved=curved)
+    cfg = eng.cfg
+    ev = eng.elevators.elevators[0]
+    f = ifcopenshell.open(eng.generate_ifc(tmp_path / "g.ifc"))
+    by_name = {e.Name: e for e in f.by_type("IfcElement")}
+    ent = {"PIT_SLAB": "IfcSlab", "PIT_WALL": "IfcWall", "COLUMN": "IfcColumn", "GIRT": "IfcMember", "GLASS": "IfcPlate",
+           "PANEL": "IfcCovering"}
+    rel_tol = 1e-4 if curved else 1e-7
+    for e in ev.elements:
+        if e.kind.name in ent:
+            assert by_name[e.name].is_a(ent[e.kind.name]), e.name
+        mesh = sum(PM.mesh_volume(ev_part_faces(cfg, p)) for p in e.parts)
+        assert mesh == pytest.approx(e.volume, rel=rel_tol), e.name
+        assert ifc_world_volume(by_name[e.name]) == pytest.approx(e.volume, rel=rel_tol), e.name
+    assert not [o for o in f.by_type("IfcOpeningElement") if o.ObjectType == "ELEVATOR_DOOR"]   # 유리는 문 자리를 비워 만듦
+    car = next(k for k in f.by_type("IfcTransportElement") if k.Name == "EV1_CAR")
+    assert len([k for k in ifcopenshell.util.element.get_decomposition(car) if k.is_a("IfcDoor")]) == 2   # 90도형 = 카 문 2
+    doc = eng.build_3d_doc()
+    layers = {e.kind.name: {x.dxf.layer for x in e.source_element} for e in ev.elements}
+    assert layers["GLASS"] == {"STRUCT_ELEVATOR_GLASS"} and layers["COLUMN"] == layers["PANEL"] == {"STRUCT_ELEVATOR_FRAME"}
+    assert all(len([v for v in (x.dxf.vtx0, x.dxf.vtx1, x.dxf.vtx2, x.dxf.vtx3)]) == 4 for x in doc.modelspace().query("3DFACE"))
+    sec = eng.elevators.section_items(ev.elements[0].parts[0].s_range[0] + 0.26)
+    assert any(i.layer == "SEC_ELEVATOR" for i in sec)
+    assert any(i.name.startswith("EV1_COL") for i in eng.elevators.plan_items(2.0, floor=kw["lower_floor"]))
+
+
+def test_glass_doors_tactile_and_rules():
+    from gui.elevator_draft import ElevatorDraft
+    from tactiles.tactile_layout import _auto_blocks
+    from tactiles.tactile_spec import TactileSettings
+    cfg = cfg_with(GLASS)
+    evs = cfg.elevator_layouts()
+    S0, S1, T0, T1 = evs[0].outer_rect()
+    ts = TactileSettings(enabled=True)
+    b2 = [r for name, r in _auto_blocks(cfg, ts, 2, [], [], evs) if name == "EV1"]
+    b1 = [r for name, r in _auto_blocks(cfg, ts, 3, [], [], evs) if name == "EV1"]
+    assert len(b2) == 1 and b2[0][1] <= S0 and len(b1) == 1 and b1[0][2] >= T1               # 층마다 그 층 문 앞만
+    with pytest.raises(ValueError, match="정지층 수"):
+        cfg_with(dict(GLASS, door_floors=["-s"])).elevator_layouts()
+    with pytest.raises(ValueError, match="문 방향"):
+        cfg_with(dict(GLASS, door_floors=["-s", "+x"])).elevator_layouts()
+    with pytest.raises(ValueError, match="내공 안으로"):
+        cfg_with(dict(GLASS, glass_offset=0.2)).elevator_layouts()
+    with pytest.raises(ValueError, match="기둥 사이"):
+        cfg_with(dict(GLASS, door_w=3.4, car_width=3.5, inner_s=4.0)).elevator_layouts()
+    with pytest.raises(ValueError, match="오버헤드"):
+        cfg_with(dict(GLASS, overhead=6.0)).elevator_layouts()
+    d = ElevatorDraft(door_floors="-s, +t/−s", glass_rows="1.3, 1.2, 0.5")
+    sp = d.to_spec("엘리베이터", 0.0)
+    assert sp.shaft == "glass" and sp.door_floors == ["-s", "+t/-s"] and sp.glass_rows == (1.3, 1.2, 0.5)
+    assert sp.doors_at(2) == {("t", 1), ("s", -1)}
+    assert ElevatorDraft(shaft="RC 승강로").to_spec("e", 0.0).shaft == "rc"

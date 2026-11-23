@@ -3,7 +3,7 @@ from tkinter import ttk
 from gui import pick_buttons as PB
 
 from gui.column_draft import level_name
-from gui.elevator_draft import DOOR_LABELS, NUM_FIELDS, ElevatorDraft, ElevatorDrafts, preview
+from gui.elevator_draft import DOOR_LABELS, GLASS_FIELDS, NUM_FIELDS, SHAFT_LABELS, ElevatorDraft, ElevatorDrafts, preview
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -120,6 +120,10 @@ class ElevatorTab:
                 c.current(getattr(it, attr) - 1)
         self.refresh_info()
 
+    def set_shaft(self, idx, label: str):
+        self.drafts.items[idx].shaft = label
+        self.refresh_info()
+
     def set_door(self, idx, label: str):
         self.drafts.items[idx].door = label
         self.refresh_info()
@@ -189,9 +193,17 @@ class ElevatorTab:
         var.trace_add("write", on_through)
         tk.Checkbutton(row, text="관통형 (반대쪽에도 문)", variable=var, font=FONT).pack(side="left")
 
+        row = tk.Frame(box)
+        row.pack(fill="x", pady=(4, 0))
+        tk.Label(row, text="승강로", font=FONT).pack(side="left")
+        sh = SHAFT_LABELS.index(it.shaft) if it.shaft in SHAFT_LABELS else 0
+        self._combo(row, i, "shaft", SHAFT_LABELS, sh, lambda c, k=i: self.set_shaft(k, c.get()), 15).pack(side="left", padx=(2, 8))
+        tk.Label(row, text="층별 문(최하층부터, 예 -s, +t)", font=FONT).pack(side="left")
+        self._entry(row, it, "door_floors", (i, "door_floors"), 12).pack(side="left", padx=(2, 0))
+
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))
-        for n, (attr, label) in enumerate(NUM_FIELDS):
+        for n, (attr, label) in enumerate(NUM_FIELDS + GLASS_FIELDS + [("glass_rows", "유리 줄 높이(쉼표)")]):
             r, col = divmod(n, 2)
             tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")
             self._entry(grid, it, attr, (i, attr), ENTRY_W).grid(row=r, column=col * 2 + 1, padx=(2, 12), pady=1)

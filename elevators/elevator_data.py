@@ -18,7 +18,7 @@ class ElevatorElementData(CommonBIMData):
 
     @property
     def volume(self) -> float:
-        return sum(p.shape.volume for p in self.parts)
+        return sum(p.volume for p in self.parts)
 
 
 @dataclass

@@ -657,7 +657,10 @@ class IFCExporter:
     _EV_ENTITY = {ElevatorPartKind.HOIST_WALL: ("IfcWall", "SOLIDWALL"), ElevatorPartKind.PIT_SLAB: ("IfcSlab", "BASESLAB"),
                   ElevatorPartKind.TOP_SLAB: ("IfcSlab", "ROOF"), ElevatorPartKind.CAR_FLOOR: ("IfcBuildingElementPart", "USERDEFINED"),
                   ElevatorPartKind.CAR_WALL: ("IfcBuildingElementPart", "USERDEFINED"),
-                  ElevatorPartKind.CAR_ROOF: ("IfcBuildingElementPart", "USERDEFINED"), ElevatorPartKind.CAR_DOOR: ("IfcDoor", "DOOR")}
+                  ElevatorPartKind.CAR_ROOF: ("IfcBuildingElementPart", "USERDEFINED"), ElevatorPartKind.CAR_DOOR: ("IfcDoor", "DOOR"),
+                  ElevatorPartKind.PIT_WALL: ("IfcWall", "SOLIDWALL"), ElevatorPartKind.COLUMN: ("IfcColumn", "COLUMN"),
+                  ElevatorPartKind.GIRT: ("IfcMember", "MEMBER"), ElevatorPartKind.GLASS: ("IfcPlate", "CURTAIN_PANEL"),
+                  ElevatorPartKind.PANEL: ("IfcCovering", "CLADDING")}
 
     def export_elevators(self, elevator_engine: ElevatorEngine):
         """엘리베이터: IfcElementAssembly(USERDEFINED: ELEVATOR) 가 승강로 벽(IfcWall)·피트 슬래브(IfcSlab BASESLAB)·
@@ -678,7 +681,8 @@ class IFCExporter:
             shaft_parts, car_parts, walls = [car], [], {}
             for e in ev.elements:
                 entity, predefined = self._EV_ENTITY[e.kind]
-                items = [self._face_set(fs) for part in e.parts for fs in part_faces(cfg, part)]
+                items = [self._face_set(part.solid.faces()) if part.solid is not None else self._face_set(fs)
+                         for part in e.parts for fs in ([None] if part.solid is not None else part_faces(cfg, part))]
                 el = self.file.create_entity(
                     entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, ObjectType=e.type_name,
                     ObjectPlacement=self._placement(), Representation=self._product_shape(items, "Tessellation"),
@@ -689,6 +693,8 @@ class IFCExporter:
                 if e.kind == ElevatorPartKind.HOIST_WALL:
                     walls[e.code] = el
             for name, code, _, (s0, s1, t0, t1), z0, z1 in ev.door_openings:
+                if code not in walls:                          # 투시형: 유리는 문 자리를 비워 만듦 (뚫을 벽 없음)
+                    continue
                 box = SimpleNamespace(t_range=(t0, t1), shape=StripShape(
                     strips=[Strip(s0, s1, z0, z0, z1, PM.curve_factor(cfg, s0, s1, (t0 + t1) / 2.0))], width=t1 - t0))
                 op = self.file.create_entity(

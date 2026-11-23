@@ -208,6 +208,8 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
             if zb is None:
                 continue
             base_abs = cfg.lv(ev.spec.s_center) - st.offset
+            if ev.spec.shaft == "glass":
+                continue                                          # 투시형: 유리·금속 패널이 마감
             holes = [(rect, z0 - base_abs, z1 - base_abs) for _, _, fnum, rect, z0, z1 in ev.door_openings if fnum == n]
             rings.append(((S0, S1, T0, T1), zb, holes))
         col_rects = ctx["col_rects"]

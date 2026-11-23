@@ -8,6 +8,14 @@ _SPEC = ElevatorSpec()             # 초기값은 모델 기본값이 단일 출
 
 DOORS = {"+t (왼쪽)": "+t", "−t (오른쪽)": "-t", "+s (종점 방향)": "+s", "−s (시점 방향)": "-s"}
 DOOR_LABELS = list(DOORS)
+SHAFT_GLASS = "투시형 (강관+유리)"
+SHAFT_RC = "RC 승강로"
+SHAFTS = {SHAFT_GLASS: "glass", SHAFT_RC: "rc"}
+SHAFT_LABELS = list(SHAFTS)
+
+# 투시형 승강로 제원 (양수 입력칸)
+GLASS_FIELDS = [("glass_offset", "유리 바깥 간격"), ("glass_t", "유리 두께"), ("col_d", "기둥 지름"), ("col_inset", "기둥 위치"),
+                ("girt_d", "가로재 지름"), ("glass_max_w", "유리 최대 폭")]
 
 # (속성, 라벨) 양수 입력칸
 NUM_FIELDS = [("inner_s", "승강로 내공 s"), ("inner_t", "승강로 내공 t"), ("wall_t", "승강로 벽"),
@@ -44,15 +52,31 @@ class ElevatorDraft:
     car_floor_t: str = f"{_SPEC.car_floor_t:g}"
     car_wall_t: str = f"{_SPEC.car_wall_t:g}"
     car_roof_t: str = f"{_SPEC.car_roof_t:g}"
+    shaft: str = SHAFT_GLASS               # 화면 기본 = 투시형 (정거장 내부 실무 표준, 모델 기본 RC)
+    door_floors: str = ""                 # 층별 문 방향 (최하 정지층부터 쉼표, 한 층에 여럿이면 '/', 비우면 문 방향·관통형)
+    glass_offset: str = f"{_SPEC.glass_offset:g}"
+    glass_t: str = f"{_SPEC.glass_t:g}"
+    col_d: str = f"{_SPEC.col_d:g}"
+    col_inset: str = f"{_SPEC.col_inset:g}"
+    girt_d: str = f"{_SPEC.girt_d:g}"
+    glass_max_w: str = f"{_SPEC.glass_max_w:g}"
+    glass_rows: str = ", ".join(f"{h:g}" for h in _SPEC.glass_rows)
 
     def to_spec(self, where: str, start_station: float) -> ElevatorSpec:
         if self.door not in DOORS:
             raise ValueError(f"{where}: 문 방향이 올바르지 않습니다 ('{self.door}')")
-        vals = {attr: _num(getattr(self, attr), where, label, positive=True) for attr, label in NUM_FIELDS}
+        if self.shaft not in SHAFTS:
+            raise ValueError(f"{where}: 승강로 형식이 올바르지 않습니다 ('{self.shaft}')")
+        vals = {attr: _num(getattr(self, attr), where, label, positive=True) for attr, label in NUM_FIELDS + GLASS_FIELDS}
+        rows = tuple(_num(x, where, "유리 줄 높이", positive=True) for x in str(self.glass_rows).split(",") if x.strip())
+        if not rows:
+            raise ValueError(f"{where}: 유리 줄 높이를 입력하세요 (아래부터 쉼표)")
+        floors = [x.strip().replace("−", "-") for x in str(self.door_floors).split(",")] if str(self.door_floors).strip() else None
         return ElevatorSpec(lower_floor=self.lower_floor, upper_floor=self.upper_floor, car_floor=self.car_floor,
                             s_center=_num(self.sta_center, where, "승강로 중심 측점") - start_station,
                             t_center=_num(self.t_center, where, "t 위치"), door_side=DOORS[self.door],
-                            through=bool(self.through), name=self.name.strip(), **vals)
+                            through=bool(self.through), name=self.name.strip(), shaft=SHAFTS[self.shaft],
+                            door_floors=floors, glass_rows=rows, **vals)
 
 
 class ElevatorDrafts:
@@ -90,5 +114,7 @@ def preview(it: ElevatorDraft, start_station: float, floor_count: int) -> str:
     name = lambda n: level_name(floor_count, n)
     S0, S1, T0, T1 = sp.outer_rect()
     return (f"→ 정지 {name(sp.lower_floor)} ~ {name(sp.upper_floor)} ({sp.upper_floor - sp.lower_floor + 1}개 층), "
-            f"카 {name(sp.stop_car)}, 문 {sp.door_side}{' 관통형' if sp.through else ''}\n"
+            f"카 {name(sp.stop_car)}, "
+            + (f"층별 문 {', '.join(sp.door_floors)}" if sp.door_floors else f"문 {sp.door_side}{' 관통형' if sp.through else ''}")
+            + (" · 투시형" if sp.shaft == "glass" else " · RC") + "\n"
             f"   승강로 외곽 STA {S0 + start_station:.2f} ~ {S1 + start_station:.2f}, t {T0:g} ~ {T1:g}")

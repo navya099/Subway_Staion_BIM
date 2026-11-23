@@ -109,6 +109,11 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    evs_ = getattr(engine, "elevators", None)
+    for ev in (evs_.elevators if evs_ is not None else []):         # 투시형 승강로 금속 패널 띠
+        for e in ev.elements:
+            if e.kind.name == "PANEL":
+                put(e, finish_material("금속패널"))
     rails = getattr(engine, "railings", None)
     for e in (rails.elements if rails is not None else []):          # 유리난간: 경계석·POST·레일 = 부재 재질, 유리 = 설정 색
         put(e, railing_glass_material(cfg.railing_settings) if e.code == "GLASS" else finish_material(e.material))

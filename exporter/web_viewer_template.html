@@ -151,6 +151,74 @@ const LIVE = /*__LIVE__*/false;
     return m;
   }
 
+  // 빠른 광선 검사: 메쉬마다 삼각형 경계 상자 나무(BVH)를 처음 쓸 때 만듦 — 모든 삼각형을 보지 않음 (클릭·호출 버튼·걷기)
+  const BVH = (function () {
+    const LEAF = 8;
+    function build(g) {
+      const p = g.attributes.position.array, ix = g.index.array, n = ix.length / 3 | 0;
+      const lo = new Float32Array(n * 3), hi = new Float32Array(n * 3), tri = new Uint32Array(n);
+      for (let t = 0; t < n; t++) {
+        tri[t] = t;
+        const a = ix[t * 3] * 3, b = ix[t * 3 + 1] * 3, c = ix[t * 3 + 2] * 3;
+        for (let k = 0; k < 3; k++) {
+          lo[t * 3 + k] = Math.min(p[a + k], p[b + k], p[c + k]); hi[t * 3 + k] = Math.max(p[a + k], p[b + k], p[c + k]);
+        }
+      }
+      const cap = Math.max(1, Math.ceil(n / LEAF) * 4 + 2), bb = new Float32Array(cap * 6), kid = new Int32Array(cap), cnt = new Int32Array(cap), from = new Int32Array(cap);
+      let used = 1;
+      const stack = [[0, 0, n]];
+      while (stack.length) {
+        const [node, a, b] = stack.pop(), o = node * 6;
+        bb[o] = bb[o + 1] = bb[o + 2] = Infinity; bb[o + 3] = bb[o + 4] = bb[o + 5] = -Infinity;
+        for (let i = a; i < b; i++) for (let k = 0; k < 3; k++) {
+          const t = tri[i] * 3 + k; if (lo[t] < bb[o + k]) bb[o + k] = lo[t]; if (hi[t] > bb[o + 3 + k]) bb[o + 3 + k] = hi[t];
+        }
+        from[node] = a; cnt[node] = b - a;
+        if (b - a <= LEAF || used + 2 > cap) { kid[node] = -1; continue; }
+        const sx = bb[o + 3] - bb[o], sy = bb[o + 4] - bb[o + 1], sz = bb[o + 5] - bb[o + 2];
+        const ax = sx >= sy && sx >= sz ? 0 : sy >= sz ? 1 : 2, mid = (a + b) >> 1;
+        const c = (t) => lo[t * 3 + ax] + hi[t * 3 + ax];
+        let l = a, r = b - 1;                                  // 가운데 번째를 기준으로 나눔 (빠른 선택)
+        while (l < r) {
+          const v = c(tri[(l + r) >> 1]); let i = l, j = r;
+          while (i <= j) {
+            while (c(tri[i]) < v) i++;
+            while (c(tri[j]) > v) j--;
+            if (i <= j) { const q = tri[i]; tri[i] = tri[j]; tri[j] = q; i++; j--; }
+          }
+          if (mid <= j) r = j; else if (mid >= i) l = i; else break;
+        }
+        kid[node] = used; stack.push([used, a, mid], [used + 1, mid, b]); used += 2;
+      }
+      return { bb, kid, cnt, from, tri, p, ix };
+    }
+    const ray = new THREE.Ray(), inv = new THREE.Matrix4(), A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), H = new THREE.Vector3();
+    function raycast(raycaster, out) {                          // THREE.Mesh.raycast 대신 (같은 결과 형식)
+      const g = this.geometry; if (!g.bvh) g.bvh = build(g);
+      const t = g.bvh; if (!t.tri.length) return;
+      inv.copy(this.matrixWorld).invert(); ray.copy(raycaster.ray).applyMatrix4(inv);
+      const ox = ray.origin.x, oy = ray.origin.y, oz = ray.origin.z, ix = 1 / ray.direction.x, iy = 1 / ray.direction.y, iz = 1 / ray.direction.z;
+      const stack = [0];
+      while (stack.length) {
+        const node = stack.pop(), o = node * 6;
+        const x1 = (t.bb[o] - ox) * ix, x2 = (t.bb[o + 3] - ox) * ix, y1 = (t.bb[o + 1] - oy) * iy, y2 = (t.bb[o + 4] - oy) * iy;
+        const z1 = (t.bb[o + 2] - oz) * iz, z2 = (t.bb[o + 5] - oz) * iz;
+        const n = Math.max(Math.min(x1, x2), Math.min(y1, y2), Math.min(z1, z2)), f = Math.min(Math.max(x1, x2), Math.max(y1, y2), Math.max(z1, z2));
+        if (!(f >= Math.max(n, 0) - 1e-5) || n > raycaster.far) continue;
+        if (t.kid[node] >= 0) { stack.push(t.kid[node], t.kid[node] + 1); continue; }
+        for (let i = t.from[node], e = i + t.cnt[node]; i < e; i++) {
+          const k = t.tri[i], a = t.ix[k * 3], b = t.ix[k * 3 + 1], c = t.ix[k * 3 + 2];
+          A.fromArray(t.p, a * 3); B.fromArray(t.p, b * 3); C.fromArray(t.p, c * 3);
+          if (!ray.intersectTriangle(A, B, C, false, H)) continue;
+          const point = H.clone().applyMatrix4(this.matrixWorld), distance = raycaster.ray.origin.distanceTo(point);
+          if (distance < raycaster.near || distance > raycaster.far) continue;
+          out.push({ distance, point, object: this, faceIndex: k, face: { a, b, c, normal: null, materialIndex: 0 } });
+        }
+      }
+    }
+    return { build, raycast };
+  })();
+
   const meshes = [];
   const box = new THREE.Box3();
   const groupOn = {};                       // 표시 묶음 켬/끔 (모델을 바꿔도 유지)
@@ -182,7 +250,7 @@ const LIVE = /*__LIVE__*/false;
       mesh.userData = { chunk: c, elem: new Uint32Array(buf, c.elem, c.nt), tex: c.tex ? textureOf(c.tex) : null };
       applyTexture(mesh);
       if (c.alpha < 1) mesh.renderOrder = 1;
-      if (c.anim) mesh.matrixAutoUpdate = true;
+      mesh.raycast = BVH.raycast;           // (ES 스텝은 모양이 바뀌어 아래 ESC 가 보통 검사 메쉬로 바꿈)
       scene.add(mesh); meshes.push(mesh);
       box.union(g.boundingBox);
       tris += c.nt;
@@ -190,7 +258,7 @@ const LIVE = /*__LIVE__*/false;
     const used = new Set(Object.values(DATA.images || {}));
     for (const [url, t] of texCache) if (!used.has(url)) { t.dispose(); texCache.delete(url); }   // 안 쓰는 이미지 정리
     const miss = (DATA.missing_textures || []).length ? ` · 텍스처 이미지 없음: ${DATA.missing_textures.join(", ")}` : "";
-    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개 · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
+    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개${DATA.hidden ? ` (가려진 면 ${DATA.hidden.toLocaleString()}개 뺌)` : ""} · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
 
     // 표시 묶음
     $("groups").innerHTML = "";
@@ -744,7 +812,7 @@ ${st.message}`, true);
       fit();
     }
   } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
-  window.__viewer = { EV, ESC, tick, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
+  window.__viewer = { EV, ESC, BVH, tick, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

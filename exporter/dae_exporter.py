@@ -20,7 +20,7 @@ import numpy as np
 
 from exporter.render_material import (ESC_MATERIALS, TEXTURE_DIR, RenderMaterial, find_image, finish_material,
                                       layer_material, railing_glass_material)
-from preview.preview_render import station_of
+from preview.preview_render import centerline_samples, station_of
 
 HORIZONTAL_NZ = 0.7          # 이 이상이면 바닥·천장처럼 수평 면으로 보고 선형 방향에 맞춰 텍스처를 깜
 TEXTURE_FOLDER = "textures"  # .dae 옆에 텍스처 이미지를 복사하는 폴더
@@ -76,8 +76,8 @@ def _heading(cfg, cxy: np.ndarray) -> np.ndarray:
     lo = max(a.start_station, base - 300.0) - base
     hi = min(a.end_station, base + cfg.station.length + 300.0) - base
     s = station_of(cfg, cxy, lo, hi)
-    sq = np.arange(lo, hi + 1e-9, 1.0)
-    th = np.unwrap([cfg.theta_at(x) for x in sq])
+    sq, _, th = centerline_samples(cfg, lo, hi)
+    th = np.unwrap(th)
     return np.interp(s, sq, th)
 
 

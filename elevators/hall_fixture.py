@@ -5,6 +5,8 @@
 웹 뷰어가 카 위치에 따라 바꿈 — 그 밖의 출력은 카가 서 있는 층 이름.
 좌표: 문 면의 법선 축 n (바깥 = sign 쪽), 접선 축 v, 표고 z. 코드의 면 = PS/NS/PT/NT (s = 정거장 s 또는 EV 좌표 u).
 """
+from functools import lru_cache
+
 from elevators.elevator_type import ElevatorPartKind as K
 
 PANEL_H, PANEL_T, PANEL_Z = 0.28, 0.015, 1.05        # 호출 버튼 판 높이·두께·중심 높이 (정지 바닥 위)
@@ -56,6 +58,7 @@ def _font(size: int):
     return font("EN_B", size / MASTER_SCALE)                        # nameplate 글꼴 크기는 기준 단위 (× MASTER_SCALE)
 
 
+@lru_cache(maxsize=None)
 def render_button(direction: str, px: int = 128):
     """호출 버튼 (둥근 금속 버튼 + 위·아래 세모, 주황 불빛 테두리)"""
     from PIL import Image, ImageDraw
@@ -69,6 +72,7 @@ def render_button(direction: str, px: int = 128):
     return im
 
 
+@lru_cache(maxsize=None)
 def render_indicator(label: str, direction: str = DIR_NONE, w: int = 288, h: int = 128):
     """층 표시기 (검정 바탕에 주황 층 이름 + 방향 화살표)"""
     from PIL import Image, ImageDraw

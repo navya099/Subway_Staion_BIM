@@ -30,7 +30,7 @@ def test_data_matches_3d_faces():
     buf = gzip.decompress(packed)
     faces = [e for e in eng.build_3d_doc().modelspace().query("3DFACE") if e.dxf.layer != "FIN_FRAME"]
     n_tri = sum(1 if tuple(e.dxf.vtx3) == tuple(e.dxf.vtx2) else 2 for e in faces)
-    assert data["triangles"] == n_tri == sum(c["nt"] for c in data["chunks"])
+    assert data["hidden"] > 0 and data["triangles"] == n_tri - data["hidden"] == sum(c["nt"] for c in data["chunks"])
     L = data["length"]
     for c in data["chunks"]:
         pos = np.frombuffer(buf, np.float32, c["nv"] * 3, c["pos"]).reshape(-1, 3)

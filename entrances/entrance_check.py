@@ -53,11 +53,6 @@ def check_entrance_spec(spec, name: str):
             raise ValueError(f"출입구 {name}: 경사로 폭({spec.ramp_width:g}m)이 내공 폭({spec.inner_width:g}m)보다 넓습니다")
     check_landing(spec, name)
     check_canopy(spec, name)
-    from entrances.ext_ev import ExtEvSpec, check_ext_ev
-    for k, xs in enumerate(spec.ext_evs, start=1):
-        if not isinstance(xs, ExtEvSpec):
-            raise ValueError(f"출입구 {name}: 외부 엘리베이터 {k} 제원 형식이 올바르지 않습니다")
-        check_ext_ev(xs, xs.name.strip() or f"{name}_EV{k}")
     if spec.arch_wall:
         if spec.arch_t is not None and not spec.arch_t > 0:
             raise ValueError(f"출입구 {name}: 건축 벽체 두께는 0 보다 커야 합니다 ({spec.arch_t:g})")

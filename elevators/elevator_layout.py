@@ -254,12 +254,12 @@ def car_parts(spec, z: float, open_ratio: float, box):
                 box(f"CAR_WALL_{code}", kind, u0, u1, b0, b1, z0, z1, k)
 
 
-def landing_doors(spec, rel, st, face_n, box):
+def landing_doors(spec, rel, st, face_n, box, floors=None):
     """정지층마다 문 면의 승강장 문 두 짝 LDOOR_{면}_{층}_N / _P (승강로 안쪽 평면 — face_n(axis, sign) = 문 평면 바깥쪽 경계,
     그 안쪽으로 door_gap 띄우고 두께 door_t, 열림 = door_open_at)"""
     sc, tc = spec.s_center, spec.t_center
     dw = spec.door_w / 2.0
-    for n in range(spec.lower_floor, spec.upper_floor + 1):
+    for n in (floors if floors is not None else range(spec.lower_floor, spec.upper_floor + 1)):
         o = door_open_at(spec, n) * dw
         for axis, sign in sorted(spec.doors_at(n)):
             code = ("P" if sign > 0 else "N") + axis.upper()

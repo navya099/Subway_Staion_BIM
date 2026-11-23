@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.entrance_draft import EV_CAR_AT, EV_FACES, EV_SAME, NUM_FIELDS, OUTDOORS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
+from gui.entrance_draft import NUM_FIELDS, OUTDOORS, SIDES, EntranceDraft, EntranceDrafts, preview, zones_summary
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -191,32 +191,6 @@ class EntranceTab:
             self.refresh_info()
         avar.trace_add("write", on_arch)
         tk.Checkbutton(row2, text="건축 벽체", variable=avar, font=FONT).pack(side="left", padx=(8, 0))
-
-        row3 = tk.Frame(box)                              # 외부 엘리베이터 (출입구 좌표)
-        row3.pack(fill="x", pady=(4, 0))
-        evar = tk.BooleanVar(value=getattr(it, "ev_on", False))
-        self._vars[(i, "ev_on")] = evar
-
-        def on_ev(*_, obj=it, v=evar):
-            obj.ev_on = v.get()
-            self.refresh_info()
-        evar.trace_add("write", on_ev)
-        tk.Checkbutton(row3, text="외부 EV", variable=evar, font=FONT).pack(side="left")
-        for attr, label, w_ in (("ev_u", "u", 5), ("ev_t", "t", 5), ("ev_low_z", "지하 EL", 7), ("ev_door_open", "문 열림", 3)):
-            tk.Label(row3, text=label, font=FONT).pack(side="left", padx=(6, 0))
-            self._entry(row3, it, attr, (i, attr), w_).pack(side="left", padx=(2, 0))
-        row4 = tk.Frame(box)
-        row4.pack(fill="x", pady=(2, 0))
-        for attr, label, values in (("ev_face", "지상 문", EV_FACES), ("ev_low_face", "지하 문", [EV_SAME] + EV_FACES),
-                                    ("ev_car_at", "카", list(EV_CAR_AT))):
-            tk.Label(row4, text=label, font=FONT).pack(side="left", padx=(6, 0))
-            cb = ttk.Combobox(row4, values=values, state="readonly", width=12 if attr == "ev_low_face" else 5, font=FONT)
-            cur = getattr(it, attr)
-            cb.set(cur if cur in values else values[0])
-            cb.bind("<<ComboboxSelected>>", lambda e, cc=cb, k=i, a=attr: (setattr(self.drafts.items[k], a, cc.get()),
-                                                                          self.refresh_info()))
-            cb.pack(side="left", padx=(2, 0))
-            self._combos[(i, attr)] = cb
 
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(4, 0))

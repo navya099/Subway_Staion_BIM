@@ -116,6 +116,16 @@ def layout_passages(cfg) -> list:
             if s0 < -_EPS or s1 > st.length + _EPS:
                 raise ValueError(f"출구통로 {name}: 측벽 오프닝 s {s0:.3f} ~ {s1:.3f} 이(가) 내공 길이(0 ~ {st.length:g}m)를 벗어납니다")
         done[name] = lay
+    from elevators.ext_ev import passage_front
+    from passages.passage_layout import cut_wall_opening, ext_ev_hosts, host_position
+    for xn, xs, pn in ext_ev_hosts(cfg):                      # 출구통로 옆 박스형 외부 엘리베이터: 통로 측벽에 문 개구부
+        what = f"외부 엘리베이터 {xn}"
+        if pn not in done:
+            raise ValueError(f"{what}: 출구통로 '{pn}' 이(가) 없습니다" if pn else f"{what}: 기준이 될 출구통로 이름을 입력하세요")
+        seg_i, a, _ = host_position(done[pn], xs.along, what)
+        fs, ffl, _ = passage_front(cfg, done[pn].spec, xs, what)          # 지하 정면 개구부 (바닥 마감 포함)
+        half, h = fs.low_front()
+        cut_wall_opening(done[pn], seg_i, xs.host_side, a - half, a + half, ffl + h, what)
     out = [done[n] for n in names]
     for lay in out:
         name = lay.name

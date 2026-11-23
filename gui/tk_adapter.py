@@ -4,6 +4,7 @@ from config.master_config import StationProjectConfig
 from config.station_config import StationParameters
 from gui.column_draft import ColumnDrafts, level_name
 from gui.elevator_draft import ElevatorDrafts
+from gui.ext_ev_draft import ExtEvDrafts
 from gui.finish_draft import FinishDrafts
 from gui.entrance_draft import EntranceDrafts
 from gui.escalator_draft import EscalatorDrafts
@@ -103,11 +104,12 @@ class TkAdapter:
         entrances = (entries.get("entrance_drafts") or EntranceDrafts()).to_specs()
         vents = (entries.get("vent_drafts") or VentDrafts()).to_specs(station_p.start_station)
         elevators = (entries.get("elevator_drafts") or ElevatorDrafts()).to_specs(station_p.start_station)
+        ext_evs = (entries.get("ext_ev_drafts") or ExtEvDrafts()).to_specs(station_p.start_station)
         room_drafts = entries.get("room_drafts") or RoomDrafts()
         rooms, room_settings = room_drafts.to_specs(station_p.start_station), room_drafts.settings.to_settings()
         cfg = StationProjectConfig(station=station_p, platform=platform_p, column=column_p, align=al, openings=openings,
                                    stairs=stairs, escalators=escalators, passages=passages, entrances=entrances, vents=vents,
-                                   elevators=elevators, rooms=rooms, room_settings=room_settings,
+                                   elevators=elevators, ext_evs=ext_evs, rooms=rooms, room_settings=room_settings,
                                    finish_settings=(entries.get("finish_drafts") or FinishDrafts()).to_settings(),
                                    tactile_settings=(entries.get("tactile_drafts") or _NO_TACTILE).to_settings(station_p.start_station),
                                    train_settings=(entries.get("train_draft") or TrainDraft(enabled=False)).to_settings(station_p.start_station),

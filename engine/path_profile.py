@@ -84,6 +84,15 @@ def passage_profile_items(engine, name: str, t_off: float = 0.0) -> list:
     ent = next((e for e in (ents.entrances if ents is not None else []) if e.passage == name), None)
     if ent is not None:
         items += _entrance_items(engine, ent, acc, t_off)
+    # ---- 외부 엘리베이터: 이 통로 구간 옆에 붙은 것, 이 통로 끝 출입구 좌표로 놓은 것
+    ee = getattr(engine, "ext_evs", None)
+    for x in (ee.ext_evs if ee is not None else []):
+        xl = x.layout
+        if xl.host == "passage" and xl.host_name == name:
+            sg = next(g for g in lay.segments if abs(g.x - xl.frame.px) < 1e-6 and abs(g.y - xl.frame.py) < 1e-6)
+            items += ee.path_items(x, chain[sg.index], t_off)
+        elif xl.host == "entrance" and ent is not None and xl.host_name == ent.name:
+            items += ee.path_items(x, acc, t_off)
     return items
 
 
@@ -102,8 +111,7 @@ def _entrance_items(engine, ent, x0: float, t_off: float) -> list:
         esc = isinstance(m, (EscalatorPartData, EscalatorStepData))
         if not cut and (fin or t0 < t_off):                # 너머: 절단면 왼쪽(+t) 부재만, 마감은 너머로 안 그림
             continue
-        cp = isinstance(m, EntranceElementData) and (m.kind.startswith("CP_") or
-                                                     (m.kind.startswith("EV_") and m.kind not in ("EV_RC_WALL", "EV_PIT_SLAB")))
+        cp = isinstance(m, EntranceElementData) and m.kind.startswith("CP_")
         layer = ("PROF_FINISH" if fin else "PROF_ESCALATOR" if esc else "PROF_CONCRETE") if cut else "PROF_BEYOND"
         if cp and cut:
             layer = "SEC_SIGN" if m.kind == "CP_SIGN" else "SEC_RAILING"           # 캐노피·출구 사인 (윤곽)

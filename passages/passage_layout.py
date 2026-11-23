@@ -389,3 +389,65 @@ def cut_branch_opening(parent: PassageLayout, child: PassageLayout):
         e.pieces = new
     if not hit:
         raise ValueError(f"출구통로 {child.name}: 부모 통로 {parent.name} 의 분기 위치에서 측벽 조각을 찾지 못했습니다")
+
+
+def cut_wall_opening(lay: PassageLayout, seg: int, side: int, o0: float, o1: float, height: float, what: str):
+    """통로 lay 의 구간 seg(0 부터) side 쪽(+1 = 진행방향 왼쪽) 측벽에 축 o0 ~ o1 × 바닥 ~ height 개구부 (외부 엘리베이터 문 등).
+    그 구간 WALL_L/R 조각을 개구부 앞·뒤 + 위 인방으로 나눔 (cut_branch_opening 과 같은 방식)"""
+    sp = lay.spec
+    if height > sp.inner_height + 1e-6:
+        raise ValueError(f"{what}: 문 높이({height:g}m)가 출구통로 {lay.name} 내공 높이({sp.inner_height:g}m)보다 큽니다")
+    code = "WALL_L" if side > 0 else "WALL_R"
+    hit = False
+    for e in lay.elements:
+        if not e.code.endswith(code):
+            continue
+        new = []
+        for pc in e.pieces:
+            if pc.local.get("seg") != seg or not (pc.a0 - 1e-9 <= (o0 + o1) / 2.0 <= pc.a1 + 1e-9) or pc.local.get("lintel"):
+                new.append(pc)
+                continue
+            lo = max(pc.a_start(sp.half_out * side), pc.a_start(sp.half_in * side))
+            hi = min(pc.a_end(sp.half_out * side), pc.a_end(sp.half_in * side))
+            if o0 < lo + 1e-6 or o1 > hi - 1e-6:
+                raise ValueError(f"{what}: 출구통로 {lay.name} 구간 {seg + 1}–{seg + 2} 측벽 개구부가 측벽 범위(꺾임부 연귀·다른 개구부 "
+                                 "포함)를 벗어납니다 (위치를 구간 가운데 쪽으로 옮기세요)")
+            hit = True
+
+            def z_at(a, pc=pc):
+                return pc.z0 + pc.slope * (a - pc.a0)
+            new.append(BoxPiece(pc.ox, pc.oy, pc.ux, pc.uy, pc.a0, o0, pc.sect, pc.z0, pc.slope, pc.ks, 0.0, dict(pc.local)))
+            new.append(BoxPiece(pc.ox, pc.oy, pc.ux, pc.uy, o1, pc.a1, pc.sect, z_at(o1), pc.slope, 0.0, pc.ke, dict(pc.local)))
+            top = max(dz for _, dz in pc.sect)
+            if height < top - 1e-6:
+                vv = sorted({v for v, _ in pc.sect})
+                lintel = [(vv[0], height), (vv[-1], height), (vv[-1], top), (vv[0], top)]
+                new.append(BoxPiece(pc.ox, pc.oy, pc.ux, pc.uy, o0, o1, lintel, z_at(o0), pc.slope, 0.0, 0.0,
+                                    dict(pc.local, lintel=what)))
+        e.pieces = new
+    if not hit:
+        raise ValueError(f"{what}: 출구통로 {lay.name} 구간 {seg + 1}–{seg + 2} 에서 측벽 조각을 찾지 못했습니다")
+
+
+def host_position(lay: PassageLayout, along: float, what: str) -> tuple:
+    """통로 중심선을 따라 첫 꼭짓점에서 along 떨어진 점 → (구간 번호, 구간 축 위치 a, PassageSegment). 수평 구간이어야 함"""
+    acc = 0.0
+    for seg in lay.segments:
+        if acc - 1e-9 <= along <= acc + seg.length + 1e-9:
+            if abs(seg.slope) > 1e-9:
+                raise ValueError(f"{what}: 출구통로 {lay.name} 구간 {seg.index + 1}–{seg.index + 2} 이(가) 경사라 붙일 수 없습니다")
+            return seg.index, along - acc, seg
+        acc += seg.length
+    raise ValueError(f"{what}: 통로 거리 {along:g}m 가 출구통로 {lay.name} 경로 길이({acc:.3f}m)를 벗어납니다")
+
+
+def ext_ev_hosts(cfg) -> list:
+    """출구통로 옆 박스형 외부 엘리베이터 [(이름, ExtEvSpec, 통로 이름)] — 통로 이름을 비우면 통로가 하나일 때 그 통로"""
+    from passages.passage_spec import resolve_passage_names
+    names = resolve_passage_names(cfg.passages)
+    out = []
+    for i, xs in enumerate(getattr(cfg, "ext_evs", []) or [], start=1):
+        if getattr(xs, "host", "") == "passage":
+            pn = (xs.host_name or "").strip() or (names[0] if len(names) == 1 else "")
+            out.append(((xs.name or "").strip() or f"OEV{i}", xs, pn))
+    return out

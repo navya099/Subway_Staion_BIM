@@ -3,7 +3,9 @@ from tkinter import ttk
 from gui import pick_buttons as PB
 
 from gui.column_draft import level_name
+from gui import ext_ev_draft as X
 from gui.elevator_draft import DOOR_LABELS, GLASS_FIELDS, NUM_FIELDS, SHAFT_LABELS, ElevatorDraft, ElevatorDrafts, preview
+from preview.pick import POINT
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -16,6 +18,7 @@ class ElevatorTab:
     - 위치: 승강로 내공 중심의 STA 와 t (t 는 기둥·오프닝과 같은 좌표, 왼쪽 +)
     - 정지층: 최하 ~ 최상 정지층 사이 모든 층. 카는 고른 층에 정지한 위치로 모델링
     - 최하층에서 승강장 안에 놓이면 승강장 상면에 정지 (승강장 슬래브에 승강로 구멍)
+    - 외부 엘리베이터(지상 노출)는 아래쪽 따로 — 출구통로·출입구와 별개 객체 (entries['ext_ev_drafts'])
     """
 
     def __init__(self, parent, entries_dict):
@@ -23,9 +26,12 @@ class ElevatorTab:
         self.entries = entries_dict
         self.drafts = ElevatorDrafts()
         self.entries['elevator_drafts'] = self.drafts
+        self.ext = X.ExtEvDrafts()
+        self.entries['ext_ev_drafts'] = self.ext
         self.floor_count = 0
         self._vars = {}            # (번호, 필드) → StringVar / BooleanVar
         self._info_vars = []       # (StringVar, ElevatorDraft) 미리보기
+        self._ext_infos = []       # (StringVar, ExtEvDraft) 미리보기
         self._combos = {}          # (번호, 'lower'|'upper'|'car'|'door') → Combobox
 
     # ------------------------------------------------------------------ 구성
@@ -41,6 +47,7 @@ class ElevatorTab:
         bar = tk.Frame(self.parent)
         bar.pack(fill="x", padx=15, pady=(6, 2))
         tk.Button(bar, text="+ 엘리베이터 추가", font=FONT, command=self.add_elevator).pack(side="left")
+        tk.Button(bar, text="+ 외부 엘리베이터 추가", font=FONT, command=self.add_ext_ev).pack(side="left", padx=(6, 0))
         self.count_var = tk.StringVar(value="")
         tk.Label(bar, textvariable=self.count_var, font=FONT, fg="#1565C0").pack(side="left", padx=10)
 
@@ -135,12 +142,16 @@ class ElevatorTab:
             w.destroy()
         self._vars.clear()
         self._info_vars.clear()
+        self._ext_infos.clear()
         self._combos.clear()
         if not self.drafts.items:
             tk.Label(self.body, text="엘리베이터 없음", fg="#888888", font=FONT).pack(anchor="w", padx=8, pady=6)
         for i, it in enumerate(self.drafts.items):
             self._build_elevator(i, it)
-        self.count_var.set(f"엘리베이터 {len(self.drafts.items)}대" if self.drafts.items else "")
+        for i, it in enumerate(self.ext.items):
+            self._build_ext_ev(i, it)
+        counts = [f"{label} {n}대" for label, n in (("내부", len(self.drafts.items)), ("외부", len(self.ext.items))) if n]
+        self.count_var.set(", ".join(counts))
         self.refresh_info()
         self.body.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -243,3 +254,110 @@ class ElevatorTab:
         n = max(2, self.floor_count)
         for var, it in self._info_vars:
             var.set(preview(it, start, n))
+        for var, it in self._ext_infos:
+            var.set(X.preview(it, start))
+
+    # ------------------------------------------------------------------ 외부 엘리베이터
+    def _host_names(self, host: str) -> list:
+        """고를 수 있는 출구통로·출입구 이름 (이름을 비운 것은 기본 이름)"""
+        key, prefix = ("passage_drafts", "EX") if host == X.HOST_PASSAGE else ("entrance_drafts", "EN")
+        items = getattr(self.entries.get(key), "items", [])
+        return [it.name.strip() or f"{prefix}{k}" for k, it in enumerate(items, start=1)]
+
+    def add_ext_ev(self):
+        names = self._host_names(X.HOST_PASSAGE)
+        self.ext.items.append(X.ExtEvDraft(host=X.HOST_PASSAGE if names else X.HOST_STATION, host_name=names[0] if names else "",
+                                           sta=f"{self._start_station() + 40.0:g}"))
+        self.render()
+
+    def remove_ext_ev(self, idx):
+        del self.ext.items[idx]
+        self.render()
+
+    def set_host(self, idx, label: str):
+        """위치 기준을 바꾸면 입력칸이 달라짐. 이름이 새 기준 목록에 없으면 첫 이름으로"""
+        it = self.ext.items[idx]
+        it.host = label
+        names = self._host_names(label) if label != X.HOST_STATION else []
+        if it.host_name.strip() not in names:
+            it.host_name = names[0] if names else ""
+        self.render()
+
+    def pick_ext(self, idx):
+        def done(pts):
+            s, t = pts[0]
+            self._vars[("ext", idx, "sta")].set(f"{self._start_station() + s:.3f}")
+            self._vars[("ext", idx, "t")].set(f"{t:.3f}")
+        PB.request(self, POINT, 1, f"외부 엘리베이터 {idx + 1} 중심", done)
+
+    def _build_ext_ev(self, i, it):
+        box = tk.LabelFrame(self.body, text=f" 외부 엘리베이터 {i + 1} (지상 노출) ", font=FONT_B, fg="#00695C", padx=6, pady=4)
+        box.pack(fill="x", padx=(5, 8), pady=5)
+
+        def line():
+            row = tk.Frame(box)
+            row.pack(fill="x", pady=(0, 4))
+            return row
+
+        def entry(row, attr, text, width):
+            tk.Label(row, text=text, font=FONT).pack(side="left", padx=(0, 2))
+            self._entry(row, it, attr, ("ext", i, attr), width).pack(side="left", padx=(0, 8))
+
+        def combo(row, attr, text, values, width, fn=None):
+            tk.Label(row, text=text, font=FONT).pack(side="left", padx=(0, 2))
+            c = ttk.Combobox(row, values=values, state="readonly", width=width, font=FONT)
+            c.set(getattr(it, attr))
+
+            def on(_e):
+                if fn is not None:
+                    fn(c.get())
+                else:
+                    setattr(it, attr, c.get())
+                    self.refresh_info()
+            c.bind("<<ComboboxSelected>>", on)
+            c.pack(side="left", padx=(0, 8))
+            self._combos[("ext", i, attr)] = c
+
+        row = line()
+        entry(row, "name", "이름", 10)
+        combo(row, "host", "위치 기준", X.HOST_LABELS, 11, lambda v: self.set_host(i, v))
+        tk.Button(row, text="삭제", font=FONT, command=lambda: self.remove_ext_ev(i)).pack(side="right")
+
+        row = line()
+        if it.host != X.HOST_STATION:                              # 붙는 통로·출입구 (이름 직접 입력도 가능)
+            tk.Label(row, text="통로" if it.host == X.HOST_PASSAGE else "출입구", font=FONT).pack(side="left", padx=(0, 2))
+            var = tk.StringVar(value=it.host_name)
+            self._vars[("ext", i, "host_name")] = var
+
+            def on_name(*_):
+                it.host_name = var.get()
+                self.refresh_info()
+            var.trace_add("write", on_name)
+            c = ttk.Combobox(row, textvariable=var, width=9, font=FONT)
+            c.configure(postcommand=lambda: c.configure(values=self._host_names(it.host)))
+            c.pack(side="left", padx=(0, 8))
+            self._combos[("ext", i, "host_name")] = c
+        for attr, text in X.PLACE_FIELDS.get(it.host, []):
+            entry(row, attr, text, 8)
+        if it.host == X.HOST_PASSAGE:
+            combo(row, "side", "쪽", X.SIDE_LABELS, 9)
+        elif it.host == X.HOST_STATION:
+            PB.button(row, "위치 선택", lambda: self.pick_ext(i)).pack(side="left")
+
+        row = line()
+        combo(row, "face", "지상 문", X.FACES, 4)
+        if it.host != X.HOST_PASSAGE:                              # 통로 옆은 지하 문 = 통로 쪽
+            combo(row, "low_face", "지하 문", [X.SAME_FACE] + X.FACES, 12)
+        combo(row, "car_at", "카", X.CAR_LABELS, 5)
+        entry(row, "car_offset", "카 오프셋(m)", 5)
+        entry(row, "door_open", "문 열림(0~1)", 4)
+
+        row = line()
+        combo(row, "low_finish", "지하 마감", X.LOW_LABELS, 16)
+        entry(row, "ground_el", "지표 EL(비우면 자동)", 8)
+        row = line()
+        entry(row, "line_name", "사인 노선명", 8)
+        entry(row, "sign_bg", "사인 배경색", 8)
+        info = tk.StringVar(value="")
+        self._ext_infos.append((info, it))
+        tk.Label(box, textvariable=info, font=FONT, fg="#1565C0", anchor="w", justify="left", wraplength=560).pack(fill="x")

@@ -1,8 +1,16 @@
-"""출입구 외부 엘리베이터 (지하철 지상 노출 엘리베이터 — 서울시 2023 공공시설물 표준디자인 매뉴얼 + 외부 EV 표준도 070~073).
+"""외부 엘리베이터 (지하철 지상 노출 엘리베이터 — 서울시 2023 공공시설물 표준디자인 매뉴얼 + 외부 EV 표준도 070~073).
 
-출입구에 붙음: 위치 = 출입구 좌표 (u = 이음면에서 진행 거리, t = 왼쪽 +), 지상 문 방향 face ('+u'|'-u'|'+t'|'-t' = 문 바깥 법선).
+통로·출입구와 별개인 독립 객체 (cfg.ext_evs). 위치 기준 host 세 가지 — 모두 자기 좌표계 (u, t) (세계 평면에서 곧음) 위에 놓임:
+- 'station' : 정거장 (s, t) 직접 — 그 측점의 선형 접선 = u, 왼쪽 = t. 지하 정지 바닥 EL 을 입력
+- 'entrance': 출입구 좌표 (u = 이음면에서 진행 거리, t = 왼쪽 +). 지하 정지 바닥 = 통로 끝 바닥 (입력 가능)
+- 'passage' : 출구통로 옆 박스형 — 통로 중심선 거리 along + 쪽 host_side. EV 통로 쪽 면 = 통로 측벽 바깥면, 통로 측벽에 문 개구부,
+              벽 공유 (EV 의 통로 쪽 RC 벽은 통로 벽 높이 구간을 비움). 지하 정지 바닥 = 그 자리 통로 바닥
+지표 = ground_el (비우면 출입구 지표 / 통로에 붙은 출입구 지표 / 정거장 공통 지표).
+
 - 지하: RC 승강로 (외곽 = 지상 유리 박스 외곽, 벽 wall_t, 피트 pit_depth + 피트 슬래브) — 피트 바닥 ~ 지상 정지 바닥.
-  지하 정지 바닥 = low_z (None = 붙은 통로 끝 바닥), 지하 문 = low_face (None = face) 쪽 RC 벽 출입구.
+- 지하 정면 마감 low_finish (지하 정지층): 'closed' 폐쇄형 = 문 + 스테인리스 문틀(개구부 두께 전체) | 'glass' 투시형 = 개구부를 승강로
+  내공 폭 × low_open_h 로 넓히고 유리 정면(내부 투시형 EV 와 같은 유리 줄·문틀·스파이더), RC 박스는 그대로, 그 안에 강관 기둥 4개 + 가로재.
+  출구통로 옆이면 통로 측벽 두께 속 개구부 둘레를 금속으로 감싸고(유리 정면 = 통로 벽 바깥면) 바닥 마감을 이음
 - 지상 정지 바닥 = 지표 + base_h (기단 윗면, 매뉴얼 GL+260).
 - 지상 유리 박스 (매뉴얼 정·측면도, 높이 5,543): 정지 바닥부터 하부 금속 띠 sill → 하부 유리 low_glass → 캐노피 띠 band →
   상부 유리 up_glass → 줄눈 joint → 역명 띠 유리 sign_h → 환기 루버 louver → 지붕판 roof_t. 유리 바깥면 = 외곽, 두께 glass_t.
@@ -12,27 +20,33 @@
 - 기단·경사로 (매뉴얼 기단부): 문 앞 평탄부 apron (지표 ~ 지상 정지 바닥) + 경사로 (기울기 1/ramp_ratio 로 지표까지),
   양옆 추락방지턱 curb_w × (면 + curb_h) + 난간 (기둥 + 위·아래 레일).
 - 카·문: 내부 엘리베이터와 같은 함수 (elevator_layout.car_parts / landing_doors) — 애니메이션 대비 car_offset · door_open.
-좌표: 출입구 좌표 띠 (Strip, s = u) 와 세계 좌표 조각 (HexaPiece: 경사로·난간처럼 기운 것).
 """
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Optional
 
+from config.layout_cache import cached_layout
 from elevators.elevator_layout import car_parts, car_z, landing_doors
 from elevators.elevator_spec import ElevatorSpec
 from elevators.elevator_type import ElevatorPartKind as K
-from helper.box_piece import cut_faces_by_plane
+from helper.box_piece import BoxPiece, cut_faces_by_plane
 from helper.strip_member import Strip
+from helper.vertical_prism import VerticalPrism, circle_points
 from openings import decompose
 
 FACES = ("+u", "-u", "+t", "-t")
+HOSTS = ("station", "entrance", "passage")
+LOW_FINISHES = ("closed", "glass")
+LINING_T = 0.03                      # 투시형 개구부 둘레 금속 감싸기 두께 (통로 측벽 두께 속)
+PIPE_GAP = 0.02                      # 강관 기둥 ↔ RC 박스 안쪽 면
 _EPS = 1e-6
 
 
 @dataclass
 class ExtEvSpec:
-    """외부 엘리베이터 1대 (출입구에 붙음). 치수 기본값 = 서울시 2023 표준디자인 매뉴얼 · 외부 EV 표준도"""
+    """외부 엘리베이터 1대 (독립 객체). 치수 기본값 = 서울시 2023 표준디자인 매뉴얼 · 외부 EV 표준도"""
     name: str = ""
     u: float = 0.0
     t: float = 0.0
@@ -73,6 +87,23 @@ class ExtEvSpec:
     car_at: str = "ground"           # 카 정지: ground (지상) | low (지하)
     car_offset: float = 0.0
     door_open: float = 0.0
+    host: str = "station"            # 위치 기준: station (정거장 s·t) | entrance (출입구 u·t) | passage (출구통로 옆, 벽 공유)
+    host_name: str = ""              # 출입구 / 출구통로 이름 (하나뿐이면 비워도 됨)
+    along: float = 0.0               # passage: 통로 첫 꼭짓점에서 중심선을 따라 잰 EV 중심 위치 (m, 수평 구간)
+    host_side: int = 1               # passage: 통로 진행방향 왼쪽 +1 / 오른쪽 −1
+    ground_el: Optional[float] = None   # 지표 절대 표고 (None = 출입구·정거장 공통 지표)
+    line_name: str = ""              # 역명 띠 사인 노선명 / 배경색
+    sign_bg: str = "#3C3F45"
+    low_finish: str = "closed"       # 지하 정면: closed 폐쇄형 (문 + 문틀) | glass 투시형 (유리 정면 + 강관)
+    door_frame_w: float = 0.1        # 지하 승강장 문틀 폭
+    low_open_h: float = 2.6          # 투시형 개구부 높이 (지하 정지 바닥 기준, 통로 천장·헌치에 걸리면 그 아래까지)
+    low_row: float = 1.37            # 투시형 유리 가로 줄눈 높이 (아래 줄 = 바닥 띠 ~ 줄눈, 위 줄 = 줄눈 ~ 개구부 위)
+    low_base: float = 0.07           # 유리 아래 금속 띠 높이
+    low_glass_t: float = 0.012
+    col_d: float = 0.1398            # 강관 기둥 / 가로재 지름 (실무 표준도)
+    girt_d: float = 0.0891
+    spider: float = 0.1
+    spider_d: float = 0.03
 
     @property
     def axis(self) -> str:
@@ -81,6 +112,17 @@ class ExtEvSpec:
     @property
     def sign(self) -> int:
         return 1 if self.face[0] == "+" else -1
+
+    def low_half(self) -> float:
+        """지하 문 면의 외곽 접선 반폭 (출구통로 옆은 늘 ±t 면)"""
+        hu, ht = self.halves()
+        return hu if self.host == "passage" or (self.low_face or self.face)[1] == "t" else ht
+
+    def low_front(self) -> tuple:
+        """지하 정면 개구부 (반폭, 정지 바닥에서의 높이)"""
+        if self.low_finish == "glass":
+            return self.low_half() - self.wall_t, self.low_open_h
+        return self.door_w / 2.0 + self.door_frame_w, self.door_h + self.door_frame_w
 
     def halves(self) -> tuple:
         """(u 반폭, t 반폭)"""
@@ -119,6 +161,11 @@ class ExtEvLayout:
     stops: dict                      # 1 = 지하, 2 = 지상 → 정지 바닥 절대 표고
     car_z: float
     outer: tuple
+    frame: object = None             # EV 좌표계 EntranceFrame
+    floor: int = 1                   # 소속 층 (지하 정지)
+    host: str = "station"
+    host_name: str = ""              # 붙은 출입구·출구통로 이름
+    ground: float = 0.0              # 지표 절대 표고
 
 
 @dataclass
@@ -155,8 +202,80 @@ def _side(f: str) -> str:
     return ("+" if f[0] == "+" else "-") + ("s" if f[1] == "u" else "t")
 
 
-def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float) -> ExtEvLayout:
-    """외부 엘리베이터 배치 (출입구 좌표). G = 지표, zp = 붙은 통로 끝 바닥"""
+def _pick(items, name: str, what: str, label: str):
+    """이름으로 고름 (비우면 하나뿐일 때만)"""
+    nm = name.strip()
+    hit = [x for x in items if x.name == nm] if nm else (list(items) if len(items) == 1 else [])
+    if not hit:
+        raise ValueError(f"{what}: {label} '{nm}' 이(가) 없습니다" if nm else f"{what}: 기준이 될 {label} 이름을 입력하세요")
+    return hit[0]
+
+
+def passage_front(cfg, psp, spec: ExtEvSpec, what: str) -> tuple:
+    """출구통로(psp) 옆 EV 의 지하 정면: (개구부를 통로에 맞춘 spec, 통로 바닥 마감 높이 ffl, 통로 벽 마감 표면 거리).
+    통로 측벽·벽 마감 개구부 = low_front 반폭 × (통로 구조 바닥 ~ ffl + 높이)"""
+    from passages.passage_finish import ceiling_fit, passage_finish_type
+    ft = passage_finish_type(cfg, psp)
+    ffl = ft.ffl if ft is not None else 0.0
+    face = ft.face if ft is not None and ft.wall_t > 0 else 0.0
+    spec = dataclasses.replace(spec, low_face="-t" if spec.host_side > 0 else "+t")
+    if spec.low_finish == "glass":
+        room = psp.inner_height - (psp.top_haunch_h if psp.top_haunch_w > 0 else 0.0) - ffl
+        if ft is not None and ft.ceiling and ceiling_fit(psp, ft)[0]:
+            room = min(room, ft.ceiling_h)
+        spec = dataclasses.replace(spec, low_open_h=min(spec.low_open_h, room))
+    if spec.low_front()[1] < spec.door_h + spec.door_frame_w - _EPS:
+        raise ValueError(f"{what}: 출구통로 내공(천장·헌치 아래 {spec.low_front()[1]:.2f}m)이 문 높이 + 문틀"
+                         f"({spec.door_h + spec.door_frame_w:.2f}m)보다 낮습니다")
+    return spec, ffl, face
+
+
+def place(cfg, spec: ExtEvSpec, name: str) -> SimpleNamespace:
+    """위치 기준 풀기 → frame(EV 좌표계), spec(그 좌표계의 u·t·지하 문·지하 바닥), G(지표), zp(지하 바닥 기본), shared(벽 공유 높이),
+    recess(통로 측벽 두께·벽 마감 표면 거리·바닥 마감 높이), floor(소속 층), host_name(붙은 출입구·통로 이름)"""
+    from entrances.entrance_layout import EntranceFrame
+    from passages.passage_layout import host_position
+    what, st = f"외부 엘리베이터 {name}", cfg.station
+    if spec.host == "passage":
+        lay = _pick(cfg.passage_layouts(), spec.host_name, what, "출구통로")
+        _, a, seg = host_position(lay, spec.along, what)
+        G = spec.ground_el
+        if G is None:                                              # 통로에 붙은 출입구의 지표 → 정거장 공통
+            ent = next((e for e in cfg.entrances if (e.passage or "").strip() == lay.name), None)
+            G = ent.ground_el if ent is not None and ent.ground_el is not None else st.ground_el
+        spec, ffl, face = passage_front(cfg, lay.spec, spec, what)
+        spec = dataclasses.replace(spec, u=a, t=spec.host_side * (lay.spec.half_out + spec.halves()[1]), low_z=seg.z + ffl)
+        out = SimpleNamespace(frame=EntranceFrame(seg.x, seg.y, seg.ux, seg.uy), spec=spec, G=G, zp=seg.z + ffl, floor=lay.floor,
+                              recess=(lay.spec.wall_t, face, ffl),
+                              shared=(seg.z - lay.spec.floor_t, seg.z + lay.spec.inner_height + lay.spec.roof_t), host_name=lay.name)
+    elif spec.host == "entrance":
+        lay = _pick(cfg.entrance_layouts(), spec.host_name, what, "출입구")
+        from passages.passage_finish import passage_finish_type
+        pl = next(p for p in cfg.passage_layouts() if p.name == lay.passage)
+        ft = passage_finish_type(cfg, pl.spec)                     # 지하 정지 바닥 = 통로 끝 바닥 마감면
+        G = spec.ground_el if spec.ground_el is not None else lay.ground
+        out = SimpleNamespace(frame=lay.frame, spec=spec, G=G, zp=lay.z_floor + (ft.ffl if ft is not None else 0.0),
+                              floor=pl.floor, shared=None, recess=None, host_name=lay.name)
+    else:
+        if spec.low_z is None:
+            raise ValueError(f"{what}: 정거장 좌표로 놓을 때는 지하 정지 바닥 EL 을 입력하세요")
+        s0 = spec.u
+        x, y = cfg.to_world(s0, 0.0)
+        th = cfg.theta_at(s0)
+        fl = cfg.lv(min(max(s0, 0.0), st.length)) - st.offset
+        floor = max([n for n in range(1, st.floors + 1) if fl + st.floor_level(n) <= spec.low_z + 0.5] or [1])
+        out = SimpleNamespace(frame=EntranceFrame(x, y, math.cos(th), math.sin(th)), spec=dataclasses.replace(spec, u=0.0),
+                              G=spec.ground_el if spec.ground_el is not None else st.ground_el,
+                              zp=spec.low_z, floor=floor, shared=None, recess=None, host_name="")
+    if out.G is None:
+        raise ValueError(f"{what}: 지표 EL 을 입력하세요 (외부 엘리베이터마다 또는 정거장 공통 지표 EL)")
+    return out
+
+
+def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float, shared=None, recess=None) -> ExtEvLayout:
+    """외부 엘리베이터 배치 (frame 좌표). G = 지표, zp = 지하 정지 바닥 기본값 (spec.low_z 가 None 일 때).
+    shared = (하면, 상면): 지하 문 면 RC 벽을 그 높이 구간에서 빼고 통로 측벽이 대신함 (벽 공유),
+    recess = (통로 측벽 두께, 벽 마감 표면 거리, 바닥 마감 높이)"""
     U0, U1, T0, T1 = spec.outer()
     uc, tc = spec.u, spec.t
     w, gt, ps = spec.wall_t, spec.glass_t, spec.post
@@ -195,11 +314,16 @@ def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float) -> Ext
     lf = spec.low_face or spec.face
     lax, lsg = lf[1], 1 if lf[0] == "+" else -1
     lmid = tc if lax == "u" else uc
+    lhalf, lh = spec.low_front()                                   # 지하 정면 개구부
     for tag, a, sgn in faces:
         nrm, tan = face_box(a, sgn, w)
-        holes = [(lmid - dw, lmid + dw, zl, zl + spec.door_h)] if (a, sgn) == (lax, lsg) else []
+        holes = [(lmid - lhalf, lmid + lhalf, zl, zl + lh)] if (a, sgn) == (lax, lsg) else []
+        if shared is not None and (a, sgn) == (lax, lsg):            # 벽 공유: 통로 측벽 높이 구간은 비움
+            holes = [(tan[0], tan[1], shared[0], shared[1])]
         for k, (v0, v1, z0, z1) in enumerate(decompose.subtract_rects((tan[0], tan[1], pit_top, Zs), holes), start=1):
             put(f"RC_WALL_{tag}", "RC_WALL", a, nrm, (v0, v1), z0, z1, k)
+
+    _low_front(spec, frame, parts, put, face_box, (U0, U1, T0, T1), (lax, lsg, lmid), zl, (pit_top, Zs), recess)
 
     # ---- 지상 유리 박스 높이
     z_sill = Zs + spec.sill
@@ -291,12 +415,82 @@ def layout_ext_ev(spec: ExtEvSpec, name: str, frame, G: float, zp: float) -> Ext
     if not zl - _EPS <= zc <= Zs + _EPS:
         raise ValueError(f"외부 엘리베이터 {name}: 카 위치가 운행 범위(지하 ~ 지상 정지 바닥) 밖입니다")
     car_parts(esp, zc, spec.door_open, box)
-    inner_face = lambda a, sgn: ((U1 if sgn > 0 else U0) - sgn * w) if a == "s" else ((T1 if sgn > 0 else T0) - sgn * w)
-    landing_doors(esp, rel, SimpleNamespace(level_name=lambda n: {1: "LOW", 2: "GND"}[n]), inner_face, box)
+    def door_plane(d):
+        return lambda a, sgn: ((U1 if sgn > 0 else U0) - sgn * d) if a == "s" else ((T1 if sgn > 0 else T0) - sgn * d)
+    names = SimpleNamespace(level_name=lambda n: {1: "LOW", 2: "GND"}[n])
+    # 지하 문: 투시형은 유리 안쪽 면, 폐쇄형은 RC 벽 안쪽 면 — 벽 공유면 EV 벽이 없으므로 통로 벽 바깥면(= EV 외곽)에 바로 붙임
+    low_d = spec.low_glass_t if spec.low_finish == "glass" else 0.0 if shared is not None else w
+    landing_doors(esp, rel, names, door_plane(low_d), box, floors=(1,))
+    landing_doors(esp, rel, names, door_plane(w), box, floors=(2,))
 
     # ---- 기단·경사로·추락방지턱·난간 (문 앞, 박스 폭)
     _approach(spec, frame, parts, box, (U0, U1, T0, T1), mid, G, Zs)
-    return ExtEvLayout(name=name, spec=spec, parts=parts, stops=rel, car_z=zc, outer=(U0, U1, T0, T1))
+    return ExtEvLayout(name=name, spec=spec, parts=parts, stops=rel, car_z=zc, outer=(U0, U1, T0, T1), frame=frame)
+
+
+def _low_front(spec, frame, parts, put, face_box, outer, low, zl, zr, recess):
+    """지하 정면 (지하 문 면 개구부): 폐쇄형 = 문틀, 투시형 = 유리 정면 + RC 박스 안 강관 기둥·가로재 (모듈 설명 참고)"""
+    U0, U1, T0, T1 = outer
+    ax, sg, mid = low
+    half, h = spec.low_front()
+    fw, dw, gt = spec.door_frame_w, spec.door_w / 2.0, spec.low_glass_t
+    o = (U1 if sg > 0 else U0) if ax == "u" else (T1 if sg > 0 else T0)
+    nrm = lambda d0, d1: tuple(sorted((o + sg * d0, o + sg * d1)))     # 외곽 면에서 바깥(+) 거리 구간
+    glass = spec.low_finish == "glass"
+    tw, face, ffl = recess if recess is not None else (0.0, 0.0, 0.0)
+    if recess is not None and ffl > _EPS:                          # 통로 측벽 두께 속 바닥 (통로 바닥 마감에 이음)
+        put("LOW_FLOOR", "LOW_FLOOR", ax, nrm(0.0, tw), (mid - half, mid + half), zl - ffl, zl)
+    if not glass:                                                  # 폐쇄형 문틀: 개구부 두께 전체 (통로 옆 = 벽 마감 표면까지)
+        n = nrm(0.0, tw + face) if recess is not None else nrm(-spec.wall_t, 0.0)
+        put("LFRAME", "DOOR_FRAME", ax, n, (mid - half, mid - dw), zl, zl + h)
+        put("LFRAME", "DOOR_FRAME", ax, n, (mid + dw, mid + half), zl, zl + h)
+        put("LFRAME", "DOOR_FRAME", ax, n, (mid - dw, mid + dw), zl + spec.door_h, zl + h)
+        return
+    if recess is not None:                                         # 개구부 둘레 감싸기 (통로 벽 마감 표면까지)
+        n, lt = nrm(0.0, tw + face), LINING_T
+        put("LINING", "REVEAL", ax, n, (mid - half, mid - half + lt), zl, zl + h)
+        put("LINING", "REVEAL", ax, n, (mid + half - lt, mid + half), zl, zl + h)
+        put("LINING", "REVEAL", ax, n, (mid - half + lt, mid + half - lt), zl + h - lt, zl + h)
+    gn = nrm(-gt, 0.0)                                             # 유리 정면 (바깥면 = 외곽 면)
+    df = dw + fw
+    for a0, a1 in ((mid - half, mid - df), (mid + df, mid + half)):
+        put("LBASE", "BAND", ax, gn, (a0, a1), zl, zl + spec.low_base)
+        put("LGLASS", "GLASS", ax, gn, (a0, a1), zl + spec.low_base, zl + spec.low_row)
+        put("LGLASS", "GLASS", ax, gn, (a0, a1), zl + spec.low_row, zl + h)
+    put("LFRAME", "DOOR_FRAME", ax, gn, (mid - df, mid - dw), zl, zl + h)          # 문틀 (양옆 + 문 위)
+    put("LFRAME", "DOOR_FRAME", ax, gn, (mid + dw, mid + df), zl, zl + h)
+    put("LFRAME", "DOOR_FRAME", ax, gn, (mid - dw, mid + dw), zl + spec.door_h, zl + h)
+    sn, sp_ = nrm(-gt - spec.spider_d, -gt), spec.spider           # DPG 스파이더 (유리 안쪽 면, 바깥 모서리 줄)
+    for ua in (mid - half, mid + half - sp_):
+        for za in (zl + spec.low_base, zl + spec.low_row - sp_ / 2.0, zl + h - sp_):
+            put("LSPIDER", "SPIDER", ax, sn, (ua, ua + sp_), za, za + sp_)
+    # ---- RC 박스 안 강관 기둥 4개 (피트 바닥 ~ 지상 정지 바닥) + 가로재 (유리 줄눈·개구부 위 높이, 문 자리 끊김)
+    r, rg = spec.col_d / 2.0, spec.girt_d / 2.0
+    ci = spec.wall_t + PIPE_GAP + r / math.cos(math.pi / 16)
+    cu, ct = (U0 + ci, U1 - ci), (T0 + ci, T1 - ci)
+    ro = r / math.cos(math.pi / 16)
+    for u, ua in zip(cu, "NP"):
+        for t, ta in zip(ct, "NP"):
+            x, y = frame.to_world(u, t)
+            parts.append(ExtEvPart(f"LCOL_{ua}{ta}", "COLUMN", (t - ro, t + ro), [],
+                                   pieces=[VerticalPrism(circle_points(x, y, r), zr[0], zr[1])]))
+    sect0 = [(rg * math.cos(2 * math.pi * j / 12), rg * math.sin(2 * math.pi * j / 12)) for j in range(12)]
+    for tag, a, sgn in (("PU", "u", 1), ("NU", "u", -1), ("PT", "t", 1), ("NT", "t", -1)):
+        k = 1 if sgn > 0 else 0
+        if a == "u":                                               # ±u 면: 축 = t 방향 (왼쪽 = −u)
+            org, (dx, dy), rng = frame.to_world(cu[k], 0.0), (-frame.uy, frame.ux), (ct[0] + ro, ct[1] - ro)
+            trng = rng
+        else:
+            org, (dx, dy), rng = frame.to_world(0.0, ct[k]), (frame.ux, frame.uy), (cu[0] + ro, cu[1] - ro)
+            trng = (ct[k] - rg, ct[k] + rg)
+        pcs = []
+        for z in (zl + spec.low_row, zl + h):
+            spans = [rng]
+            if (a, sgn) == (ax, sg) and z < zl + h - _EPS:
+                spans = [(rng[0], mid - df), (mid + df, rng[1])]
+            pcs += [BoxPiece(ox=org[0], oy=org[1], ux=dx, uy=dy, a0=a0, a1=a1, sect=list(sect0), z0=z)
+                    for a0, a1 in spans if a1 - a0 > _EPS]
+        parts.append(ExtEvPart(f"LGIRT_{tag}", "GIRT", trng, [], pieces=pcs))
 
 
 def _approach(spec, frame, parts, box, outer, mid, G, Zs):
@@ -368,5 +562,57 @@ def check_ext_ev(spec: ExtEvSpec, name: str):
                          f"({inner_w:.2f} × {inner_d:.2f})에 비해 큽니다")
     if spec.car_at not in ("ground", "low") or not 0.0 <= spec.door_open <= 1.0:
         raise ValueError(f"외부 엘리베이터 {name}: 카 정지(ground|low)·문 열림(0~1)이 올바르지 않습니다")
+    if spec.low_finish not in LOW_FINISHES:
+        raise ValueError(f"외부 엘리베이터 {name}: 지하 마감은 closed(폐쇄형) | glass(투시형) 이어야 합니다 ({spec.low_finish!r})")
+    if not spec.door_frame_w > 0:
+        raise ValueError(f"외부 엘리베이터 {name}: 문틀 폭은 0 보다 커야 합니다")
+    half, h = spec.low_front()
+    if half < spec.door_w / 2.0 + spec.door_frame_w - _EPS or half > spec.low_half() - spec.wall_t + _EPS:
+        raise ValueError(f"외부 엘리베이터 {name}: 지하 문 + 문틀이 승강로 내공 폭에 비해 넓습니다")
+    if spec.low_finish == "glass":
+        for label, v in (("유리 두께", spec.low_glass_t), ("기둥 지름", spec.col_d), ("가로재 지름", spec.girt_d), ("스파이더", spec.spider),
+                         ("스파이더 깊이", spec.spider_d)):
+            if not v > 0:
+                raise ValueError(f"외부 엘리베이터 {name}: 투시형 {label}은(는) 0 보다 커야 합니다 ({v})")
+        if not spec.low_base + spec.spider < spec.low_row < h - spec.spider:
+            raise ValueError(f"외부 엘리베이터 {name}: 유리 줄눈 높이({spec.low_row:g})가 개구부 높이({h:g}) 안에 있어야 합니다")
+        if h < spec.door_h + spec.door_frame_w - _EPS:
+            raise ValueError(f"외부 엘리베이터 {name}: 투시형 개구부 높이({h:g}m)가 문 높이 + 문틀보다 낮습니다")
+        if spec.spider_d >= ElevatorSpec().door_gap - _EPS or spec.girt_d > spec.col_d + _EPS:
+            raise ValueError(f"외부 엘리베이터 {name}: 스파이더 깊이는 승강장 문 띄움보다, 가로재는 기둥보다 작아야 합니다")
+        room = spec.wall_t + PIPE_GAP + spec.col_d + 0.01
+        if min(spec.width - 2 * room - spec.car_width, spec.depth - 2 * room - spec.car_depth) < 0.3:
+            raise ValueError(f"외부 엘리베이터 {name}: 강관 기둥 안쪽이 카에 비해 좁습니다")
+    if spec.host not in HOSTS:
+        raise ValueError(f"외부 엘리베이터 {name}: 위치 기준은 {', '.join(HOSTS)} 중 하나여야 합니다 ({spec.host!r})")
+    if spec.host == "passage" and (spec.host_side not in (1, -1) or spec.along < 0):
+        raise ValueError(f"외부 엘리베이터 {name}: 통로 쪽(±1)·통로 거리(0 이상)가 올바르지 않습니다")
     if spec.canopy_w > spec.width + 1e-9:
         raise ValueError(f"외부 엘리베이터 {name}: 캐노피 폭({spec.canopy_w:g}m)이 박스 폭보다 넓습니다")
+
+
+def ext_ev_names(cfg) -> list:
+    """이름 확정 (비우면 OEV + 순번). 내부 엘리베이터와도 겹치면 오류"""
+    from elevators.elevator_spec import resolve_elevator_names
+    names = [(x.name or "").strip() or f"OEV{i}" for i, x in enumerate(cfg.ext_evs, start=1)]
+    every = names + resolve_elevator_names(cfg.elevators)
+    dup = sorted({n for n in names if every.count(n) > 1})
+    if dup:
+        raise ValueError(f"엘리베이터 이름이 중복됩니다: {', '.join(dup)}")
+    return names
+
+
+@cached_layout("ext_evs")
+def layout_ext_evs(cfg) -> list:
+    """외부 엘리베이터마다 ExtEvLayout (이름 확정 + 입력 검사 + 위치 기준 + 배치)"""
+    out = []
+    for i, spec in enumerate(cfg.ext_evs, start=1):
+        if not isinstance(spec, ExtEvSpec):
+            raise ValueError(f"외부 엘리베이터 {i}: 제원 형식이 올바르지 않습니다 ({spec!r})")
+    for name, spec in zip(ext_ev_names(cfg), cfg.ext_evs):
+        check_ext_ev(spec, name)
+        pl = place(cfg, spec, name)
+        lay = layout_ext_ev(pl.spec, name, pl.frame, pl.G, pl.zp, pl.shared, pl.recess)
+        lay.floor, lay.host, lay.host_name, lay.ground = pl.floor, spec.host, pl.host_name, pl.G
+        out.append(lay)
+    return out

@@ -532,32 +532,33 @@ class IFCExporter:
             self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm,
                                     RelatedObjects=members)
             self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
-                                    RelatingStructure=storey, RelatedElements=[asm] + [self._ext_ev(ent, x) for x in ent.ext_evs])
+                                    RelatingStructure=storey, RelatedElements=[asm])
 
-    def _ext_ev(self, ent, x):
-        """외부 엘리베이터: IfcElementAssembly(ELEVATOR) ⊃ 승강로·박스·기단 부재 + IfcTransportElement(ELEVATOR) ⊃ 카 부재.
-        형상 = 세계 좌표 면 집합 (출입구 좌표 띠 + 기운 조각)"""
-        from entrances.entrance_engine import EXT_EV
-        asm = self.file.create_entity(
-            "IfcElementAssembly", GlobalId=ifcopenshell.guid.compress(uuid.UUID(x.guid).hex), Name=x.name,
-            Description=f"외부 엘리베이터 (출입구 {ent.name})", ObjectType="ELEVATOR", ObjectPlacement=self._placement(),
-            PredefinedType="USERDEFINED")
-        car = self.file.create_entity("IfcTransportElement", GlobalId=ifcopenshell.guid.new(), Name=f"{x.name}_CAR",
-                                      ObjectType="ELEVATOR_CAR", ObjectPlacement=self._placement(), PredefinedType="ELEVATOR")
-        shaft, car_parts = [car], []
-        for e in x.elements:
-            kind = e.kind[3:]
-            entity, pre = EXT_EV[kind][2]
-            items = [self._face_set(f) for f in part_faces(ent.frame, e)] + [self._face_set(p.faces()) for p in e.pieces]
-            el = self.file.create_entity(entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
-                                         ObjectType=e.type_name, ObjectPlacement=self._placement(),
-                                         Representation=self._product_shape(items, "Tessellation"), PredefinedType=pre)
-            if e.material:
-                self._assign_material(el, e.material)
-            (car_parts if kind.startswith("CAR_") else shaft).append(el)
-        self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=car, RelatedObjects=car_parts)
-        self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm, RelatedObjects=shaft)
-        return asm
+    def export_ext_evs(self, engine):
+        """외부 엘리베이터: 지하 정지 층 storey 에 IfcElementAssembly(ELEVATOR) ⊃ 승강로·박스·기단 부재 +
+        IfcTransportElement(ELEVATOR) ⊃ 카 부재. 형상 = 세계 좌표 면 집합 (EV 좌표계 띠 + 기운 조각)"""
+        from elevators.ext_ev_engine import EXT_EV
+        for x in engine.ext_evs:
+            asm = self.file.create_entity(
+                "IfcElementAssembly", GlobalId=ifcopenshell.guid.compress(uuid.UUID(x.guid).hex), Name=x.name,
+                Description="외부 엘리베이터" + (f" ({x.layout.host_name})" if x.layout.host_name else ""), ObjectType="ELEVATOR",
+                ObjectPlacement=self._placement(), PredefinedType="USERDEFINED")
+            car = self.file.create_entity("IfcTransportElement", GlobalId=ifcopenshell.guid.new(), Name=f"{x.name}_CAR",
+                                          ObjectType="ELEVATOR_CAR", ObjectPlacement=self._placement(), PredefinedType="ELEVATOR")
+            shaft, car_parts = [car], []
+            for e in x.elements:
+                entity, pre = EXT_EV[e.kind][2]
+                items = [self._face_set(f) for f in part_faces(e.frame, e)] + [self._face_set(p.faces()) for p in e.pieces]
+                el = self.file.create_entity(entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                                             ObjectType=e.type_name, ObjectPlacement=self._placement(),
+                                             Representation=self._product_shape(items, "Tessellation"), PredefinedType=pre)
+                if e.material:
+                    self._assign_material(el, e.material)
+                (car_parts if e.is_car else shaft).append(el)
+            self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=car, RelatedObjects=car_parts)
+            self.file.create_entity("IfcRelAggregates", GlobalId=ifcopenshell.guid.new(), RelatingObject=asm, RelatedObjects=shaft)
+            self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                                    RelatingStructure=self.storeys[x.level], RelatedElements=[asm])
 
     def _entrance_stair(self, ent, st, members):
         """출입구 계단: IfcStair ⊃ 런·계단참, 계단 마감 IfcCovering → IfcRelCoversBldgElements"""

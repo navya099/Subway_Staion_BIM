@@ -95,8 +95,12 @@ const LIVE = /*__LIVE__*/false;
   THREE.Object3D.DefaultUp.set(0, 0, 1);
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 20000);
   camera.up.set(0, 0, 1);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x50555c, 0.75));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+  // 실내가 주 무대라 위에서만 비추면 천장 아랫면이 어두워 윗면과 뒤집힌 것처럼 보임 → 아래에서도 고르게 + 보는 쪽에서 약하게
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xf4f4f4, 0.82));
+  const head = new THREE.DirectionalLight(0xffffff, 0.12);      // 카메라에 붙은 빛
+  head.position.set(0, 0, 0); head.target.position.set(0, 0, -1);
+  camera.add(head); camera.add(head.target); scene.add(camera);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.27);
   sun.position.set(0.35, -0.5, 0.8);
   scene.add(sun);
 

@@ -309,7 +309,6 @@ def test_door_cuts_wall_and_keeps_lintel():
     (d,) = fl.doors
     assert (d.name, d.wall, d.side) == ("기계실_D1", "PW_B1F_S1", "-t")
     assert d.opening == pytest.approx((19.1, 20.9, 3.9, 4.1, 12.0, 14.4))
-    assert d.leaf == pytest.approx((19.1, 20.9, 3.975, 4.025, 12.0, 14.4))
     pw = next(p for p in fl.partitions if p.name == "PW_B1F_S1")
     area = sum((p[1] - p[0]) * (p[5] - p[4]) for p in pw.pieces)
     assert area == pytest.approx(20.2 * 5.6 - 1.8 * 2.4)                    # 벽 면 − 개구부
@@ -354,13 +353,14 @@ def test_door_ifc_plan_and_volumes(tmp_path):
     eng = StationCADEngine(cfg_with(*rooms))
     f = ifcopenshell.open(eng.generate_ifc(tmp_path / "d.ifc"))
     doors = f.by_type("IfcDoor")
-    assert sorted(d.OperationType for d in doors) == ["DOUBLE_DOOR_SINGLE_SWING", "SINGLE_SWING_LEFT", "SINGLE_SWING_LEFT"]
+    assert sorted(d.OperationType for d in doors) == ["DOUBLE_DOOR_SINGLE_SWING", "SINGLE_SWING_LEFT", "SINGLE_SWING_RIGHT"]
     big = next(d for d in doors if d.OverallWidth == 1.8)
     assert big.OverallHeight == 2.4 and ifcopenshell.util.element.get_container(big).Name == "B1F"
     fill = big.FillsVoids[0].RelatingOpeningElement
     wall = fill.VoidsElements[0].RelatingBuildingElement
     assert wall.is_a("IfcWall") and wall.PredefinedType == "PARTITIONING"
-    assert ifc_world_volume(big) == pytest.approx(1.8 * 2.4 * 0.05, rel=1e-7)
+    data = next(d for d in eng.rooms.doors if d.width == 1.8)                       # 문틀 + 두 짝 + 손잡이 (상세는 test_doors)
+    assert ifc_world_volume(big) == pytest.approx(data.volume, rel=1e-7) and data.volume > 1.6 * 2.3 * 0.05
     fire = next(d for d in doors if "방화문" in d.Description)
     assert ifcopenshell.util.element.get_material(fire).Name == "Steel"
     for pw in eng.rooms.partitions:                                                 # 개구부를 뺀 벽 체적 = 메쉬 = IFC
@@ -371,7 +371,7 @@ def test_door_ifc_plan_and_volumes(tmp_path):
     walls = [it for it in plan if it.layer == "PLAN_PARTITION"]
     assert not any(it.vb0 > 3.8 and it.vt0 < 4.2 and it.u0 >= 19.0 and it.u1 <= 21.0 for it in walls)   # 문 위 인방은 평면에 없음
     msp = ezdxf.readfile(eng.generate_3d_dxf(tmp_path / "m.dxf")).modelspace()
-    assert len(msp.query('3DFACE[layer=="STRUCT_DOOR"]')) == 18
+    assert len(msp.query('3DFACE[layer=="STRUCT_DOOR"]')) == 6 * sum(len(d.parts) for d in eng.rooms.doors)
     assert [it.layer for it in eng.rooms.section_items(20.0) if it.layer == "SEC_DOOR"] == ["SEC_DOOR"]
 
 

@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1322개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1416개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -51,7 +51,7 @@ config/                     모델·선형
   sampled_alignment.py      점열(xyz) 선형 (국소 2차 회귀 평활 + Hermite)
   alignment_text.py / alignment_landxml.py / alignment_io.py   txt/csv, LandXML(Civil 3D 실파일 검증), JSON 로더
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
-rooms/                      실(구획): spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
+rooms/                      실(구획): door_parts(문틀·문짝·손잡이 형상과 움직임), spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 finishes/                   건축 마감: clear(계단·ESC 와 벽 마감 표면: t 기준점·간섭 검사 — 이슈 #32), spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 railings/                   오프닝 유리난간: spec(RailingSettings), layout(계단·ESC 오프닝 둘레 경계석·POST·레일·유리 조각 + 검증), engine
@@ -73,13 +73,14 @@ exporter/ifc_exporter.py    IFC4 내보내기 (storey별 포함, 재질, 오프�
 exporter/dae_exporter.py    텍스처 3D 모델 COLLADA(.dae, 스케치업 둘러보기용) — render_material.py(보기 재질·텍스처 목록)
 exporter/ev_anim.py         웹 뷰어 엘리베이터 애니메이션 자료, esc_anim.py(에스컬레이터 스텝)
 exporter/mesh_reduce.py     웹 뷰어 자료 줄이기(맞닿아 가려진 면 찾기)
+exporter/door_anim.py       웹 뷰어 실 문 여닫기 자료
 exporter/web_walk.js        웹 뷰어 걷기 충돌 (순수 JS, node 로 시험)
 exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·stair_stone·tactile_*·Polished Concrete New 등, **저장소에 포함** — 출처·라이선스는 README) + README
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_web_walk, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_web_walk, test_doors, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -122,8 +123,11 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **구획분리(2단계)**: 실마다 경계 종류 `boundary` = `partition`(칸막이벽, 공통 두께) | `separation`(구획분리, 두께 `sep_t`: 0 = 두께 없는 가상 경계선, > 0 = 얇은 실제 벽). 예) 대합실 PAID 구역을 구획분리로 넣고 그 층 기본 실을 복도로 → 나머지가 복도.
     - 선(같은 s 또는 같은 t)마다 구간별로 종류를 정함: 칸막이벽이 우선, 구획분리끼리는 두꺼운 쪽. 같은 종류·두께로 이어지는 구간은 합침. 벽(두께 > 0)은 칸막이벽과 같은 모서리 규칙, 가상선은 `SeparationLineLayout`(층 FL 높이의 선).
     - 이름 `PW_`(칸막이벽) / `SW_`(구획분리 벽) / `SL_`(가상선). 구획분리 벽 = IfcWall(PARTITIONING, Description "구획분리벽", 재질 Separation_Panel), 가상선 = **IfcVirtualElement**(Axis/Curve3D 폴리선, 층 storey). 3D DXF STRUCT_SEPARATION, 평면 PLAN_SEPARATION(벽 윤곽 / 2점 선). 가상선은 오프닝·계단 검사 제외(공간만 나눔).
-  - **문(3단계)**: `RoomSpec.doors` = `DoorSpec`(실의 변 `+s/-s/+t/-t`, 중심 — ±s 변이면 t·±t 변이면 s(GUI 는 STA), 폭 0.9·높이 2.1, 종류 여닫이·양개 여닫이·미닫이·방화문 → IFC OperationType). 그 변의 벽 조각(칸막이벽·두께 있는 구획분리 벽)에서 벽 평면 (접선, z) 으로 개구부를 빼고(`_cut_doors`, 문 위 인방 조각 유지) 닫힌 문짝(두께 0.05, 벽 중심) 생성. 벽 조각 하나의 접선 범위 안이어야 함(다른 문·승강장 끝 높이 변화에 걸치면 오류), 실 변의 끝 벽 반 두께 안쪽, 문 높이 < 벽 높이, 본체 벽 변·가상 경계선 변 불가.
-    - IFC: 개구부 IfcOpeningElement(DOOR) → 벽 IfcRelVoidsElement, 문짝 **IfcDoor**(OverallWidth/Height, OperationType, 방화문 재질 Steel) → IfcRelFillsElement, 층 storey. 3D DXF STRUCT_DOOR, 횡단 SEC_DOOR·종단 PROF_DOOR(윤곽), 평면 PLAN_DOOR = 실 안쪽으로 연 문짝 + 호(여닫이, 양개는 반폭 둘), 미닫이는 실 쪽 벽면의 문짝. 평면도 칸막이벽은 절단 높이를 지나는 조각만(문 위 인방은 안 보여 문 자리가 비어 보임).
+  - **문(3단계 → 상세 개편)**: `RoomSpec.doors` = `DoorSpec`(실의 변 `+s/-s/+t/-t`, 중심 — ±s 변이면 t·±t 변이면 s(GUI 는 STA), 폭 0.9·높이 2.1, 종류 여닫이·양개 여닫이·미닫이·방화문·**자동문**, `swing` 열림 in 실 안쪽 | out 바깥쪽, `hinge` 경첩 = 실 안에서 볼 때 left | right, None = 좌표가 작은 쪽). 그 변의 벽 조각(칸막이벽·두께 있는 구획분리 벽)에서 개구부를 뺌(`_cut_doors`, 문 위 인방 유지). 벽 조각 하나의 접선 범위 안이어야 함(다른 문·승강장 끝 높이 변화에 걸치면 오류), 실 변의 끝 벽 반 두께 안쪽, 문 높이 < 벽 높이, 본체 벽 변·가상 경계선 변 불가, 폭 ≥ 0.6·높이 ≥ 1.5, 자동문은 양옆에 폭의 절반·위에 구동부만큼 벽 필요.
+    - **높이는 바닥 마감면부터**(마감을 켜면 개구부 = 구조 바닥 ~ 마감면 + 높이, `_door_ffl` = 양쪽 실 ffl 중 큰 값) — 예전엔 구조 바닥부터라 유효 높이가 마감 두께만큼 낮고 문 자리 바닥이 파여 있었음. 그 사이는 문턱(SILL, 화강석, 벽 두께).
+    - 형상 `rooms/door_parts.py`(`door_shape(DoorLayout, 안쪽·바깥쪽 마감 표면 거리)`, 닫힌 상태의 로컬 상자): 문틀 FRAME(개구부 안쪽 폭 0.04, 깊이 = 양쪽 벽 마감 표면 + 0.01), 문짝 LEAF(두께 0.05, 열리는 쪽 마감 표면과 같은 면 — 예전엔 벽 가운데 판 한 장), 양개·자동문 두 짝, 레버 손잡이 HANDLE(양면), 자동문 유리 GLASS + 구동부 HEADER(미닫이·자동문 문짝은 벽면 바깥에 걸림). `DoorMotion`(swing 축·각도 90° / slide 이동), 평면 기호 = 열린 문짝.
+    - 부재 = `DoorData.parts`(`DoorPartData`, 이름 `{문}_{코드}{짝}_{k}`): 3D STRUCT_DOOR / STRUCT_DOOR_GLASS(반투명), 보기 재질 문틀·문짝·방화문·스테인리스, 횡단 SEC_DOOR·종단 PROF_DOOR(손잡이·문턱 제외), IFC 개구부 IfcOpeningElement(DOOR) → 벽 IfcRelVoidsElement, **IfcDoor**(문틀·문짝·손잡이 면 집합, OverallWidth/Height = 개구부, OperationType 은 열리는 방향을 볼 때 경첩 쪽 LEFT/RIGHT) → IfcRelFillsElement, 층 storey. 평면도 칸막이벽은 절단 높이를 지나는 조각만. GUI 실 탭 문 둘째 줄 '열림 · 경첩'.
+    - **웹 뷰어 여닫기(`exporter/door_anim.py`, 템플릿 JS `DOOR`)**: 문짝 3DFACE 에 태그 'D|문|짝', `data.doors`(축·각도·이동 세계 좌표). 걷기에서 **F 또는 클릭**(2.5m, 안내 '문 열기 (F)'), 전체 보기에서 클릭 — 한 번 누르면 열린 채, 다시 누르면 닫힘, **자동문만 다가가면 열리고 떠나면 2초 뒤 닫힘**(사용자 지정). 충돌 연동(`BVH.query` 가 회전한 문짝도 검사, 서 있는 사람은 움직이는 문에 밀림), 실시간 갱신 때 열어 둔 상태 유지. 다음 후보: 스크린도어(PSD) 여닫기, 문 종류별 세부(패닉바·도어클로저·루버).
   - `decompose.subtract_rects` 는 구멍을 영역 안으로 잘라 쓴다(영역 밖 구멍이 엉뚱한 조각을 만들던 문제 수정).
 - **건축 마감(1단계)**: `FinishSettings(enabled, table)` = 용도별 마감표(`FinishType`: 바닥 `ffl`(구조 바닥 → 마감면)·`floor_t`(마감재)·`floor_fill`(mortar 채움 | void 빈 공간=액세스 플로어)·재질, 벽 `wall_t`(마감재 두께, 0 = 면처리, 형상 없음)·`wall_face`(구조체 면 → 마감 표면 거리, None/빈칸 = wall_t 즉 이격 없음, 이격 = face − wall_t 빈 공간·하지재 미모델링)·**`partition_face`(칸막이벽·구획분리 벽 면 → 마감 표면, 비우면 이격 없음 — 본체 측벽의 큰 이격과 따로, 사용자 지적: 실무 샘플 승강장층 wall_face 0.5 가 칸막이벽에도 0.45 이격을 만듦. `FinishType.pface/pgap`, 마감 탭 '칸막이 마감면', IFC Pset `PartitionFinishFace`)**·재질, 천장 `ceiling`·`ceiling_h`(마감면 → 천장판 하면)·`board_t`·재질·`frame`(M/T)·`bar_spacing`·`carrier_spacing`·바/캐링 단면). 실은 용도 이름의 종류를 쓰고(없으면 '기본') `RoomSpec.finish` 로 덮어씀. 기본 마감표(`default_finishes`)는 예시값 — 기계·전기·공조실 콘크리트 면처리 + 천장 없음, 통신실 액세스 플로어 FL+0.45, 대합실·승강장층·복도·역무실·통로·기타·기본은 **금속패널 T1.6 + 구조면→표면 0.15**(실무 상세 WB-14), 화장실 타일은 이격 없음. **모델 기본은 끔(`enabled=False`, 기존 출력·golden 유지), GUI 는 켬.**
   - 배치(`layout_room_finishes`, 정거장 로컬 사각 조각 → 선형 각기둥 `RoomPiece`): 기준 바닥 = 층 FL, 최하층은 승강장 슬래브 위(t 범위)만 + 기준 = 승강장 상면(선로부 바닥·벽 마감 없음, 천장 높이 기준도 승강장 상면).
@@ -347,7 +351,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - 조명: 실내 기준으로 위·아래를 거의 고르게(반구광) + 약한 해·카메라 빛 — 위에서만 비추던 때는 천장판 아랫면이 어두워 윗면과 뒤집힌 것처럼 보였음(사용자 지적, 면 방향은 정상).
   - 뷰어(템플릿 JS): Z 위 궤도 조작(왼쪽 회전, 오른쪽/Shift 이동, 휠 확대, 더블클릭 = 회전 중심), 표시 묶음(미리보기 `LAYER_GROUPS`), 보이는 층(그 층 천장 하면 위를 버림)·STA 범위 = 셰이더 discard(모든 재질 공통 uniform), 클릭 = 부재 정보 + 강조(잘린 면은 건너뜀), 걷기(포인터 잠금, WASD·Shift·PgUp/PgDn 층 — 시선은 보던 방향 그대로, 위치는 아래 '걷기 충돌' 참고(충돌을 끄면 **보던 위치 그대로** + E/Q 위·아래), W 로 시작하면 그 W 를 뗄 때까지 안 움직임, PgUp/PgDn 을 누르면 층 눈높이 = 선형 중심 표본 FL + 층 바닥(최하층은 승강장 상면) + 1.6, 높이 떠 있을 때 PgDn 은 먼저 아래 첫 층으로). `window.__viewer` 로 상태 접근(디버그).
   - **걷기 충돌(이슈 #35, `exporter/web_walk.js` = 화면·three.js 비의존 `WalkCore(query)`, 템플릿 `/*__WALK__*/` 자리)**: 사람 = 연직 원기둥(반지름 0.25, 키 1.7, 눈 1.6). 왼쪽 '걷기 충돌' 체크(기본 켬)·걷기 중 **C** 로 켬·끔. 검사 대상 = 보이는 면(끈 묶음·층/STA 로 잘라낸 면 제외, 부재 = 삼각형 → 부재 번호), BVH 상자 질의(`BVH.query`, 엘리베이터 메쉬 이동 반영).
-    - 벽: 발 + 0.3(오를 수 있는 단 높이) ~ 발 + 1.45 구간으로 자른 삼각형의 평면 최근접점이 0.25 안이면 밀어냄(미끄러짐, 0.1m 씩 나눠 걸어 빠른 걸음도 안 뚫음). **닫힌 문은 모두 막힘**(사용자 지정: 실 문·PSD·엘리베이터 문 — 엘리베이터는 열렸을 때만). 바닥: 발 + 0.3 아래 가장 높은 면(가운데 + 둘레 0.12 4점 — 좁은 틈은 안 빠짐), 더 낮아지면 **떨어짐**(중력, Space 점프 약 0.55m), 아래에 바닥이 전혀 없으면 못 감. 머리: 발 + 1.0 위 첫 면(가운데·앞 0.15)까지가 1.7 보다 낮으면 **막고 '머리 높이 부족 1.62 m — 부재 이름'** 표시. 눈높이는 디딤판마다 튀지 않게 부드럽게.
+    - 벽: 발 + 0.3(오를 수 있는 단 높이) ~ 발 + 1.45 구간으로 자른 삼각형의 평면 최근접점이 0.25 안이면 밀어냄(미끄러짐, 0.1m 씩 나눠 걸어 빠른 걸음도 안 뚫음). **닫힌 문은 모두 막힘**(사용자 지정: 실 문·PSD·엘리베이터 문 — 실 문·엘리베이터 문은 열면 지나감). 바닥: 발 + 0.3 아래 가장 높은 면(가운데 + 둘레 0.12 4점 — 좁은 틈은 안 빠짐), 더 낮아지면 **떨어짐**(중력, Space 점프 약 0.55m), 아래에 바닥이 전혀 없으면 못 감. 머리: 발 + 1.0 위 첫 면(가운데·앞 0.15)까지가 1.7 보다 낮으면 **막고 '머리 높이 부족 1.62 m — 부재 이름'** 표시. 눈높이는 디딤판마다 튀지 않게 부드럽게.
     - 시작 위치(사용자 지정 '가장 가까운 층으로'): 보던 자리 위아래 3m 안에 설 수 있는 바닥(`stands` = 바로 위 1.7m 가 빈 면, 지붕 슬래브 제외)이 있으면 거기, 없으면 높이가 가장 가까운 층의 가장 가까운 설 수 있는 자리(선형 중심 표본 × 1m t, 본체 내공 안 `data.half_width`). PgUp/PgDn 도 같은 방식.
     - 탑승: 엘리베이터 = 카와 함께 발 높이 이동, 에스컬레이터 = `ESC.ride` 가 발 높이를 코 선에 맞춤(스텝 메쉬는 충돌 제외). 걸음당 약 1.7ms(실무 샘플). 검증: node 로 실행하는 `tests/test_web_walk.py`(node 없으면 건너뜀) + 브라우저에서 벽·계단·난간·기둥·PSD·ES 상하행·EV 문/탑승·출입구 계단 시험. `window.__viewer.WALK`(begin/put/body/core, 시험용). 남은 것: #34 3인칭, #33 높이 측정.
   - **텍스처**: DAE 와 같은 재질·텍스처 좌표(`dae_exporter.texture_axes`(면마다 u·v 방향, `texture_uv` 가 씀)·`frame_uv`). 텍스처 이미지가 있는 묶음만 꼭짓점 uv(면마다 넓은 쪽 삼각형으로 방향), 이미지는 긴 변 `IMAGE_MAX` 1024px 로 줄인 data URL(`DATA.images`, 투명 PNG 는 PNG·나머지 JPEG), 이미지 없는 텍스처는 `missing_textures`(통계 줄에 표시). 사인은 그린 이미지 한 장(ClampToEdge). 뷰어 '텍스처' 체크(기본 켬, 끄면 재질 색), 같은 data URL 의 THREE.Texture 는 실시간 갱신에서도 재사용.

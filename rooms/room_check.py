@@ -2,6 +2,7 @@ from config.layout_cache import cached_layout
 from config.widening import clear_contains_rect, has_pockets
 from openings.decompose import overlap_area
 from rooms.room_layout import layout_floor_rooms, resolve_room_names
+from rooms.door_parts import HINGES, MIN_H, MIN_W, SWINGS
 from rooms.room_spec import BOUNDARIES, DOOR_KINDS, DOOR_SIDES, SEPARATION, DoorSpec, RoomSettings, RoomSpec
 
 _EPS = 1e-6
@@ -38,8 +39,14 @@ def check_room_specs(cfg, specs: list, names: list):
                 raise ValueError(f"{w}: 변은 {', '.join(DOOR_SIDES)} 중 하나여야 합니다 ({d.side!r})")
             if d.kind not in DOOR_KINDS:
                 raise ValueError(f"{w}: 문 종류는 {', '.join(DOOR_KINDS)} 중 하나여야 합니다 ({d.kind!r})")
+            if d.swing not in SWINGS:
+                raise ValueError(f"{w}: 열림 방향은 {' / '.join(SWINGS)} 중 하나여야 합니다 ({d.swing!r})")
+            if d.hinge not in HINGES:
+                raise ValueError(f"{w}: 경첩은 left / right 또는 비움이어야 합니다 ({d.hinge!r})")
             if not (d.width > 0 and d.height > 0):
                 raise ValueError(f"{w}: 문 폭·높이는 0보다 커야 합니다 ({d.width}, {d.height})")
+            if d.width < MIN_W or d.height < MIN_H:
+                raise ValueError(f"{w}: 문 폭·높이({d.width:g} × {d.height:g}m)가 문틀·손잡이보다 작습니다 ({MIN_W:g} × {MIN_H:g}m 이상)")
         if not (sp.s1 - sp.s0 > rs.partition_t + _EPS and sp.t1 - sp.t0 > rs.partition_t + _EPS):
             raise ValueError(f"실 {name}: 크기({sp.s1 - sp.s0:g} x {sp.t1 - sp.t0:g}m)가 칸막이벽 두께보다 커야 합니다 "
                              "(시작 < 끝 인지 확인)")

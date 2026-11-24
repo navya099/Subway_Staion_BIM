@@ -3,7 +3,7 @@ from tkinter import ttk
 from gui import pick_buttons as PB
 
 from gui.column_draft import level_name
-from gui.room_draft import (B_SEPARATION, BOUNDARY_LABELS, DOOR_KIND_LABELS, DOOR_SIDE_LABELS, DoorDraft, RoomDraft,
+from gui.room_draft import (B_SEPARATION, BOUNDARY_LABELS, DOOR_HINGE_LABELS, DOOR_KIND_LABELS, DOOR_SIDE_LABELS, DOOR_SWING_LABELS, DoorDraft, RoomDraft,
                             RoomDrafts, door_center_label, preview)
 from rooms.room_spec import ROOM_USES, RoomSettings
 
@@ -307,6 +307,16 @@ class RoomTab:
             self._combos[(i, "door", k, "kind")] = kc
             tk.Button(dr, text="−", font=FONT, width=2, command=lambda ii=i, kk=k: self.remove_door(ii, kk)).pack(side="right")
             PB.button(dr, "선택", lambda ii=i, kk=k: PB.pick_door(self, ii, kk)).pack(side="right", padx=(0, 2))
+            d2 = tk.Frame(doors)                          # 둘째 줄: 열림 방향 · 경첩 쪽
+            d2.pack(fill="x", pady=(0, 2))
+            tk.Label(d2, text="      열림", font=FONT).pack(side="left")
+            for attr, table, w in (("swing", DOOR_SWING_LABELS, 7), ("hinge", DOOR_HINGE_LABELS, 10)):
+                cb = ttk.Combobox(d2, values=list(table), state="readonly", width=w, font=FONT)
+                cb.set(getattr(d, attr) if getattr(d, attr) in table else list(table)[0])
+                cb.bind("<<ComboboxSelected>>", lambda ev, c=cb, dd=d, a=attr: setattr(dd, a, c.get()))
+                cb.pack(side="left", padx=(2, 4))
+                self._combos[(i, "door", k, attr)] = cb
+            tk.Label(d2, text="(왼쪽·오른쪽 = 실 안에서 볼 때)", font=("Malgun Gothic", 8), fg="#777777").pack(side="left")
         tk.Button(box, text="+ 문", font=FONT, command=lambda ii=i: self.add_door(ii)).pack(anchor="w", pady=(2, 0))
 
         info = tk.StringVar(value="")

@@ -86,15 +86,24 @@ class SeparationLineData(CommonBIMData):
 
 
 @dataclass
+class DoorPartData(CommonBIMData):
+    """문 부재 1개 (문틀·문짝·유리·손잡이·문턱·구동부 조각). code = rooms.door_parts.DoorPart.code, leaf = 움직이는 문짝 번호 (0 = 고정)"""
+    code: str = "LEAF"
+    leaf: int = 0
+    piece: object = None
+
+
+@dataclass
 class DoorData(CommonBIMData):
-    """문 1개. IFC: IfcOpeningElement(벽 개구부, IfcRelVoidsElement → 벽) + IfcDoor(닫힌 문짝, IfcRelFillsElement → 개구부)
+    """문 1개. IFC: IfcOpeningElement(벽 개구부, IfcRelVoidsElement → 벽) + IfcDoor(닫힌 문 — 문틀·문짝·손잡이, IfcRelFillsElement → 개구부)
     Attributes:
         room / wall: 문을 정의한 실 이름 / 개구부가 난 벽 이름
-        floor, side: 층 번호, 실의 변 (열림 방향 = 실 안쪽)
-        kind / operation: 문 종류 (여닫이·양개 여닫이·미닫이·방화문) / IFC OperationType
-        width / height: 개구부 폭 / 높이
-        opening / leaf: RoomPiece (개구부 상자 = 벽 두께 전체, 문짝 = 두께 0.05)
-        wall_t: 벽 두께
+        floor, side: 층 번호, 실의 변
+        kind / operation: 문 종류 (여닫이·양개 여닫이·미닫이·방화문·자동문) / IFC OperationType
+        width / height: 개구부 폭 / 높이 (높이는 바닥 마감면부터)
+        opening: RoomPiece (개구부 상자 = 벽 두께 전체), parts: DoorPartData (닫힌 상태)
+        motions: 문짝 움직임 (rooms.door_parts.DoorMotion), symbol: 평면 기호 폴리곤
+        wall_t: 벽 두께, ffl: 개구부 바닥 → 바닥 마감면
     """
     room: str = ""
     wall: str = ""
@@ -105,5 +114,12 @@ class DoorData(CommonBIMData):
     width: float = 0.9
     height: float = 2.1
     wall_t: float = 0.2
+    ffl: float = 0.0
     opening: object = None
-    leaf: object = None
+    parts: list = field(default_factory=list)
+    motions: list = field(default_factory=list)
+    symbol: list = field(default_factory=list)
+
+    @property
+    def volume(self) -> float:
+        return sum(p.piece.shape.volume for p in self.parts)

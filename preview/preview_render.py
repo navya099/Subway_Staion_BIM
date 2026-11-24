@@ -23,7 +23,7 @@ LAYER_GROUPS = [
                     "STRUCT_ESC_GLASS"), True),
     ("통로·출입구·환기구", ("STRUCT_PASSAGE", "STRUCT_ENTRANCE", "STRUCT_CANOPY", "STRUCT_CANOPY_GLASS", "STRUCT_VENT",
                           "STRUCT_GRILL"), True),
-    ("칸막이·문", ("STRUCT_PARTITION", "STRUCT_SEPARATION", "STRUCT_DOOR"), True),
+    ("칸막이·문", ("STRUCT_PARTITION", "STRUCT_SEPARATION", "STRUCT_DOOR", "STRUCT_DOOR_GLASS"), True),
     ("스크린도어", ("STRUCT_PSD", "STRUCT_PSD_GLASS"), True),
     ("사인", ("STRUCT_SIGN", "STRUCT_SIGN_FACE"), True),
     ("바닥·벽 마감", ("FIN_FLOOR", "FIN_WALL", "FIN_TACTILE", "FIN_STAIR"), True),

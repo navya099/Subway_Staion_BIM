@@ -76,7 +76,8 @@ LAYER_DEFINITIONS = {
     "SEC_FINISH": {"color": 43},         # 횡단면도 마감
     "PROF_FINISH": {"color": 43},        # 종단면도 마감
     "PLAN_FINISH": {"color": 43},        # 평면도 벽·기둥 마감
-    "STRUCT_DOOR": {"color": 6},         # 문짝
+    "STRUCT_DOOR": {"color": 6},         # 문틀·문짝
+    "STRUCT_DOOR_GLASS": {"color": 4},   # 자동문 유리
     "PLAN_DOOR": {"color": 6},           # 평면도 문 기호 (열린 문짝 + 호)
     "SEC_DOOR": {"color": 6},            # 횡단면도 문짝
     "PROF_DOOR": {"color": 6},           # 종단면도 문짝

@@ -1,12 +1,15 @@
-import math
 
 from config.master_config import StationProjectConfig
 from helper import prism_member as PM
 from helper.geometry_helper import CommonHelper
 from helper.view_item import ViewItem
-from rooms.room_data import DoorData, PartitionData, RoomData, RoomPiece, SeparationLineData
+from rooms.door_parts import AUTO, door_shape, in_sign
+from rooms.room_data import DoorData, DoorPartData, PartitionData, RoomData, RoomPiece, SeparationLineData
 from rooms.room_layout import ceiling_rel
-from rooms.room_spec import DOOR_KINDS, PARTITION
+from rooms.room_spec import PARTITION
+
+
+DOOR_PART_LABELS = {"FRAME": "문틀", "LEAF": "문짝", "GLASS": "유리", "HANDLE": "손잡이", "SILL": "문턱", "HEADER": "구동부"}
 
 
 class RoomEngine:
@@ -29,6 +32,14 @@ class RoomEngine:
     def _piece(self, name, s0, s1, t0, t1, z0, z1, trap=None) -> RoomPiece:
         from finishes.finish_engine import room_piece
         return room_piece(self.cfg, name, s0, s1, t0, t1, z0, z1, trap)
+
+    def _face(self, floor, d, sm, tm, wall_t, k) -> float:
+        """문 벽 구조면 → 벽 마감 표면 (k = 1 실 안쪽, −1 바깥쪽, 마감 없으면 0)"""
+        from finishes.finish_clear import room_finish_at
+        off = in_sign(d.side) * k * (wall_t / 2.0 + 0.05)
+        p = (sm + off, tm) if d.side in ("+s", "-s") else (sm, tm + off)
+        ft = room_finish_at(self.cfg, floor, *p)
+        return ft.pface if ft is not None and ft.wall_t > 1e-9 else 0.0
 
     def _build(self):
         for fl in self.cfg.room_layouts():
@@ -56,16 +67,27 @@ class RoomEngine:
                     kind=pw.kind, thickness=pw.thickness, pieces=pieces))
             walls = {pw.name: pw for pw in fl.partitions}
             for d in fl.doors:
-                o, lf = d.opening, d.leaf
+                o = d.opening
                 wall_t = (o[1] - o[0]) if d.side in ("+s", "-s") else (o[3] - o[2])
+                sm, tm = (o[0] + o[1]) / 2.0, (o[2] + o[3]) / 2.0
+                shape = door_shape(d, *(self._face(fl.floor, d, sm, tm, wall_t, k) for k in (1, -1)))
+                fire = d.kind == "방화문"
+                mats = {"FRAME": "문틀", "LEAF": "방화문" if fire else ("알루미늄 프레임" if d.kind == AUTO else "문짝"), "GLASS": "문 유리",
+                        "HANDLE": "스테인리스", "SILL": "화강석", "HEADER": "알루미늄 프레임"}
+                parts, cnt = [], {}
+                for p in shape.parts:
+                    key = p.code + (str(p.leaf) if p.leaf else "")
+                    cnt[key] = cnt.get(key, 0) + 1
+                    name = f"{d.name}_{key}_{cnt[key]}"
+                    parts.append(DoorPartData(name=name, family_name="문", type_name=f"{d.kind} {DOOR_PART_LABELS[p.code]}", level=level,
+                                              material=mats[p.code], code=p.code, leaf=p.leaf, piece=self._piece(name, *p.box)))
                 self.doors.append(DoorData(
                     name=d.name, family_name="문", type_name=f"{d.kind} {d.width:g}x{d.height:g}", level=level,
-                    pos_x=(lf[0] + lf[1]) / 2.0, pos_y=(lf[2] + lf[3]) / 2.0,
-                    pos_z=self.cfg.lv((lf[0] + lf[1]) / 2.0) - self.sp.offset + lf[4],
-                    material="Steel" if d.kind == "방화문" else "Door_Panel", room=d.room, wall=d.wall, floor=fl.floor,
-                    side=d.side, kind=d.kind, operation=DOOR_KINDS[d.kind], width=d.width, height=d.height,
-                    wall_t=wall_t if d.wall in walls else 0.0,
-                    opening=self._piece(f"OPEN_{d.name}", *o), leaf=self._piece(f"{d.name}_LEAF", *lf)))
+                    pos_x=sm, pos_y=tm, pos_z=self.cfg.lv(sm) - self.sp.offset + o[4] + d.ffl,
+                    material="Steel" if fire else "Door_Panel", room=d.room, wall=d.wall, floor=fl.floor,
+                    side=d.side, kind=d.kind, operation=shape.operation, width=d.width, height=d.height,
+                    wall_t=wall_t if d.wall in walls else 0.0, ffl=d.ffl, opening=self._piece(f"OPEN_{d.name}", *o),
+                    parts=parts, motions=shape.motions, symbol=shape.symbol))
             for sl in fl.separations:
                 s0, s1, t0, t1 = sl.rect
                 self.separations.append(SeparationLineData(
@@ -84,7 +106,9 @@ class RoomEngine:
             faces = [f for p in pw.pieces for f in PM.mesh_faces(self.cfg, p)]
             pw.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in faces]
         for d in self.doors:
-            d.source_element = [msp.add_3dface(f, dxfattribs={"layer": "STRUCT_DOOR"}) for f in PM.mesh_faces(self.cfg, d.leaf)]
+            for p in d.parts:
+                layer = "STRUCT_DOOR_GLASS" if p.code == "GLASS" else "STRUCT_DOOR"
+                p.source_element = [msp.add_3dface(f, dxfattribs={"layer": layer}) for f in PM.mesh_faces(self.cfg, p.piece)]
 
     # ---------- 2D 도면 ----------
     def section_items(self, sta):
@@ -98,10 +122,11 @@ class RoomEngine:
                     items.append(ViewItem.rect(pw.name, "SEC_PARTITION", t0, t1, zb, zb + p.shape.height,
                                                hatch_layer="SEC_HATCH"))
         for d in self.doors:
-            cut = PM.section_rect(self.cfg, d.leaf, sta)
-            if cut:
-                t0, t1, zb = cut
-                items.append(ViewItem.rect(d.name, "SEC_DOOR", t0, t1, zb, zb + d.leaf.shape.height))
+            for p in d.parts:
+                cut = PM.section_rect(self.cfg, p.piece, sta) if p.code not in ("HANDLE", "SILL") else None
+                if cut:
+                    t0, t1, zb = cut
+                    items.append(ViewItem.rect(p.name, "SEC_DOOR", t0, t1, zb, zb + p.piece.shape.height))
         return items
 
     def profile_items(self, t_cut=0.0):
@@ -112,34 +137,15 @@ class RoomEngine:
                 if CommonHelper.cut_by_t(*PM.t_range(p), t_cut):
                     items.append(PM.profile_view(self.cfg, p, "PROF_PARTITION", hatch_layer="PROF_HATCH"))
         for d in self.doors:
-            if CommonHelper.cut_by_t(*PM.t_range(d.leaf), t_cut):
-                items.append(PM.profile_view(self.cfg, d.leaf, "PROF_DOOR"))
+            for p in d.parts:
+                if p.code not in ("HANDLE", "SILL") and CommonHelper.cut_by_t(*PM.t_range(p.piece), t_cut):
+                    items.append(PM.profile_view(self.cfg, p.piece, "PROF_DOOR"))
         return items
 
     @staticmethod
     def _door_symbol(d: DoorData) -> list:
-        """평면 문 기호: 여닫이 = 실 안쪽으로 90° 연 문짝 + 호 (부채꼴), 양개 = 반폭 둘, 미닫이 = 실 안쪽 벽면에 붙은 문짝"""
-        lf = d.leaf
-        s0, s1 = PM.s_range(lf)
-        t0, t1 = PM.t_range(lf)
-        along_s = d.side in ("+t", "-t")                       # 문이 s 방향으로 놓임 (t 일정한 벽)
-        sign = -1.0 if d.side in ("+s", "+t") else 1.0          # 실 안쪽 방향
-        line = (t0 + t1) / 2.0 if along_s else (s0 + s1) / 2.0
-        a, b = (s0, s1) if along_s else (t0, t1)
-        face = line + sign * d.wall_t / 2.0                     # 실 쪽 벽면
-
-        def pt(u, off):
-            return (u, face + sign * off) if along_s else (face + sign * off, u)
-        if d.operation.startswith("SLIDING"):
-            return [ViewItem(d.name, "PLAN_DOOR", u0=min(a, b), u1=max(a, b),
-                             pts=[pt(a, 0.0), pt(b, 0.0), pt(b, 0.05), pt(a, 0.05)])]
-        leaves = [(a, b - a, 1.0)] if not d.operation.startswith("DOUBLE") else [(a, (b - a) / 2.0, 1.0), (b, (b - a) / 2.0, -1.0)]
-        out = []
-        for hinge, w, direc in leaves:
-            arc = [pt(hinge + direc * w * math.cos(math.radians(k * 15)), w * math.sin(math.radians(k * 15))) for k in range(7)]
-            pts = [pt(hinge, 0.0)] + arc
-            out.append(ViewItem(d.name, "PLAN_DOOR", u0=min(p[0] for p in pts), u1=max(p[0] for p in pts), pts=pts))
-        return out
+        """평면 문 기호 (door_parts): 여닫이 = 열리는 쪽으로 90° 연 문짝 + 호 (부채꼴), 양개 = 반폭 둘, 미닫이·자동문 = 벽면에 걸린 문짝"""
+        return [ViewItem(d.name, "PLAN_DOOR", u0=min(p[0] for p in pts), u1=max(p[0] for p in pts), pts=pts) for pts in d.symbol]
 
     def plan_items(self, cut_h, floor=1):
         """평면도(floor 층): 칸막이벽·구획분리 벽 윤곽 + 가상 경계선 + 실 이름·면적 글자(PLAN_ROOM, 실 조각 중 가장 큰 것의 중심, 윤곽선 없음)"""

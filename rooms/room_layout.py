@@ -10,6 +10,7 @@
 from dataclasses import dataclass, field
 
 from openings import decompose
+from rooms.door_parts import AUTO, AUTO_HEAD_H, SLIDE_OVER
 from rooms.room_spec import PARTITION, SEPARATION
 
 _EPS = 1e-6
@@ -64,7 +65,7 @@ class SeparationLineLayout:
 
 @dataclass
 class DoorLayout:
-    """문 1개: 벽 개구부 + 닫힌 문짝 (모두 정거장 로컬 상자, FL 기준 높이)"""
+    """문 1개: 벽 개구부 (정거장 로컬 상자, FL 기준 높이). 문틀·문짝 형상은 rooms.door_parts.door_shape"""
     name: str
     room: str                    # 문을 정의한 실 이름
     floor: int
@@ -72,12 +73,11 @@ class DoorLayout:
     wall: str                    # 개구부가 난 벽 (PartitionLayout.name)
     kind: str
     opening: tuple               # (s0, s1, t0, t1, z0, z1) 벽 두께 전체
-    leaf: tuple                  # (s0, s1, t0, t1, z0, z1) 문짝 (두께 LEAF_T, 벽 중심)
     width: float = 0.9
     height: float = 2.1
-
-
-LEAF_T = 0.05                    # 문짝 두께 (m)
+    swing: str = "in"            # 열림: 실 안쪽 / 바깥쪽
+    hinge: str = None            # 경첩 쪽 (door_parts.hinge_low)
+    ffl: float = 0.0             # 개구부 바닥(구조) → 바닥 마감면 (문짝·문틀 시작 높이, 그 아래는 문턱)
 
 
 @dataclass
@@ -344,6 +344,27 @@ def _layout_pocket_floor(cfg, floor: int, specs: list, names: list) -> FloorRoom
     return FloorRoomsLayout(floor, rooms, partitions, seps, doors)
 
 
+def _door_ffl(cfg, specs, floor: int, line: float, d, half: float, z0: float) -> float:
+    """문 양쪽 실의 바닥 마감 높이 중 큰 값 (마감을 끄거나 선로부 바닥이면 0). 실 배치 도중이라 입력 실·층 기본 실 용도에서 바로 찾음"""
+    fs = getattr(cfg, "finish_settings", None)
+    if fs is None or not fs.enabled:
+        return 0.0
+    pl = cfg.platform
+    if floor == 1 and pl.exists and z0 < pl.top_level - _EPS:
+        return 0.0
+    best = 0.0
+    for sgn in (-1, 1):
+        x = line + sgn * (half + 0.05)
+        s, t = (x, d.center) if d.side in ("+s", "-s") else (d.center, x)
+        sp = next((r for r in specs if r.floor == floor and r.s0 <= s <= r.s1 and r.t0 <= t <= r.t1), None)
+        try:
+            ft = fs.for_room(sp.use if sp else cfg.room_settings.default_use(floor), sp.finish if sp else "")
+        except ValueError:
+            continue                                                 # 없는 마감 종류는 마감 검사가 알림
+        best = max(best, ft.ffl)
+    return best
+
+
 def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list, station_sides: dict = None) -> list:
     """실마다 문: 그 변의 벽 조각에서 개구부를 빼고(벽 평면 (접선, z) 에서 decompose), 문짝을 만든다.
     문은 벽 조각 하나의 접선 범위 안에 있어야 하고(승강장 끝 등에서 바닥 높이가 바뀌는 곳에 걸치면 오류),
@@ -394,21 +415,25 @@ def _cut_doors(cfg, specs: list, names: list, partitions: list, seps: list, stat
                 raise ValueError(f"{where}: 실 {rname} 의 {d.side} 변 문 자리({a:.3f} ~ {b:.3f})에 벽이 없거나, "
                                  "다른 문·바닥 높이가 바뀌는 곳(승강장 끝)에 걸칩니다")
             pw, i, (s0, s1, t0, t1, z0, z1), across, tan = hit
-            if z0 + d.height > z1 - _EPS:
-                raise ValueError(f"{where}: 문 높이({d.height:g}m)가 벽 높이({z1 - z0:.3f}m) 이상입니다")
-            hole = (a, b, z0, z0 + d.height)
+            ffl = _door_ffl(cfg, specs, sp.floor, line, d, (across[1] - across[0]) / 2.0, z0)
+            top = z0 + ffl + d.height
+            if top > z1 - _EPS:
+                raise ValueError(f"{where}: 문 높이({d.height:g}m)가 벽 높이({z1 - z0 - ffl:.3f}m) 이상입니다")
+            if d.kind == AUTO:
+                head = top + SLIDE_OVER + AUTO_HEAD_H
+                if a - d.width / 2.0 < tan[0] - _EPS or b + d.width / 2.0 > tan[1] + _EPS or head > z1 + _EPS:
+                    raise ValueError(f"{where}: 자동문은 양옆에 문 폭의 절반({d.width / 2.0:g}m)과 위에 구동부 높이"
+                                     f"({SLIDE_OVER + AUTO_HEAD_H:g}m)만큼 벽이 있어야 합니다")
+            hole = (a, b, z0, top)
             new = []
             for u0, u1, w0, w1 in decompose.subtract_rects((tan[0], tan[1], z0, z1), [hole]):
                 new.append((across[0], across[1], u0, u1, w0, w1) if wall_axis == "t" else (u0, u1, across[0], across[1], w0, w1))
             pw.pieces[i:i + 1] = new
-            mid, h = line, LEAF_T / 2.0
             if wall_axis == "t":
-                opening = (across[0], across[1], a, b, z0, z0 + d.height)
-                leaf = (mid - h, mid + h, a, b, z0, z0 + d.height)
+                opening = (across[0], across[1], a, b, z0, top)
             else:
-                opening = (a, b, across[0], across[1], z0, z0 + d.height)
-                leaf = (a, b, mid - h, mid + h, z0, z0 + d.height)
-            out.append(DoorLayout(dname, rname, sp.floor, d.side, pw.name, d.kind, opening, leaf, d.width, d.height))
+                opening = (a, b, across[0], across[1], z0, top)
+            out.append(DoorLayout(dname, rname, sp.floor, d.side, pw.name, d.kind, opening, d.width, d.height, d.swing, d.hinge, ffl))
     names_ = [d.name for d in out]
     dup = sorted({n for n in names_ if names_.count(n) > 1})
     if dup:

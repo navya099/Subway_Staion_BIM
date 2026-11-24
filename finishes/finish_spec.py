@@ -40,6 +40,8 @@ class FinishType:
         하지재 미모델링). 예) 금속패널: 표면 0.15, 판 T1.6 → 이격 0.1484 (실무 상세 WB-14). 기둥·승강로 둘레에도 같은 거리
     걸레받이: skirt_h = 높이 (0 = 없음), skirt_t = 두께, skirt_recess = 벽 마감 표면에서 들어간 거리, 벽 마감재는 걸레받이 윗면부터.
         본체 벽·칸막이벽·기둥·승강로 둘레·통로·출입구, 벽 마감이 있을 때(wall_t > 0)만
+    천장 기구: light_s / light_t = 매입 조명 간격 (진행방향 s · 직교방향 t, 0 = 없음), diff_gap = 디퓨저 간격 (0 = 없음) — 천장이 있을 때만,
+        천장판 격자 0.6 에 맞춰 자동 배치 (fixtures.fixture_layout)
     천장: ceiling = 천장 있음, ceiling_h = 바닥 마감면에서 천장판 하면까지, board_t = 천장판 두께,
           frame = M | T, bar_spacing = 천장틀 바(M/T) 간격 (t 방향으로 뻗은 바를 s 방향으로 배열),
           carrier_spacing = 캐링 채널 간격 (s 방향으로 뻗은 바를 t 방향으로 배열), bar 단면 = 폭 bar_w × 높이 bar_h,
@@ -69,6 +71,17 @@ class FinishType:
     skirt_t: float = 0.03
     skirt_recess: float = 0.01
     skirt_material: str = "흑색 걸레받이"
+    light_s: float = 0.0
+    light_t: float = 0.0
+    diff_gap: float = 0.0
+
+    @property
+    def has_light(self) -> bool:
+        return bool(self.ceiling) and self.light_s > 0 and self.light_t > 0
+
+    @property
+    def has_diffuser(self) -> bool:
+        return bool(self.ceiling) and self.diff_gap > 0
 
     @property
     def has_skirt(self) -> bool:

@@ -1,6 +1,7 @@
 from finishes.finish_spec import FILLS, FRAMES, FinishSettings, FinishType
 
 _EPS = 1e-9
+MIN_LIGHT, MIN_DIFF = 1.2, 1.2       # 천장 기구 최소 간격
 
 
 def check_finish_type(ft: FinishType):
@@ -15,6 +16,15 @@ def check_finish_type(ft: FinishType):
     for label, v in (("걸레받이 높이", ft.skirt_h), ("걸레받이 들어감", ft.skirt_recess)):
         if not v >= 0:
             raise ValueError(f"{w}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    for label, v in (("조명 간격(s)", ft.light_s), ("조명 간격(t)", ft.light_t), ("디퓨저 간격", ft.diff_gap)):
+        if not v >= 0:
+            raise ValueError(f"{w}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    if (ft.light_s > 0) != (ft.light_t > 0):
+        raise ValueError(f"{w}: 조명 간격은 두 방향을 모두 주거나 모두 0 이어야 합니다 ({ft.light_s:g}, {ft.light_t:g})")
+    if ft.has_light and (ft.light_s < MIN_LIGHT or ft.light_t < MIN_LIGHT):
+        raise ValueError(f"{w}: 조명 간격({ft.light_s:g} × {ft.light_t:g})은 {MIN_LIGHT:g}m 이상이어야 합니다")
+    if ft.has_diffuser and ft.diff_gap < MIN_DIFF:
+        raise ValueError(f"{w}: 디퓨저 간격({ft.diff_gap:g})은 {MIN_DIFF:g}m 이상이어야 합니다")
     if ft.skirt_h > 0:
         if not ft.skirt_t > 0:
             raise ValueError(f"{w}: 걸레받이 두께는 0보다 커야 합니다 ({ft.skirt_t})")

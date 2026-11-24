@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1416개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1428개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -53,6 +53,7 @@ config/                     모델·선형
 walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package.py, *_engine.py
 rooms/                      실(구획): door_parts(문틀·문짝·손잡이 형상과 움직임), spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 finishes/                   건축 마감: clear(계단·ESC 와 벽 마감 표면: t 기준점·간섭 검사 — 이슈 #32), spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
+fixtures/                   천장 기구(매입 조명·디퓨저): layout(천장판 격자 자동 배치), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 railings/                   오프닝 유리난간: spec(RailingSettings), layout(계단·ESC 오프닝 둘레 경계석·POST·레일·유리 조각 + 검증), engine
 smokewalls/                 입구 천장 제연경계벽: spec(SmokeBarrierSettings·head_drop), layout(오프닝 입구 가장자리 프레임·유리 조각), engine
@@ -77,10 +78,10 @@ exporter/door_anim.py       웹 뷰어 실 문 여닫기 자료
 exporter/web_walk.js        웹 뷰어 걷기 충돌 (순수 JS, node 로 시험)
 exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·stair_stone·tactile_*·Polished Concrete New 등, **저장소에 포함** — 출처·라이선스는 README) + README
-assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
+assets/image/light/, mep/   조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (천장 기구 면 한 장)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_web_walk, test_doors, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_web_walk, test_doors, test_fixtures, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -145,6 +146,11 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
     - 출구통로(SKIRT 코드, 하부 헌치 위, 연귀): 접합부는 그쪽 걸레받이(없으면 마감재) 뒷면까지, 그쪽 걸레받이는 통로 걸레받이 앞면 사이를 비움(`room_wall_skirt_hole`·분기 `_cut_branch(code=SKIRT)`) → 끝면이 같은 면. 외부 EV 문 자리도 비움. 출입구(`FIN_SKIRT_*`, 종류 SKIRT): 평탄부 + 계단 쪽은 디딤판 윗면 ~ 피치선 + h(들어간 면) + 이음벽·끝벽, 에스컬레이터 쪽은 하부 평탄부까지.
     - 보기 텍스처: 이미지 한 장 높이 = 걸레받이 높이(`dae_exporter.skirt_frames`·`skirt_uv`, 면마다 아래 변 0 ~ 위 변 1, 길이 방향은 0.8m 반복, 경사 띠도 따라 기움) — 예전 세계 좌표 타일이면 이미지 위쪽 모따기가 가운데에 옴.
     - 함께 고친 결함: −s 로 오르는 계단·ESC 옆 계단 구간 패널이 만들어지지 않아 콘크리트가 보이던 문제(`_shaft_panels` 가 시작 쪽 실을 못 찾음), 계단·ESC 끝에 맞닿은 창고 뒷 벽이 좌표 반올림으로 겹침 오류가 나던 문제(`room_check` 1e-5 여유).
+  - **천장 기구(`fixtures/`, 조명·디퓨저 — 사용자 지정: 자동 격자, 실 천장만, 스프링클러·통로·출입구 천장은 다음)**: `FinishType.light_s/light_t`(매입 평판 조명 0.3×1.2 간격, 두 방향 모두 주거나 모두 0)·`diff_gap`(사각 디퓨저 0.6×0.6 간격), 0 = 없음(모델 기본), 천장이 있을 때만. **GUI 기본 2.4 × 2.4 / 4.8**(천장이 있는 종류, 옛 프로젝트도), 마감 탭 천장 칸. 최소 간격 1.2.
+    - 배치 `fixture_layout.layout_fixtures`: 천장판 영역의 맞닿은 덩어리마다 간격에 가깝게 고르게 나눈 자리를 **천장판 격자 0.6(정거장 s·t 원점)** 에 맞춤. 조명 긴 방향 = 덩어리의 긴 방향(두 칸 × 칸 가운데), 디퓨저 = 한 칸(조명·막힌 자리와 겹치면 가까운 빈 칸). 둘레 0.1 까지 천장판 안이어야 하고, 원기둥 둘레 마감·입구 제연경계벽 자리는 피함. 결과 `RoomFinishLayout/RoomFinishData.lights/diffusers`, 천장판·천장틀은 그 자리를 비움(`finish_layout._ceiling_fixtures`, 확폭 사다리꼴 조각도).
+    - BIM `fixture_engine.FixtureData`(이름 `LT_/DF_{실}_{k}`): 몸체(천장판 하면 ~ +0.08/0.1, 위 슬래브 하면까지) + 면(하면 아래 4/10mm, 이미지 한 장 `light_on`·`diffuser` — `assets/image/light`·`mep`, `find_image` 가 옆 폴더도 찾음). 3D DXF FIN_LIGHT / FIN_DIFFUSER(미리보기 묶음 '조명·디퓨저' 기본 끔), 횡단·종단 SEC_FINISH·PROF_FINISH, 평면 없음(천장 평면도는 다음), IFC IfcLightFixture(DIRECTIONSOURCE)·IfcAirTerminal(DIFFUSER), 층 storey. 천장틀·천장판·기구의 IFC 형상은 `_tri_set`(IfcTriangulatedFaceSet — 조각이 많아 면마다 엔티티를 만들면 느리고 큼). 실무 샘플 기구 1,707개: IFC 22 → 31초·35 → 51MB, 3D 8 → 11초.
+    - 천장판 텍스처는 정거장 (s, t) 0.6 격자에 맞춤(`dae_exporter.ceiling_frames` — 줄눈이 기구와 맞음, 실 천장만).
+    - **웹 뷰어 인스턴싱**: 기구는 묶음에 되풀이하지 않고 형상 하나 + 배치 목록(`data.instances`, `web_viewer.fixture_instances` = `FixtureEngine.instance` 의 x·y·z·cos·sin·구배·s 축척)으로 보내 `THREE.InstancedMesh`(`insts`)로 그림, 잘라 보기는 배치마다 (s, h), 클릭 정보·강조 지원, 충돌 검사는 제외. 왼쪽 **'조명 켬'** = 면 이미지 light_on(스스로 빛남) ↔ light_off(사용자 지정: 실내 밝기는 그대로). 웹 뷰어는 천장판·조명·디퓨저 묶음을 처음부터 켬(`WEB_ON`). 앞으로 비품도 이 방식.
   - 알려진 단순화: 원기둥은 바닥·천장에서 빼지 않음(겹침), 천장 행거·액세스 플로어 받침 미모델링.
 - **점자블록(1단계, `tactiles/`)**: `cfg.tactile_settings = TactileSettings`(모델 기본 끔 — 기존 출력 유지, GUI 13.점자 탭은 켬, 옛 프로젝트도 켬). 일반값 예시 기본값(실무 기준 받으면 교체).
   - 자동 점형(경고): 승강장 연단(최하층, 선로 쪽 끝단 |t| = D/2 + 끝단 거리에서 `edge_offset` 0.6 떨어져 폭 `edge_width` 0.6, s 0~L), 계단 첫 챌판 앞(`s_at(−clear−depth .. −clear)`)·위층 도착 뒤(`s_at(length + clear ..)`, 위층), 에스컬레이터 트러스 끝 앞·뒤(`u_range` 기준, 폭 = 트러스 외폭), 엘리베이터 정지층마다 문 앞(승강로 바깥면에서 `ev_clear`, 폭 = 문 폭 + 2 × 블록 크기, 관통형은 양쪽). 이격 0.3·깊이 0.6.
@@ -358,7 +364,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - **경량화(사용자: 조명·비품을 더하면 감당이 되는지 걱정)**: 실무 샘플(통로·출입구·외부 EV·ES 모두) 삼각형 34.5만 → 21.5만, 자료 만들기 22초 → 8.5초, gzip 4.1 → 3.3MB.
     - **가려진 면 빼기(`exporter/mesh_reduce.py` `hidden_faces`)**: 같은 평면에서 반대를 보는 두 면 중 다른 면 안에 완전히 들어간 면(똑같으면 둘 다)을 뷰어 자료에서만 뺌(3D DXF·IFC·DAE 그대로). 같은 표시 묶음끼리만(묶음을 끄면 보여야 함), 움직이는 부재(EV·ES 태그)·투명·그린 이미지 면은 제외. `data.hidden` = 뺀 삼각형 수(통계 줄). 층·STA 로 잘라 보면 부재 속 맞닿은 면은 안 보임. 검증: 빠른 벡터 계산 = 전수 비교, 1,128 시점 픽셀 비교에서 부재 밖 시점은 같음(카메라가 벽 속·벽 면일 때와 모서리 1px 만 다름).
     - 빠른 광선 검사: 템플릿 JS `BVH`(메쉬마다 처음 쓸 때 만듦, `mesh.raycast` 대체, ES 스텝 메쉬는 기본 검사) — 광선 하나 5.3 → 0.18ms(클릭·호출 버튼·걷기). 선형 중심 1m 표본 `preview_render.centerline_samples` 는 `cfg._centerline_memo` 에 한 번만(선형 객체가 바뀌면 다시), 측점은 모든 꼭짓점을 한꺼번에, 호출 버튼·표시기 그림은 `lru_cache`.
-    - 앞으로: 반복 부재(조명·비품)는 인스턴싱(형상 하나 + 배치 목록)으로 보낼 것. ES 스텝은 전체의 2.6% 라 아직 안 함.
+    - 앞으로: 반복 부재는 인스턴싱(형상 하나 + 배치 목록)으로 보냄(천장 기구부터 — 위 '천장 기구'). ES 스텝은 전체의 2.6% 라 아직 안 함.
   - **실시간 갱신(`exporter/live_viewer.py`)**: 미리보기 창 [브라우저 3D (실시간)] → 앱 안의 로컬 HTTP 서버(`127.0.0.1`, 빈 포트, 앱 전체 하나 `shared()`)로 기본 브라우저를 열고 지금 모델을 올림. 이후 미리보기 갱신(F5)마다 `update(cfg)` = **설정 사본(deepcopy)으로 별도 엔진**을 백그라운드 스레드에서 만들어 올림(미리보기 엔진과 3D 문서를 함께 쓰지 않음, 만드는 중에 들어온 갱신은 끝나고 최신 것 한 번). 경로 `/`(LIVE 뷰어), `/version`(version·status idle|building|ok|error·message), `/data.json`, `/data.bin`(gzip). 뷰어는 1초마다 `/version` 을 물어 새 버전이면 `loadModel` 로 모델만 바꿈 — 카메라·표시 묶음·보이는 층(이름)·STA 범위·고른 부재(이름) 유지, 원점이 바뀌면 카메라를 같은 세계 위치로. 입력 오류면 이전 모델 + 왼쪽 아래에 오류, 서버가 꺼지면 '연결 끊김'(다시 켜지면 이어짐). 미리보기 머리줄 오른쪽 `live_label` 에 상태. 템플릿은 정적(`DATA_EMBED` + `BLOB`)·실시간(`LIVE = true`) 겸용.
 - 출력: 3D DXF, 횡단면도, 평면도(직선=전개, 곡선=WCS), 종단면도, IFC4, 텍스처 DAE, 3D 웹 뷰어(HTML).
 

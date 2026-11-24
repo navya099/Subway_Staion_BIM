@@ -114,7 +114,7 @@ def test_dae_materials_textures_and_geometry(tmp_path, tex_dir, curved):
     assert f"{ox:.3f}, {oy:.3f}, {oz:.3f}" in comment and ox == int(ox)
 
 
-def _uv_scale_ok(t, uv, size_u, size_v, cfg, origin, flat):
+def _uv_scale_ok(t, uv, size_u, size_v, cfg, origin, flat, tol=1e-3):
     """삼각형마다 uv 차이 = 투영 길이 / 텍스처 크기 (수평 면: 선형 접선 기준, 벽: 수평·연직)"""
     for tri, q in zip(t, uv):
         d = tri[1] - tri[0]
@@ -123,8 +123,8 @@ def _uv_scale_ok(t, uv, size_u, size_v, cfg, origin, flat):
             s, _ = cfg.to_station(*(tri.mean(axis=0)[:2] + origin[:2]))
             th = cfg.theta_at(s)
             eu, ev = np.array([np.cos(th), np.sin(th), 0]), np.array([-np.sin(th), np.cos(th), 0])
-            assert du[0] == pytest.approx(d @ eu / size_u, abs=1e-3)
-            assert du[1] == pytest.approx(d @ ev / size_v, abs=1e-3)
+            assert du[0] == pytest.approx(d @ eu / size_u, abs=tol)
+            assert du[1] == pytest.approx(d @ ev / size_v, abs=tol)
         else:
             assert abs(du[1]) == pytest.approx(abs(d[2]) / size_v, abs=1e-3)
             assert abs(du[0]) == pytest.approx(np.hypot(d[0], d[1]) / size_u, abs=2e-3)
@@ -145,7 +145,7 @@ def test_uv_follows_alignment_and_real_size(tmp_path, tex_dir, curved):
         n /= np.linalg.norm(n, axis=1)[:, None]
         sel = k[np.abs(n[:, 2]) > 0.99] if flat else k[np.abs(n[:, 2]) < 0.01]     # 바닥·천장 면 / 연직 벽 면
         assert len(sel) > 0
-        _uv_scale_ok(t[sel], uv[sel], m.size_u, m.size_v, cfg, origin, flat)
+        _uv_scale_ok(t[sel], uv[sel], m.size_u, m.size_v, cfg, origin, flat, 0.1 if "천장" in m.name else 1e-3)      # 천장판은 사각 면마다 한 방향 (정거장 격자)
 
 
 def test_texture_uv_vertical_face_axes():

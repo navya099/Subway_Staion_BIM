@@ -115,6 +115,11 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    fx = getattr(engine, "fixtures", None)
+    for x in (fx.elements if fx is not None else []):                    # 천장 기구: 면 = 이미지, 몸체 = 회색
+        for ents_x, m in ((x.body_entities, "기구 몸체"), (x.face_entities, x.material)):
+            for ent in ents_x:
+                mat_of[ent.dxf.handle] = finish_material(m)
     rooms_ = getattr(engine, "rooms", None)
     for d in (rooms_.doors if rooms_ is not None else []):               # 실 문: 문틀·문짝·손잡이 (유리는 레이어 재질)
         for p in d.parts:
@@ -182,6 +187,45 @@ def stair_face_frames(engine) -> dict:
         for stp in esc.steps:
             out.update(stp.face_frames or {})
     out.update(skirt_frames(engine))
+    out.update(ceiling_frames(engine))
+    fx = getattr(engine, "fixtures", None)
+    for x in (fx.elements if fx is not None else []):                    # 천장 기구 면: 이미지 한 장
+        fr = fx.frame(x)
+        out.update({ent.dxf.handle: fr for ent in x.face_entities})
+    return out
+
+
+def ceiling_frames(engine) -> dict:
+    """실 천장판 수평 면의 텍스처 틀: 이미지 격자를 정거장 (s, t) 원점에 맞춤 — 천장판 줄눈이 천장 기구(0.6 격자 배치)와 맞음.
+    곡선은 면마다 그 자리 접선 (station_of 근사)"""
+    cfg = engine.cfg
+    fin = getattr(engine, "finishes", None)
+    ents, mats = [], []
+    for e in fin.all_elements() if fin is not None else []:
+        if e.code != "CEILING" or not e.source_element:
+            continue
+        m = finish_material(e.material)
+        for ent in e.source_element:
+            d = ent.dxf
+            if abs(d.vtx0[2] - d.vtx2[2]) < 0.5 * max(abs(d.vtx0[0] - d.vtx2[0]) + abs(d.vtx0[1] - d.vtx2[1]), 1e-9):
+                ents.append(ent)
+                mats.append(m)
+    if not ents:
+        return {}
+    c = np.array([np.mean([tuple(getattr(x.dxf, f"vtx{k}"))[:2] for k in range(4)], axis=0) for x in ents])
+    st = cfg.station
+    lo = max(cfg.align.start_station - st.start_station, -50.0)
+    hi = min(cfg.align.end_station - st.start_station, st.length + 50.0)
+    s = station_of(cfg, c, lo, hi)
+    out = {}
+    for ent, m, p, sv in zip(ents, mats, c, s):
+        th = cfg.theta_at(float(sv))
+        x0, y0 = cfg.to_world(float(sv), 0.0)
+        u, v = (math.cos(th), math.sin(th), 0.0), (-math.sin(th), math.cos(th), 0.0)
+        t = (p[0] - x0) * v[0] + (p[1] - y0) * v[1]
+        ds, dt = sv % m.size_u, t % m.size_v                      # 격자 원점까지
+        o = (p[0] - ds * u[0] - dt * v[0], p[1] - ds * u[1] - dt * v[1], 0.0)
+        out[ent.dxf.handle] = (o, u, v, m.size_u, m.size_v)
     return out
 
 

@@ -769,7 +769,7 @@ class IFCExporter:
                 self._assign_material(wall, pw.material)
             by_level.setdefault(pw.level, ([], []))[1].append(wall)
             wall_ents[pw.name] = wall
-        for d in room_engine.doors:                       # 문: 벽 개구부(Voids) + 닫힌 문짝 IfcDoor(Fills)
+        for d in room_engine.doors:                       # 문: 벽 개구부(Voids) + 닫힌 문 IfcDoor(문틀·문짝·손잡이, Fills)
             op = self.file.create_entity(
                 "IfcOpeningElement", GlobalId=ifcopenshell.guid.new(), Name=f"OPEN_{d.name}", Description="실 출입문 개구부",
                 ObjectType="DOOR", ObjectPlacement=self._placement(),
@@ -780,7 +780,7 @@ class IFCExporter:
             door = self.file.create_entity(
                 "IfcDoor", GlobalId=ifcopenshell.guid.compress(uuid.UUID(d.guid).hex), Name=d.name,
                 Description=f"{d.room} 출입문 ({d.kind})", ObjectType=d.type_name, ObjectPlacement=self._placement(),
-                Representation=self._product_shape([self._face_set(PM.sweep_quads(PM.rings(cfg, d.leaf)))], "Tessellation"),
+                Representation=self._product_shape([self._face_set(PM.sweep_quads(PM.rings(cfg, p.piece))) for p in d.parts], "Tessellation"),
                 OverallHeight=float(d.height), OverallWidth=float(d.width), PredefinedType="DOOR",
                 OperationType=d.operation)
             if d.material:

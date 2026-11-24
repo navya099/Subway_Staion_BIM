@@ -14,6 +14,8 @@ _BOUNDARY = {B_PARTITION: PARTITION, B_SEPARATION: SEPARATION}
 # 문이 있는 변: 화면 표기 → 모델 값.  ±t 변(s 방향 벽)은 문 중심을 STA 로, ±s 변(t 방향 벽)은 t 로 입력
 DOOR_SIDE_LABELS = {"−t 변 (오른쪽)": "-t", "+t 변 (왼쪽)": "+t", "−s 변 (시점 쪽)": "-s", "+s 변 (종점 쪽)": "+s"}
 DOOR_KIND_LABELS = list(DOOR_KINDS)
+DOOR_SWING_LABELS = {"안쪽": "in", "바깥쪽": "out"}                 # 열림 방향 (실 기준)
+DOOR_HINGE_LABELS = {"경첩 기본": None, "경첩 왼쪽": "left", "경첩 오른쪽": "right"}    # 실 안에서 문을 볼 때
 
 
 def door_center_label(side_label: str) -> str:
@@ -28,17 +30,22 @@ class DoorDraft:
     width: str = "0.9"
     height: str = "2.1"
     kind: str = "여닫이"
+    swing: str = "안쪽"
+    hinge: str = "경첩 기본"
 
     def to_spec(self, where: str, start_station: float) -> DoorSpec:
         if self.side not in DOOR_SIDE_LABELS:
             raise ValueError(f"{where}: 문 변이 올바르지 않습니다 ('{self.side}')")
         if self.kind not in DOOR_KINDS:
             raise ValueError(f"{where}: 문 종류가 올바르지 않습니다 ('{self.kind}')")
+        if self.swing not in DOOR_SWING_LABELS or self.hinge not in DOOR_HINGE_LABELS:
+            raise ValueError(f"{where}: 문 열림·경첩이 올바르지 않습니다 ('{self.swing}', '{self.hinge}')")
         side = DOOR_SIDE_LABELS[self.side]
         c = _num(self.center, where, door_center_label(self.side))
         return DoorSpec(side=side, center=c - start_station if side in ("+t", "-t") else c,
                         width=_num(self.width, where, "문 폭", positive=True),
-                        height=_num(self.height, where, "문 높이", positive=True), kind=self.kind)
+                        height=_num(self.height, where, "문 높이", positive=True), kind=self.kind,
+                        swing=DOOR_SWING_LABELS[self.swing], hinge=DOOR_HINGE_LABELS[self.hinge])
 
 
 @dataclass

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from exporter import esc_anim, ev_anim
+from exporter import door_anim, esc_anim, ev_anim
 from exporter.dae_exporter import element_materials, frame_uv, stair_face_frames, texture_axes, tread_uv
 from exporter.mesh_reduce import hidden_faces
 from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, layer_material
@@ -130,6 +130,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     evs, tag_of = ev_anim.build(engine, (0.0, 0.0, 0.0))                 # 움직이는 부재 태그 (원점은 아래에서 뺌)
     escs, esc_tags = esc_anim.build(engine)
     tag_of.update(esc_tags)
+    doors, door_tags = door_anim.build(engine)
+    tag_of.update(door_tags)
     chunks = {}                                          # (레이어, 재질 이름, 애니메이션 태그) → [꼭짓점 목록, 부재 번호]
     mats = {}
     elems, elem_id = [], {}
@@ -164,6 +166,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         ev["z"] = round(ev["z"] - float(origin[2]), 5)
         for stop in ev["stops"]:
             stop["z"] = round(stop["z"] - float(origin[2]), 5)
+    door_anim.shift(doors, origin)
     for es in escs:
         es["path"] = [[round(float(c - c0), 4) for c, c0 in zip(p, origin)] for p in es["path"]]
     a, base = cfg.align, st.start_station
@@ -275,7 +278,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     data = {"origin": [float(c) for c in origin], "chunks": meta, "elements": elems,
             "groups": [{"name": n, "on": on} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
             "floors": floors, "length": st.length,
-            "half_width": st.width / 2.0, "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
+            "doors": doors, "half_width": st.width / 2.0, "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
             "title": "정거장 3D 뷰어", "triangles": tri_total, "hidden": n_hidden, "images": images, "evs": evs, "escs": escs, "missing_textures": sorted(missing)}
     return data, gzip.compress(bytes(blob), compresslevel=6)
 

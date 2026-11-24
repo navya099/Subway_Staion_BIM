@@ -94,7 +94,7 @@ function WalkCore(query) {
     const ride = opt && opt.ride;
     st.head = null; st.blocked = null;
     const dist = Math.hypot(dx, dy), n = Math.max(1, Math.ceil(dist / SUB));
-    for (let k = 0; dist > 1e-9 && k < n; k++) {
+    for (let k = 0; k < n; k++) {                           // 서 있어도 한 번: 움직이는 문에 밀림
       const on = st.grounded || ride, zl = st.foot + (on ? STEP : 0.1), zh = st.foot + BODY;
       const tx = st.x + dx / n, ty = st.y + dy / n;
       const p = pushOut(tx, ty, zl, zh, st.x, st.y);
@@ -105,7 +105,7 @@ function WalkCore(query) {
       if (!g && !ride) break;                                                          // 아래에 바닥이 전혀 없음
       const foot = on && !ride && st.foot - g[0] <= STEP ? g[0] : st.foot;
       const c = clearance(p.x, p.y, foot, dx, dy);
-      if (c.clear < H - 1e-6 && c.clear < clearance(st.x, st.y, st.foot, 0, 0).clear + 1e-6) { st.head = c; break; }
+      if (dist > 1e-9 && c.clear < H - 1e-6 && c.clear < clearance(st.x, st.y, st.foot, 0, 0).clear + 1e-6) { st.head = c; break; }
       st.x = p.x; st.y = p.y; st.foot = foot;
     }
     if (ride) { st.grounded = true; st.vz = 0; return st; }

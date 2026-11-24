@@ -115,6 +115,11 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    rooms_ = getattr(engine, "rooms", None)
+    for d in (rooms_.doors if rooms_ is not None else []):               # 실 문: 문틀·문짝·손잡이 (유리는 레이어 재질)
+        for p in d.parts:
+            if p.code != "GLASS":
+                put(p, finish_material(p.material))
     xe = getattr(engine, "ext_evs", None)
     for x in (xe.ext_evs if xe is not None else []):                 # 외부 엘리베이터 기단·경사로·턱 (화강석)
         for e in x.elements:

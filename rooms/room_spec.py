@@ -8,7 +8,7 @@ CONCOURSE_USE = "대합실"
 DOOR_SIDES = ("+s", "-s", "+t", "-t")     # 문이 있는 실의 변: 종점 쪽 / 시점 쪽 / 왼쪽 / 오른쪽
 # 문 종류 → IFC IfcDoor.OperationType
 DOOR_KINDS = {"여닫이": "SINGLE_SWING_LEFT", "양개 여닫이": "DOUBLE_DOOR_SINGLE_SWING", "미닫이": "SLIDING_TO_LEFT",
-              "방화문": "SINGLE_SWING_LEFT"}
+              "방화문": "SINGLE_SWING_LEFT", "자동문": "DOUBLE_DOOR_SLIDING"}
 PARTITION = "partition"      # 실 경계 = 칸막이벽 (공통 두께)
 SEPARATION = "separation"    # 실 경계 = 구획분리 (두께 0 = 가상 경계선, > 0 = 얇은 실제 벽)
 BOUNDARIES = (PARTITION, SEPARATION)
@@ -20,8 +20,10 @@ class DoorSpec:
     Attributes:
         side: 실의 어느 변 '+s' | '-s' | '+t' | '-t'
         center: 문 중심 위치 — ±s 변이면 t, ±t 변이면 s (정거장 로컬)
-        width / height: 문 폭 / 높이 (개구부 크기, 바닥은 그 벽의 바닥)
-        kind: DOOR_KINDS 의 하나 (여닫이 · 양개 여닫이 · 미닫이 · 방화문)
+        width / height: 문 폭 / 높이 (벽 개구부 = 문틀 바깥 크기, 높이는 바닥 마감면부터 — 마감을 끄면 그 벽의 바닥부터)
+        kind: DOOR_KINDS 의 하나 (여닫이 · 양개 여닫이 · 미닫이 · 방화문 · 자동문)
+        swing: 열림 'in' 실 안쪽 | 'out' 실 바깥쪽 (미닫이·자동문은 문짝이 걸리는 쪽)
+        hinge: 경첩 쪽 (미닫이는 밀리는 쪽), 실 안에서 문을 볼 때 'left' | 'right', None = 좌표(s 또는 t)가 작은 쪽
         name: 비우면 실 이름 + _D + 번호
     """
     side: str = "+t"
@@ -30,6 +32,8 @@ class DoorSpec:
     height: float = 2.1
     kind: str = "여닫이"
     name: str = ""
+    swing: str = "in"
+    hinge: Optional[str] = None
 
 
 @dataclasses.dataclass

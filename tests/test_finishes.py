@@ -105,12 +105,12 @@ def test_wall_finish_on_station_and_partition_faces_with_door_holes():
     f, h = 0.05, 2.7                                            # 역무실: 벽 0.05, 벽 높이 = 바닥 마감면 ~ 천장판 하면 = 2.7
     # 둘레(마감면): s 방향 19.8 (t=2 칸막이벽, t=9 본체 벽) ×2, t 방향 6.9 − 2f ×2 (모서리 겹침 없음)
     length = 19.8 * 2 + (6.9 - 2 * f) * 2
-    door = 1.0 * (6.0 + 2.1 - (6.0 + 0.1))                     # 마감면 위 문 높이 2.0
+    door = 1.0 * 2.1                                           # 문 높이는 바닥 마감면부터
     assert off.element("WALL").volume == pytest.approx(f * (length * h - door))
     hall = fin(eng, "B2F_대합실")                                 # 칸막이벽 바깥쪽에도 대합실 벽 마감 (문 자리 비움)
     outside = [p for p in hall.element("WALL").pieces if abs(PM.t_range(p)[1] - 1.9) < 1e-9]
     # 실 경계 s 10 ~ 30 + 바깥 모서리 너머(벽 반두께 0.1 + 마감 0.05)씩 — 직각으로 도는 대합실 마감과 모서리에서 만남
-    assert outside and sum(p.shape.volume for p in outside) == pytest.approx(0.05 * ((20.0 + 2 * 0.15) * 3.0 - 1.0 * 2.0))
+    assert outside and sum(p.shape.volume for p in outside) == pytest.approx(0.05 * ((20.0 + 2 * 0.15) * 3.0 - 1.0 * 2.1))
 
 
 def test_wall_finish_skips_virtual_separation_and_passage_opening():

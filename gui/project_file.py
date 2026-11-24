@@ -31,12 +31,14 @@ from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
 from gui.room_draft import DoorDraft, RoomDraft, RoomDrafts, RoomSettingsDraft
 from gui.stair_draft import StairDraft, StairDrafts
+from gui.prop_draft import PropDraft, PropDrafts, default_values
 from gui.psd_draft import PsdDraft
 from gui.sign_draft import ExitDraft, SignDraft
 from gui.train_draft import TrainDraft
 from gui.tactile_draft import TactileDrafts, TactilePathDraft, TactilePointDraft, TactileSettingsDraft
 from gui.vent_draft import VentDraft, VentDrafts
 from gui.widen_draft import WidenDraft, WidenDrafts
+from props.prop_kinds import KINDS
 
 FORMAT = "subway_station_bim_project"
 VERSION = 1
@@ -53,7 +55,8 @@ LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": 
                "entrance_drafts": (EntranceDrafts, EntranceDraft), "vent_drafts": (VentDrafts, VentDraft),
                "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "ext_ev_drafts": (ExtEvDrafts, ExtEvDraft),
                "room_drafts": (RoomDrafts, RoomDraft),
-               "tactile_drafts": (TactileDrafts, TactilePathDraft), "widen_drafts": (WidenDrafts, WidenDraft)}
+               "tactile_drafts": (TactileDrafts, TactilePathDraft), "widen_drafts": (WidenDrafts, WidenDraft),
+               "prop_drafts": (PropDrafts, PropDraft)}
 
 
 # ====================================================================== 초안 dataclass ↔ JSON
@@ -89,11 +92,17 @@ def _build(cls, d, where: str):
                 v = int(v)
             elif isinstance(default, set):
                 v = {int(x) for x in v}
+            elif cls is PropDraft and f.name == "values":             # 종류별 치수·문구 (문자열 사전)
+                if not isinstance(v, dict):
+                    raise TypeError
+                v = {str(k): "" if x is None else str(x) for k, x in v.items()}
             elif isinstance(default, str):
                 v = "" if v is None else str(v)
         except (TypeError, ValueError):
             raise ValueError(f"{where}: '{f.name}' 값이 올바르지 않습니다 ({v!r})") from None
         setattr(inst, f.name, v)
+    if cls is PropDraft and "values" not in d and inst.kind in KINDS:
+        inst.values = default_values(inst.kind)
     if cls is FinishTypeDraft and "skirt_h" not in d:            # 옛 파일: 걸레받이는 벽 재질로 정함 (금속패널만)
         inst.skirt_h = None
         inst.__post_init__()
@@ -233,6 +242,7 @@ class ProjectState:
     widen_drafts: list = field(default_factory=list)                             # 구조물 확폭 (1.선형 탭)
     tactile_drafts: list = field(default_factory=list)                           # 유도블록 경로 (TactilePathDraft)
     tactile_settings: TactileSettingsDraft = field(default_factory=TactileSettingsDraft)   # 점자블록 공통·자동 경고
+    prop_drafts: list = field(default_factory=list)                              # 비품 (PropDraft)
     alignment: Optional[EmbeddedAlignment] = None
 
     def to_dict(self) -> dict:

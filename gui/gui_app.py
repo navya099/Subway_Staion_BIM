@@ -16,6 +16,7 @@ from gui.platform_tab import PlatformTab
 from gui.print_tab import PrintTab
 from gui.room_tab import RoomTab
 from gui.project_file import FILETYPES, LIST_DRAFTS, SUFFIX, ProjectState, RecentProjects, open_project, save_project
+from gui.prop_tab import PropTab
 from gui.sign_tab import SignTab
 from gui.stair_tab import StairTab
 from gui.tactile_tab import TactileTab
@@ -28,7 +29,7 @@ from gui.preview_window import PreviewWindow
 APP_TITLE = "지하철 개착정거장 자동 설계 (BIM Engine)"
 FLOOR_KEYS = ("floor_height_", "wall_t_")       # 층수에 따라 다시 만들어지는 입력칸
 DRAFT_TABS = ("column_tab", "room_tab", "opening_tab", "stair_tab", "escalator_tab", "elevator_tab", "passage_tab", "entrance_tab",
-              "vent_tab", "tactile_tab")
+              "vent_tab", "tactile_tab", "prop_tab")
 
 
 class StationBIMApp:
@@ -37,7 +38,7 @@ class StationBIMApp:
         self.floor_col_frame = None
         self.entries = {}
         self.root = root
-        self.root.geometry("680x1024")
+        self.root.geometry("724x1024")
         self.root.resizable(False, True)
         # 콤보박스 위에서 휠을 굴리면 ttk 기본 동작이 값을 바꾸고 <<ComboboxSelected>> 까지 보냄 — 스크롤하다가 분기·층 같은
         # 선택이 몰래 바뀌던 문제. 휠은 탭 스크롤(bind_all)에만 쓰도록 콤보박스 클래스 바인딩을 지움
@@ -60,7 +61,7 @@ class StationBIMApp:
             self._watch()
 
     def _build_ui(self):
-        # 전체 메인 탭 노트북 생성 (탭 15개가 창 폭 680 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
+        # 전체 메인 탭 노트북 생성 (탭 16개가 창 폭 724 안에 다 보이도록 제목은 짧게, 좌우 여백은 작게)
         ttk.Style(self.root).configure("TNotebook.Tab", padding=(1, 2), font=("Malgun Gothic", 8))
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -158,6 +159,12 @@ class StationBIMApp:
         self.sign_tab = SignTab(tab_sign, self.entries)
         self.sign_tab.build()
 
+        # 탭 16: 비품 (배치 객체)
+        tab_prop = ttk.Frame(notebook)
+        notebook.add(tab_prop, text="16.비품")
+        self.prop_tab = PropTab(tab_prop, self.entries)
+        self.prop_tab.build()
+
         # 하단 공통 실행 버튼 패널 (어떤 탭에 있든 항상 실행 가능)
         btn_frame = tk.Frame(self.root, bg="#ECEFF1", relief="groove", bd=1)
         btn_frame.pack(fill="x", padx=10, pady=(0, 10))
@@ -196,6 +203,9 @@ class StationBIMApp:
             self.vent_tab.refresh_info()
         if hasattr(self, 'tactile_tab'):
             self.tactile_tab.update_floor_ui()
+        if hasattr(self, 'prop_tab'):
+            self.prop_tab.update_floor_ui()
+            self.prop_tab.refresh_info()
         if hasattr(self, 'print_tab'):
             self.print_tab.update_floor_ui()
             self.print_tab.refresh_info()

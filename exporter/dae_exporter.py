@@ -115,6 +115,11 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    pr = getattr(engine, "props", None)
+    for x in (pr.elements if pr is not None else []):                    # 비품: 조각마다 재질
+        for material, ents_x in x.part_entities:
+            for ent in ents_x:
+                mat_of[ent.dxf.handle] = finish_material(material)
     fx = getattr(engine, "fixtures", None)
     for x in (fx.elements if fx is not None else []):                    # 천장 기구: 면 = 이미지, 몸체 = 회색
         for ents_x, m in ((x.body_entities, "기구 몸체"), (x.face_entities, x.material)):
@@ -359,7 +364,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
                 mat_of[ent.dxf.handle] = m
-    extra = [s for k in ("entrances", "ext_evs", "elevators") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
+    extra = [s for k in ("entrances", "ext_evs", "elevators", "props") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
     if extra:                                                        # 출입구 캐노피 출구 사인 · 외부 엘리베이터 역명 띠
         tex_dir = path.parent / TEXTURE_FOLDER
         tex_dir.mkdir(exist_ok=True)

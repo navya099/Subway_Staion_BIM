@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1428개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1468개 통과** (GUI 139개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -54,6 +54,7 @@ walls/ slabs/ platforms/ columns/   각 부재: *_data.py, *_shape.py, *_package
 rooms/                      실(구획): door_parts(문틀·문짝·손잡이 형상과 움직임), spec(실·공통 설정·용도 목록), layout(층별 입력 실 + 기본 실, 경계 칸막이벽), check(검증·간섭), data/engine
 finishes/                   건축 마감: clear(계단·ESC 와 벽 마감 표면: t 기준점·간섭 검사 — 이슈 #32), spec(용도별 마감표 FinishType·FinishSettings·계단 마감 StairFinish), layout(실별 바닥·벽·기둥/승강로 둘레·천장·천장틀 조각), gaps(계단·ESC 접지 구간·오프닝 둘레 마감), pocket(확폭 사다리꼴 실), check(마감표 검증), engine
 fixtures/                   천장 기구(매입 조명·디퓨저): layout(천장판 격자 자동 배치), engine
+props/                      배치 객체(비품): kinds(종류 등록부 — 입력 치수·형상·IFC·그림), images(발매기·옥내소화전·안내사인 그림), spec(입력·검사), check(겹침·벽 붙임), engine
 signs/                      사인: spec(StationInfo·SignSettings), nameplate(역명판·안내사인 이미지 — 스타일 등록부 + 그리기 함수, Pillow), layout(측벽 역명판·타는 곳·출구 배치 + 검증), engine
 railings/                   오프닝 유리난간: spec(RailingSettings), layout(계단·ESC 오프닝 둘레 경계석·POST·레일·유리 조각 + 검증), engine
 smokewalls/                 입구 천장 제연경계벽: spec(SmokeBarrierSettings·head_drop), layout(오프닝 입구 가장자리 프레임·유리 조각), engine
@@ -79,9 +80,9 @@ exporter/web_walk.js        웹 뷰어 걷기 충돌 (순수 JS, node 로 시험
 exporter/web_viewer.py      3D 웹 뷰어(three.js HTML 한 파일) + web_viewer_template.html(뷰어 HTML·JS), assets/web/three.min.js(r147, MIT), live_viewer.py(실시간 갱신 로컬 서버)
 assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_panel·stair_stone·tactile_*·Polished Concrete New 등, **저장소에 포함** — 출처·라이선스는 README) + README
 assets/image/light/, mep/   조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (천장 기구 면 한 장)
-gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
-                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_web_walk, test_doors, test_fixtures, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
+gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab / prop_tab (탭 1~16, 제목은 짧게 '1.선형' …, 창 폭 724),
+                            column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·prop_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_web_walk, test_doors, test_fixtures, test_props, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -152,6 +153,13 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
     - 천장판 텍스처는 정거장 (s, t) 0.6 격자에 맞춤(`dae_exporter.ceiling_frames` — 줄눈이 기구와 맞음, 실 천장만).
     - **웹 뷰어 인스턴싱**: 기구는 묶음에 되풀이하지 않고 형상 하나 + 배치 목록(`data.instances`, `web_viewer.fixture_instances` = `FixtureEngine.instance` 의 x·y·z·cos·sin·구배·s 축척)으로 보내 `THREE.InstancedMesh`(`insts`)로 그림, 잘라 보기는 배치마다 (s, h), 클릭 정보·강조 지원, 충돌 검사는 제외. 왼쪽 **'조명 켬'** = 면 이미지 light_on(스스로 빛남) ↔ light_off(사용자 지정: 실내 밝기는 그대로). 웹 뷰어는 천장판·조명·디퓨저 묶음을 처음부터 켬(`WEB_ON`). 앞으로 비품도 이 방식.
   - 알려진 단순화: 원기둥은 바닥·천장에서 빼지 않음(겹침), 천장 행거·액세스 플로어 받침 미모델링.
+- **배치 객체(비품) 1단계(`props/`, `cfg.props = [PropSpec]`, 사용자 지정: 코드 형상 + 외부 3D 파일 둘 다 — 외부 파일(glTF/OBJ) 바꿔 끼우기는 2단계 / 평면에서 점 선택으로 배치 / 겹치면 오류)**: `PropSpec(kind, floor, s, t, angle, values, name)`. angle = 앞면 방향(도, 0 = +s, 90 = +t, 반시계 — 아무 각도), 이름 비우면 종류 + 순번.
+  - **종류 등록부(`prop_kinds.KINDS`)**: `@define(코드, 라벨, 놓는 방식, [(키, 라벨, 기본값, 형식, 하한)], IFC, 재질, 그림)` 함수 하나 = 종류 하나 — 입력칸·검사·도면·IFC·웹 뷰어가 따라 나옴. 형상 = 볼록 각기둥 조각 `PropPart`(재질, 평면 다각형, z0~z1, 그림 면), 객체 좌표(앞 +x, 왼쪽 +y, z 0 = 바닥 마감면 / 천장 하면). 종류: BENCH 의자, BIN 쓰레기통, EXT 소화기, TVM 발매기, GATE 게이트(통로 수·폭 + 넓은 통로, 날개문 없음 = 열림) — `FLOOR` / HYDRANT 옥내소화전, PANEL_W 벽 점검구 — `WALL` / PANEL_C 천장 점검구 — `CEILING` / HSIGN 매달림 안내사인(앞·뒤 문구·화살표·배경색, 천장까지 행거 — 천장 기구와 만나면 사인 폭 안의 가장 가까운 빈 자리로 옮김(둘 사이 ≥ 폭/4) `PropEngine._rods`) — `HANG`(높이는 바닥 기준).
+  - 높이 = 그 자리 실의 바닥 마감면(최하층은 승강장 상면 기준) / 천장판 하면(`floor_and_ceiling`), 연직·수평(종단구배 안 따름). **WALL 은 고른 점에서 0.5m(`SNAP`) 안의 가장 가까운 벽 면(벽·기둥 마감, 칸막이벽, 마감이 없으면 내공면)에 붙고 벽을 등짐**(`snap_to_wall`, 없으면 오류).
+  - **겹침 검사 = 엔진**(`prop_check.Obstacles`, 평면 분리축 + 높이 구간, 1mm): 칸막이벽·문(닫힌 상태)·벽/기둥/걸레받이/천장 마감·기둥·계단·ESC(볼라드)·승강로·난간·PSD·제연경계벽·사인·천장 기구·다른 비품, 내공(확폭 포함) 밖, 실 밖, 바닥 오프닝 위, 승강장 끝에 걸침, 천장보다 높음 → `ValueError`(모델 만들 때 — `validate` 는 형식만 `check_props`). 문 앞 여닫는 자리·유효 통로 폭은 검사하지 않음.
+  - 출력: 3D STRUCT_PROP(미리보기 '비품' 묶음), 횡단·종단 SEC_PROP, 평면 PLAN_PROP(그 층, 높이와 관계없이 윤곽 + 이름), IFC 종류별(IfcFurniture·IfcElectricAppliance·IfcFireSuppressionTerminal·IfcBuildingElementProxy, 면 집합, Pset `SSBIM_Prop`, 층 storey), DAE 조각 재질 + 그림(`sign_images`), **웹 뷰어 = 인스턴싱**(`web_viewer.prop_instances`: 같은 종류·치수끼리 형상 하나 + 배치 목록, 천장 기구와 같은 형식, `solid` = 걷기 충돌 — 배치마다 상자로 거른 세계 삼각형 `solidOf`). 텍스트 그림은 Pillow(`prop_images`).
+  - GUI **16.비품** 탭(`PropTab`·`PropDraft`, 프로젝트 파일 `prop_drafts`): 종류·층 골라 [+ 추가] / [추가할 위치 선택](미리보기 점), 줄마다 종류·이름·층·STA·t·앞면 방향(0/90/180/270 또는 각도)·[위치 선택]·복제·삭제, [치수 ▼] = 종류별 치수·문구(숫자 빈칸 = 기본값).
+  - 다음 후보: **2단계 외부 3D 모델(glTF/OBJ)**, 여러 개 줄 배치, 게이트 날개문 애니메이션, 통로·출입구 안 비품, 문 앞 여유·유효 폭 검사.
 - **점자블록(1단계, `tactiles/`)**: `cfg.tactile_settings = TactileSettings`(모델 기본 끔 — 기존 출력 유지, GUI 13.점자 탭은 켬, 옛 프로젝트도 켬). 일반값 예시 기본값(실무 기준 받으면 교체).
   - 자동 점형(경고): 승강장 연단(최하층, 선로 쪽 끝단 |t| = D/2 + 끝단 거리에서 `edge_offset` 0.6 떨어져 폭 `edge_width` 0.6, s 0~L), 계단 첫 챌판 앞(`s_at(−clear−depth .. −clear)`)·위층 도착 뒤(`s_at(length + clear ..)`, 위층), 에스컬레이터 트러스 끝 앞·뒤(`u_range` 기준, 폭 = 트러스 외폭), 엘리베이터 정지층마다 문 앞(승강로 바깥면에서 `ev_clear`, 폭 = 문 폭 + 2 × 블록 크기, 관통형은 양쪽). 이격 0.3·깊이 0.6.
   - 유도 경로 `TactilePathSpec`(층, (s, t) 꼭짓점 = 블록 중심선, 폭 비우면 블록 크기 0.3): **선분은 s 또는 t 방향만**(사선 오류 — 미리보기 경로 선택은 직교 모드), 꼭짓점마다 점형 정사각형, 사이는 선형 띠. 최하층은 승강장 위만(선로 위 오류), 내공 범위 검사, 이름 중복 오류(비우면 TP{k}).

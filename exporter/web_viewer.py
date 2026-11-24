@@ -150,6 +150,51 @@ def fixture_instances(fixtures, cfg, origin, elems, put, tex_key) -> tuple:
     return out, tri
 
 
+def prop_instances(props, origin, elems, put, images, data_url) -> tuple:
+    """비품을 형상 하나 + 배치 목록으로: 같은 종류·치수·문구끼리 묶어 재질(그림)마다 한 형상. 배치는 천장 기구와 같은 형식
+    (구배 0 — 비품은 연직·수평). 그림 있는 면은 따로 (uv 한 장)"""
+    from props.prop_engine import LAYER
+    groups = {}
+    for e in props.elements if props is not None else []:
+        groups.setdefault((e.kind, json.dumps(e.values, sort_keys=True, ensure_ascii=False)), []).append(e)
+    out, tri = [], 0
+    for g, ((kind, _), els) in enumerate(groups.items()):
+        rows = []
+        for e in els:
+            x, y, z, th = props.transform(e)
+            elems.append({"name": e.name, "layer": LAYER, "group": _group_of(LAYER), "level": e.level, "material": e.material, "type": e.type_name})
+            rows.append((x - origin[0], y - origin[1], z - origin[2], np.cos(th), np.sin(th), 0.0, 1.0, e.s, e.z, len(elems) - 1))
+        items = put(np.array(rows, dtype=np.float32))
+        imgs = props.images(els[0])
+        shapes = {}                                                   # (재질, 그림 키) → (꼭짓점, uv, 번호)
+        for part in els[0].parts:
+            n = len(part.poly)
+            lo, hi = [(*p, part.z0) for p in part.poly], [(*p, part.z1) for p in part.poly]
+            faces = [(lo[i], lo[(i + 1) % n], hi[(i + 1) % n], hi[i]) for i in range(n)] + [tuple(reversed(lo)), tuple(hi)]
+            for i, face in enumerate(faces):
+                img = part.image if part.image and i == props.image_index(part) else ""
+                pos, uv, idx = shapes.setdefault((part.material, img), ([], [], []))
+                k = len(pos)
+                pos += face
+                uv += [(0, 0), (1, 0), (1, 1), (0, 1)] if img else [(0, 0)] * len(face)       # 옆면 (아래 왼 → 아래 오른 → 위) = 바깥에서 볼 때
+                for j in range(1, len(face) - 1):
+                    idx += [k, k + j, k + j + 1]
+        for (mname, img), (pos, uv, idx) in shapes.items():
+            m = finish_material(mname)
+            key = None
+            if img:
+                key = f"사인 PROP|{g}|{img}"
+                images[key] = data_url(imgs[img])
+            item = {"layer": LAYER, "group": _group_of(LAYER), "material": m.name, "color": [1.0, 1.0, 1.0] if img else [round(c, 4) for c in m.color],
+                    "alpha": m.alpha, "tex": key, "light": False, "solid": True, "count": len(rows), "items": items, "nv": len(pos),
+                    "nt": len(idx) // 3, "pos": put(np.array(pos, dtype=np.float32)), "idx": put(np.array(idx, dtype=np.uint32))}
+            if key:
+                item["uv"] = put(np.array(uv, dtype=np.float32))
+            out.append(item)
+            tri += len(rows) * (len(idx) // 3)
+    return out, tri
+
+
 def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tuple:
     """(자료 dict, 압축 바이트) — HTML 에 넣을 모델 자료"""
     cfg = engine.cfg
@@ -183,7 +228,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     elems, elem_id = [], {}
     rows = []                                            # (레이어, 재질, 태그, 꼭짓점, 부재 번호, 핸들)
     fixtures = getattr(engine, "fixtures", None)
-    inst_h = {ent.dxf.handle for x in (fixtures.elements if fixtures is not None else []) for ent in x.source_element}   # 배치로 보내는 기구
+    props = getattr(engine, "props", None)
+    inst_h = {ent.dxf.handle for q in (fixtures, props) for x in (q.elements if q is not None else []) for ent in x.source_element}   # 배치로 보내는 기구·비품
     for d in all_faces:
         if d.layer in skip or d.handle in inst_h:
             continue
@@ -317,6 +363,9 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         tri_total += len(tri_e)
 
     inst, inst_tri = fixture_instances(fixtures, cfg, origin, elems, put, tex_key)
+    p_inst, p_tri = prop_instances(props, origin, elems, put, images, data_url)
+    inst += p_inst
+    inst_tri += p_tri
     if any(x["light"] for x in inst):                                 # 조명 끔 이미지 (뷰어에서 바꿈)
         off = find_image("light_off", texture_dir)
         if off is not None:

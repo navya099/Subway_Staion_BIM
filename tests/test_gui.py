@@ -802,11 +802,11 @@ def test_generate_with_openings_end_to_end(app, tmp_path):
 
 
 def test_all_tabs_fit_in_window_width(app):
-    """탭 15개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
+    """탭 16개의 제목이 모두 창 너비 안에 보임 (ttk 는 넘치면 뒤쪽 탭을 숨김)"""
     app.root.update()
     nb = next(w for w in app.root.winfo_children() if w.winfo_class() == "TNotebook")
     seen = {int(t) for x in range(nb.winfo_width()) if (t := nb.tk.call(nb._w, "identify", "tab", x, 8)) != ""}
-    assert seen == set(range(nb.index("end"))) and nb.index("end") == 15
+    assert seen == set(range(nb.index("end"))) and nb.index("end") == 16
 
 
 # ---------------- 계단 탭 ----------------
@@ -1982,6 +1982,47 @@ def test_pick_point_tabs_fill_entries(app, monkeypatch):
     app.preview.add_pick_point(104.0, 2.0)
     o = ot.drafts.items[0]
     assert (float(o.sta_start), o.length, o.t_center, o.width) == (pytest.approx(base + 100), "4", "0.5", "3")
+    app.preview.close()
+
+
+def test_prop_tab_add_pick_copy_and_collect(app, monkeypatch, tmp_path):
+    """비품 탭: 종류·층 골라 추가, 미리보기 위치 선택, 치수 펼치기, 복제·삭제, Config·프로젝트 파일"""
+    from gui.prop_draft import ANGLES, KIND_CODES
+    monkeypatch.setattr("gui.preview_window.messagebox", _Box())
+    tab = app.prop_tab
+    base = float(app.entries["start_station"].get())
+    tab.new_kind.current(KIND_CODES.index("TVM"))
+    tab.new_floor.current(0)
+    tab.pick_new()                                                       # 미리보기에서 고른 자리에 추가
+    app.preview.command.insert(0, f"{base + 12:.2f}, 6.5")
+    app.preview.on_command()
+    it = tab.drafts.items[0]
+    assert (it.kind, it.floor, float(it.sta), it.t) == ("TVM", 1, pytest.approx(base + 12), "6.5")
+    tab.pick_position(0)
+    app.preview.command.insert(0, f"{base + 15:.2f}, 6")
+    app.preview.on_command()
+    assert float(it.sta) == pytest.approx(base + 15) and it.t == "6"
+    assert [e.name for e in app.preview.engine.props.elements] == ["발매기 1"]
+    tab.toggle(0)
+    tab._vars[(0, "v", "text")].set("표 사는 곳")
+    tab._vars[(0, "angle")].set(ANGLES[3])
+    tab._vars[(0, "name")].set("TVM-A")
+    assert tab._titles[0].cget("text").strip() == "TVM-A"
+    tab.copy_prop(0)
+    assert len(tab.drafts.items) == 2 and tab.drafts.items[1].name == "" and tab.drafts.items[1].values["text"] == "표 사는 곳"
+    tab._vars[(1, "sta")].set(f"{base + 30:.2f}")
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert [(p.kind, p.angle, p.values["text"]) for p in cfg.props] == [("TVM", 270.0, "표 사는 곳")] * 2
+    tab._combos[(1, "kind")].current(KIND_CODES.index("HYDRANT"))
+    tab._combos[(1, "kind")].event_generate("<<ComboboxSelected>>")
+    app.root.update()
+    assert tab.drafts.items[1].kind == "HYDRANT" and (1, "angle") not in tab._combos
+    assert tab.body.winfo_reqwidth() <= app.root.winfo_width()
+    st = app.collect_state()
+    tab.remove_prop(0)
+    assert [x.kind for x in tab.drafts.items] == ["HYDRANT"]
+    app.apply_state(st)
+    assert [x.kind for x in app.prop_tab.drafts.items] == ["TVM", "HYDRANT"] and app.prop_tab._vars[(0, "name")].get() == "TVM-A"
     app.preview.close()
 
 

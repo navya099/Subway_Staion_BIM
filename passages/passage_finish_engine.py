@@ -33,6 +33,7 @@ class PassageFinishEngine:
         self.cfg = config
         self.elements: list[PassageFinishData] = []
         lays, self.warnings = layout_passage_finishes(config)
+        self.layouts = lays
         st = config.station
         for lay in lays:
             ft = lay.ft

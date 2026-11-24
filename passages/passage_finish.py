@@ -35,6 +35,7 @@ class PassageFinishLayout:
     ft: object
     ceiling: bool
     parts: dict = field(default_factory=dict)
+    fixtures: list = field(default_factory=list)      # 천장 기구 [(PassageSegment, 천장판 하면 높이(바닥 상면 기준), (종류, a0, a1, v0, v1, 깊이))]
 
 
 def passage_finish_type(cfg, spec):
@@ -131,6 +132,7 @@ def _piece(seg, a0, a1, sect, ks=None, ke=None, flat=False):
 
 def layout_passage_finishes(cfg) -> tuple:
     """([PassageFinishLayout], [경고 문구]) — 마감을 끄면 ([], [])"""
+    from fixtures.corridor_layout import cut_boxes, passage_fixtures
     fs = getattr(cfg, "finish_settings", None)
     if fs is None or not fs.enabled:
         return [], []
@@ -170,6 +172,7 @@ def layout_passage_finishes(cfg) -> tuple:
         s_top = ft.ffl + (ft.skirt_h if sk else 0.0)                   # 벽 마감 시작 높이
         s_bot = max(ft.ffl, _haunch_floor(sp, sb)) if sk else 0.0      # 하부 헌치 위
         last = len(lay.segments) - 1
+        fixtures = []
         for seg in lay.segments:
             L = seg.length
             end = L - sp.wall_t if (sp.close_end and seg.index == last) else L
@@ -215,6 +218,13 @@ def layout_passage_finishes(cfg) -> tuple:
             if ceil:
                 parts[FRAME] += _frame(seg, ft, c_half, cb + ft.board_t,
                                        end - face if (sp.close_end and seg.index == last) else end, ke_end)
+                if ft.has_light or ft.has_diffuser:                    # 천장 기구 (매입 — 천장판·천장틀에서 그 자리를 뺌)
+                    fx = passage_fixtures(ft, seg, c_half, end - face if ke_end == 0.0 else end, -seg.tn if ke_end is None else 0.0,
+                                          lambda v: _haunch_limit(sp, a - v) - cb)
+                    holes = [f[1:5] for f in fx]
+                    for code in (CEILING, FRAME):
+                        parts[code] = cut_boxes(parts[code], seg.index, holes)
+                    fixtures += [(seg, cb, f) for f in fx]
             if sp.close_end and seg.index == last and ft.wall_t > 0:   # 끝 벽 마감
                 e0 = L - sp.wall_t - face
                 parts[WALL].append(_piece(seg, e0, e0 + ft.wall_t, _rect(-c_half, c_half, s_top, cb if ceil else w_top),
@@ -222,7 +232,7 @@ def layout_passage_finishes(cfg) -> tuple:
                 if sk:
                     parts[SKIRT].append(_piece(seg, L - sp.wall_t - sf, L - sp.wall_t - sb, _rect(-(a - sf), a - sf, ft.ffl, s_top),
                                                0.0, 0.0))
-        out.append(PassageFinishLayout(lay.name, lay.floor, ft, ceil, parts))
+        out.append(PassageFinishLayout(lay.name, lay.floor, ft, ceil, parts, fixtures))
     # 분기: 부모 벽 마감에 자식 통로 마감 개구부 (자식 벽 마감재 뒷면 사이 × 바닥 ~ 자식 천장판 하면)
     res = {x.name: x for x in out}
     for lay in lays:

@@ -31,12 +31,13 @@ class FixtureData(CommonBIMData):
     z: float = 0.0
     along: str = "s"
     depth: float = 0.08
+    host: str = ""                # 통로·출입구 이름 (실 = "", corridor_fixtures)
     body: object = None
     face: object = None
 
     @property
     def volume(self) -> float:
-        return self.body.shape.volume + self.face.shape.volume
+        return sum(p.volume if hasattr(p, "faces") else p.shape.volume for p in (self.body, self.face))      # 통로·출입구 = BoxPiece
 
 
 class FixtureEngine:

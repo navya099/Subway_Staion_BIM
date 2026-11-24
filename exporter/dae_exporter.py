@@ -120,8 +120,7 @@ def element_materials(engine) -> dict:
         for material, ents_x in x.part_entities:
             for ent in ents_x:
                 mat_of[ent.dxf.handle] = finish_material(material)
-    fx = getattr(engine, "fixtures", None)
-    for x in (fx.elements if fx is not None else []):                    # 천장 기구: 면 = 이미지, 몸체 = 회색
+    for x in fixture_elements(engine):                                   # 천장 기구: 면 = 이미지, 몸체 = 회색
         for ents_x, m in ((x.body_entities, "기구 몸체"), (x.face_entities, x.material)):
             for ent in ents_x:
                 mat_of[ent.dxf.handle] = finish_material(m)
@@ -193,11 +192,19 @@ def stair_face_frames(engine) -> dict:
             out.update(stp.face_frames or {})
     out.update(skirt_frames(engine))
     out.update(ceiling_frames(engine))
-    fx = getattr(engine, "fixtures", None)
-    for x in (fx.elements if fx is not None else []):                    # 천장 기구 면: 이미지 한 장
-        fr = fx.frame(x)
-        out.update({ent.dxf.handle: fr for ent in x.face_entities})
+    for fx in (getattr(engine, "fixtures", None), getattr(engine, "corridor_fixtures", None)):
+        for x in (fx.elements if fx is not None else []):                # 천장 기구 면: 이미지 한 장
+            fr = fx.frame(x)
+            out.update({ent.dxf.handle: fr for ent in x.face_entities})
+    cf = getattr(engine, "corridor_fixtures", None)
+    if cf is not None:
+        out.update(cf.ceiling_frames(engine))                            # 통로·출입구 천장판 줄눈을 기구 격자에 맞춤
     return out
+
+
+def fixture_elements(engine) -> list:
+    """천장 기구 부재 (실 + 통로·출입구)"""
+    return [x for k in ("fixtures", "corridor_fixtures") if getattr(engine, k, None) is not None for x in getattr(engine, k).elements]
 
 
 def ceiling_frames(engine) -> dict:

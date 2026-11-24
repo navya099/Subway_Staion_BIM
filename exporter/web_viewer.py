@@ -109,25 +109,44 @@ WEB_ON = ("천장판", "조명·디퓨저")
 BOX_FACES = ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))
 
 
+def _station_rows(cfg, late):
+    """배치 행의 (s, FL 기준 높이) 를 세계 좌표에서 구해 채움 (통로·출입구 기구)"""
+    st = cfg.station
+    lo = max(cfg.align.start_station - st.start_station, -300.0)
+    hi = min(cfg.align.end_station - st.start_station, st.length + 300.0)
+    sv = station_of(cfg, np.array([q[2:4] for q in late]), lo, hi)
+    for (rows, i, _, _, z), s in zip(late, sv):
+        s = float(s)
+        r = list(rows[i])
+        r[7], r[8] = s, z - (cfg.lv(min(max(s, lo), hi)) - st.offset)
+        rows[i] = tuple(r)
+
+
 def fixture_instances(fixtures, cfg, origin, elems, put, tex_key) -> tuple:
     """천장 기구를 형상 하나 + 배치 목록으로 (조명·디퓨저가 수천 개라 삼각형을 되풀이해 보내지 않음) → (instances 자료, 삼각형 수).
     같은 크기·방향·몸체 높이끼리 한 형상 (부재 좌표 ds, dt, dz — 평면 중심·천장판 하면 기준), 배치 = [x, y, z, cos, sin, 구배, s 축척(곡선), s, h, 부재 번호]"""
     from fixtures.fixture_engine import BODY_MATERIAL, LAYERS
     from fixtures.fixture_layout import FACE
     groups = {}
-    for e in fixtures.elements if fixtures is not None else []:
+    late = []                                                         # 통로·출입구 기구: 측점·FL 높이를 세계 좌표에서 (배치 행, 행 번호)
+    for fx, e in [(q, x) for q in fixtures if q is not None for x in q.elements]:
         key = (e.kind, round(e.rect[1] - e.rect[0], 6), round(e.rect[3] - e.rect[2], 6), round(e.depth, 6), e.along)
-        groups.setdefault(key, []).append(e)
+        groups.setdefault(key, []).append((fx, e))
     out, tri = [], 0
     for (kind, ls, lt, depth, along), els in groups.items():
         rows = []
-        for e in els:
-            x, y, z, c, s, k, sc = fixtures.instance(e)
+        for fx, e in els:
+            x, y, z, c, s, k, sc = fx.instance(e)
             elems.append({"name": e.name, "layer": LAYERS[kind], "group": _group_of(LAYERS[kind]), "level": e.level,
                           "material": e.material, "type": e.type_name})
             rows.append((x - origin[0], y - origin[1], z - origin[2], c, s, k, sc, (e.rect[0] + e.rect[1]) / 2.0, e.z, len(elems) - 1))
+            if e.host:
+                late.append((rows, len(rows) - 1, x, y, z))
+        if late:
+            _station_rows(cfg, late)
+            late = []
         items = put(np.array(rows, dtype=np.float32))
-        for part, mname, z0, z1 in (("body", BODY_MATERIAL, 0.0, depth), ("face", els[0].material, -FACE[kind], 0.0)):
+        for part, mname, z0, z1 in (("body", BODY_MATERIAL, 0.0, depth), ("face", els[0][1].material, -FACE[kind], 0.0)):
             m = finish_material(mname)
             v = [(a * ls / 2, b * lt / 2, z) for z in (z0, z1) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
             pos, uv, idx = [], [], []
@@ -257,7 +276,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     rows = []                                            # (레이어, 재질, 태그, 꼭짓점, 부재 번호, 핸들)
     fixtures = getattr(engine, "fixtures", None)
     props = getattr(engine, "props", None)
-    inst_h = {ent.dxf.handle for q in (fixtures, props) for x in (q.elements if q is not None else []) for ent in x.source_element}   # 배치로 보내는 기구·비품
+    corridor = getattr(engine, "corridor_fixtures", None)
+    inst_h = {ent.dxf.handle for q in (fixtures, corridor, props) for x in (q.elements if q is not None else []) for ent in x.source_element}   # 배치로 보내는 기구·비품
     for d in all_faces:
         if d.layer in skip or d.handle in inst_h:
             continue
@@ -390,7 +410,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         meta.append(item)
         tri_total += len(tri_e)
 
-    inst, inst_tri = fixture_instances(fixtures, cfg, origin, elems, put, tex_key)
+    inst, inst_tri = fixture_instances((fixtures, corridor), cfg, origin, elems, put, tex_key)
     p_inst, p_tri = prop_instances(props, origin, elems, put, images, data_url)
     inst += p_inst
     inst_tri += p_tri

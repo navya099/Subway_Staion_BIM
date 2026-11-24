@@ -27,7 +27,7 @@ import numpy as np
 from exporter import door_anim, esc_anim, ev_anim
 from exporter.dae_exporter import element_materials, frame_uv, stair_face_frames, texture_axes, tread_uv
 from exporter.mesh_reduce import hidden_faces
-from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, layer_material
+from exporter.render_material import TEXTURE_DIR, RenderMaterial, find_image, finish_material, layer_material
 from preview.preview_render import LAYER_GROUPS, station_of
 from rooms.room_layout import ceiling_rel
 
@@ -104,6 +104,52 @@ def _group_of(layer: str) -> str:
     return "기타"
 
 
+# 웹 뷰어에서는 처음부터 켜는 묶음 (미리보기 3D 는 꺼 둠): 걸어다니며 보는 화면이라 천장·조명이 있어야 함
+WEB_ON = ("천장판", "조명·디퓨저")
+BOX_FACES = ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))
+
+
+def fixture_instances(fixtures, cfg, origin, elems, put, tex_key) -> tuple:
+    """천장 기구를 형상 하나 + 배치 목록으로 (조명·디퓨저가 수천 개라 삼각형을 되풀이해 보내지 않음) → (instances 자료, 삼각형 수).
+    같은 크기·방향·몸체 높이끼리 한 형상 (부재 좌표 ds, dt, dz — 평면 중심·천장판 하면 기준), 배치 = [x, y, z, cos, sin, 구배, s 축척(곡선), s, h, 부재 번호]"""
+    from fixtures.fixture_engine import BODY_MATERIAL, LAYERS
+    from fixtures.fixture_layout import FACE
+    groups = {}
+    for e in fixtures.elements if fixtures is not None else []:
+        key = (e.kind, round(e.rect[1] - e.rect[0], 6), round(e.rect[3] - e.rect[2], 6), round(e.depth, 6), e.along)
+        groups.setdefault(key, []).append(e)
+    out, tri = [], 0
+    for (kind, ls, lt, depth, along), els in groups.items():
+        rows = []
+        for e in els:
+            x, y, z, c, s, k, sc = fixtures.instance(e)
+            elems.append({"name": e.name, "layer": LAYERS[kind], "group": _group_of(LAYERS[kind]), "level": e.level,
+                          "material": e.material, "type": e.type_name})
+            rows.append((x - origin[0], y - origin[1], z - origin[2], c, s, k, sc, (e.rect[0] + e.rect[1]) / 2.0, e.z, len(elems) - 1))
+        items = put(np.array(rows, dtype=np.float32))
+        for part, mname, z0, z1 in (("body", BODY_MATERIAL, 0.0, depth), ("face", els[0].material, -FACE[kind], 0.0)):
+            m = finish_material(mname)
+            v = [(a * ls / 2, b * lt / 2, z) for z in (z0, z1) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+            pos, uv, idx = [], [], []
+            for q in BOX_FACES:
+                n = len(pos)
+                pos += [v[i] for i in q]
+                for i in q:                                           # 면 아래쪽 = 이미지 한 장 (u 짧은 방향, v 긴 방향 — FixtureEngine.frame)
+                    us, ut = v[i][0] / ls + 0.5, v[i][1] / lt + 0.5
+                    uv.append((ut, us) if along == "s" else (us, ut))
+                idx += [n, n + 1, n + 2, n, n + 2, n + 3]
+            key = tex_key(m) if part == "face" else None
+            item = {"layer": LAYERS[kind], "group": _group_of(LAYERS[kind]), "material": m.name, "color": [round(c, 4) for c in m.color],
+                    "alpha": 1.0, "tex": key, "light": part == "face" and kind == "LIGHT", "count": len(rows), "items": items,
+                    "nv": len(pos), "nt": len(idx) // 3, "pos": put(np.array(pos, dtype=np.float32)),
+                    "idx": put(np.array(idx, dtype=np.uint32))}
+            if key:
+                item["uv"] = put(np.array(uv, dtype=np.float32))
+            out.append(item)
+            tri += len(rows) * (len(idx) // 3)
+    return out, tri
+
+
 def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tuple:
     """(자료 dict, 압축 바이트) — HTML 에 넣을 모델 자료"""
     cfg = engine.cfg
@@ -136,8 +182,10 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     mats = {}
     elems, elem_id = [], {}
     rows = []                                            # (레이어, 재질, 태그, 꼭짓점, 부재 번호, 핸들)
+    fixtures = getattr(engine, "fixtures", None)
+    inst_h = {ent.dxf.handle for x in (fixtures.elements if fixtures is not None else []) for ent in x.source_element}   # 배치로 보내는 기구
     for d in all_faces:
-        if d.layer in skip:
+        if d.layer in skip or d.handle in inst_h:
             continue
         v = [d.vtx0, d.vtx1, d.vtx2, d.vtx3]
         if v[3] == v[2]:
@@ -268,6 +316,11 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
         meta.append(item)
         tri_total += len(tri_e)
 
+    inst, inst_tri = fixture_instances(fixtures, cfg, origin, elems, put, tex_key)
+    if any(x["light"] for x in inst):                                 # 조명 끔 이미지 (뷰어에서 바꿈)
+        off = find_image("light_off", texture_dir)
+        if off is not None:
+            images["light_off"] = image_data_url(off)
     for key, img in ev_anim.indicator_images(evs).items():
         images[key] = data_url(img)
     # 선형 중심 표본 (걷기·STA 표시): s, 상대 x, y, FL 표고(상대)
@@ -276,7 +329,8 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
            round(float(cfg.lv(x) - st.offset - origin[2]), 4)] for x in cs]
     floors = [{"name": st.level_name(n), "fl": st.floor_level(n), "top": ceiling_rel(st, n)} for n in range(1, st.floors + 1)]
     data = {"origin": [float(c) for c in origin], "chunks": meta, "elements": elems,
-            "groups": [{"name": n, "on": on} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
+            "groups": [{"name": n, "on": on or n in WEB_ON} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
+            "instances": inst, "instanced_triangles": inst_tri,
             "floors": floors, "length": st.length,
             "doors": doors, "half_width": st.width / 2.0, "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
             "title": "정거장 3D 뷰어", "triangles": tri_total, "hidden": n_hidden, "images": images, "evs": evs, "escs": escs, "missing_textures": sorted(missing)}

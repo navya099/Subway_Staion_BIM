@@ -812,6 +812,26 @@ class IFCExporter:
                 self.file.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                                         RelatingStructure=self.storeys[level], RelatedElements=walls)
 
+    def _tri_set(self, faces_list):
+        """조각이 아주 많은 부재(천장틀·천장 기구)용: 조각들의 면을 삼각형으로 나눠 IfcTriangulatedFaceSet 하나로 (면마다 엔티티를 만들지 않아
+        파일이 작고 빠름). faces_list = 조각마다 면 목록"""
+        pts, tris = [], []
+        for faces in faces_list:
+            index = {}                                               # 조각끼리는 점을 나누지 않음 (맞닿은 조각의 모서리가 얽히지 않게)
+            for face in faces:
+                ids = []
+                for p in face:
+                    key = (round(p[0], 7), round(p[1], 7), round(p[2], 7))
+                    if key not in index:
+                        index[key] = len(pts) + 1
+                        pts.append([float(c) for c in p])
+                    ids.append(index[key])
+                for i in range(1, len(ids) - 1):
+                    if len({ids[0], ids[i], ids[i + 1]}) == 3:
+                        tris.append((ids[0], ids[i], ids[i + 1]))
+        coords = self.file.create_entity("IfcCartesianPointList3D", CoordList=pts)
+        return self.file.create_entity("IfcTriangulatedFaceSet", Coordinates=coords, Closed=True, CoordIndex=tris)
+
     def _finish_faces(self, p):
         """마감 조각 면: 직선은 사각 면, 곡선은 비틀린 사각 면을 중심점 4분할 삼각형으로 (얇은 층이라 삼각형 분할 방향에 따른
         체적 차이가 상대적으로 커지는 것을 막음)"""
@@ -854,7 +874,10 @@ class IFCExporter:
             covers = []
             for e in rf.elements:
                 entity, predefined, label, _ = FINISH_KINDS[e.code]
-                items = [self._face_set(self._finish_faces(p)) for p in e.pieces] + [self._face_set(b.faces()) for b in e.boxes]
+                if e.code in ("FRAME", "CEILING"):
+                    items = [self._tri_set([self._finish_faces(p) for p in e.pieces])]
+                else:
+                    items = [self._face_set(self._finish_faces(p)) for p in e.pieces] + [self._face_set(b.faces()) for b in e.boxes]
                 el = f.create_entity(
                     entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
                     Description=f"{rf.room} {label}", ObjectType=e.type_name, ObjectPlacement=self._placement(),
@@ -906,6 +929,24 @@ class IFCExporter:
         for level, els in by_level.items():
             f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
                             RelatingStructure=self.storeys[level], RelatedElements=els)
+
+    def export_fixtures(self, engine):
+        """천장 기구: 조명 = IfcLightFixture(DIRECTIONSOURCE), 디퓨저 = IfcAirTerminal(DIFFUSER) — 몸체 + 면 면 집합, 층 storey"""
+        f = self.file
+        by_level: dict = {}
+        for e in engine.elements:
+            light = e.kind == "LIGHT"
+            el = f.create_entity(
+                "IfcLightFixture" if light else "IfcAirTerminal", GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
+                Description=f"{e.room} {e.type_name}", ObjectType=e.type_name, ObjectPlacement=self._placement(),
+                Representation=self._product_shape([self._tri_set([self._finish_faces(p)]) for p in (e.body, e.face)], "Tessellation"),
+                PredefinedType="DIRECTIONSOURCE" if light else "DIFFUSER")
+            by_level.setdefault((e.level, e.material), []).append(el)
+        for (level, material), els in by_level.items():
+            f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=ifcopenshell.guid.new(),
+                            RelatingStructure=self.storeys[level], RelatedElements=els)
+            for el in els:
+                self._assign_material(el, material)
 
     def export_psds(self, psd_engine):
         """스크린도어: 선로마다 IfcElementAssembly(USERDEFINED: PLATFORM_SCREEN_DOOR) ⊃ POST(IfcColumn), 구동부(IfcMember

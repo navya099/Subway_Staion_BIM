@@ -49,6 +49,8 @@ class RoomFinishData(CommonBIMData):
     ffl_rel: float = 0.0
     ceiling_rel: float = 0.0
     elements: list = field(default_factory=list)
+    lights: list = field(default_factory=list)       # 천장 매입 조명 (finish_layout) — 형상은 fixtures.FixtureEngine
+    diffusers: list = field(default_factory=list)    # 천장 디퓨저
     tactile: list = field(default_factory=list)      # 바닥 마감재를 대체한 점자블록 [(s0, s1, t0, t1, z0, z1, 종류)]
 
     def element(self, code: str):
@@ -136,7 +138,8 @@ class FinishEngine:
                     material=material, code=code, room=rf.room, pieces=pieces, boxes=list(boxes)))
             self.rooms.append(RoomFinishData(name=f"FIN_{rf.room}", family_name="실 마감", type_name=ft.name, level=level,
                                              room=rf.room, use=rf.use, floor=rf.floor, finish=ft, ffl_rel=rf.ffl_rel,
-                                             ceiling_rel=rf.ceiling_rel, elements=elements, tactile=list(rf.tactile)))
+                                             ceiling_rel=rf.ceiling_rel, elements=elements, tactile=list(rf.tactile),
+                                             lights=list(rf.lights), diffusers=list(rf.diffusers)))
 
     def all_elements(self) -> list:
         return [e for r in self.rooms for e in r.elements]

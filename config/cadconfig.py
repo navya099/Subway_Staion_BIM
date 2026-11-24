@@ -70,6 +70,8 @@ LAYER_DEFINITIONS = {
     "STRUCT_ESC_GLASS": {"color": 131},  # 에스컬레이터 유리 난간 (상세)
     "STRUCT_SMOKE": {"color": 8},        # 제연경계벽 프레임
     "STRUCT_SMOKE_GLASS": {"color": 131},     # 제연경계벽 유리
+    "FIN_LIGHT": {"color": 50},          # 천장 매입 조명
+    "FIN_DIFFUSER": {"color": 9},        # 천장 디퓨저
     "FIN_TACTILE": {"color": 2},         # 점자블록 (점형·선형)
     "SEC_TACTILE": {"color": 2},         # 횡단·종단면도 점자블록
     "PLAN_TACTILE": {"color": 2},        # 평면도 점자블록

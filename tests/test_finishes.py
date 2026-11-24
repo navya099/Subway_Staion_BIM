@@ -251,7 +251,7 @@ from gui.finish_draft import FinishDrafts, FinishTypeDraft, preview
 def test_finish_drafts():
     ds = FinishDrafts()
     s = ds.to_settings()
-    assert s.enabled and set(s.table) == set(default_finishes()) and s.table["통신실"] == default_finishes()["통신실"]
+    assert s.enabled and set(s.table) == set(default_finishes()) and s.table["기계실"] == default_finishes()["기계실"]
     d = FinishTypeDraft(name="A", ceiling=False, ceiling_h="x")                         # 천장 없으면 천장 입력 무시
     assert d.to_type("").ceiling is False
     assert "천장 없음" in preview(d) and "바닥 FL+0.1" in preview(FinishTypeDraft())

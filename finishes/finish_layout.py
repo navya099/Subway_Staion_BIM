@@ -48,6 +48,8 @@ class RoomFinishLayout:
     ceiling: list = field(default_factory=list)        # 천장판
     bars: list = field(default_factory=list)           # 천장틀 바 (M/T)
     carriers: list = field(default_factory=list)       # 캐링 채널
+    lights: list = field(default_factory=list)         # 매입 조명 [(s0, s1, t0, t1, 긴 방향 's'|'t')] (천장판·천장틀은 그 자리를 비움)
+    diffusers: list = field(default_factory=list)      # 디퓨저 [(s0, s1, t0, t1)]
     ffl_rel: float = 0.0                               # 바닥 마감면 (FL 기준, 기준 바닥이 여럿이면 대표값)
     ceiling_rel: float = 0.0                           # 천장판 하면 (FL 기준, 천장 없으면 0)
 
@@ -537,7 +539,39 @@ def layout_room_finishes(cfg, settings, floors: list, room_specs: dict, columns:
         _wall_end_caps(cfg, fl, [r for r in out if r.floor == n], zones, L)
         _shaft_panels(cfg, fl, [r for r in out if r.floor == n], shafts)
         _stair_skirts(cfg, fl, [r for r in out if r.floor == n], stairs, escalators)
+        for rf in [r for r in out if r.floor == n]:
+            _ceiling_fixtures(cfg, rf, columns)
     return out
+
+
+def _ceiling_fixtures(cfg, rf, columns):
+    """천장 기구(조명·디퓨저) 배치 → 천장판·천장틀에서 그 자리를 뺌 (매입)"""
+    ft = rf.finish
+    if not rf.ceiling or not (ft.has_light or ft.has_diffuser):
+        return
+    from finishes.finish_pocket import _out, piece_region
+    from fixtures.fixture_layout import layout_fixtures
+    from helper import trap_region as T
+    from smokewalls.smoke_layout import layout_smoke_barriers
+    blocked = [_grow((s, s, t, t), rad + ft.face + 0.05) for fn, s, t, hs, ht, rad in columns if fn == rf.floor and rad is not None]
+    blocked += [tuple(q[:4]) for sb in layout_smoke_barriers(cfg) if sb.floor == rf.floor for ps in sb.parts.values() for q in ps]
+    rf.lights, rf.diffusers = layout_fixtures(ft, [piece_region(p) for p in rf.ceiling], blocked)
+    holes = [tuple(x[:4]) for x in rf.lights + rf.diffusers]
+    if not holes:
+        return
+
+    def cut(pieces):
+        new = []
+        for p in pieces:
+            near = [h for h in holes if _inter(tuple(p[:4]), h)]
+            if not near:
+                new.append(p)
+            elif len(p) == 6:
+                new += [(*r, p[4], p[5]) for r in _minus([tuple(p[:4])], near)]
+            else:                                                    # 사다리꼴 조각 (구조물 확폭)
+                new += [_out(q, p[4], p[5]) for q in T.subtract([piece_region(p)], T.from_rects(near))]
+        return new
+    rf.ceiling, rf.bars, rf.carriers = cut(rf.ceiling), cut(rf.bars), cut(rf.carriers)
 
 
 def _wall_end_caps(cfg, fl, rfs, zones, L):

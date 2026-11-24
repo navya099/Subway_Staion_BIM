@@ -44,6 +44,9 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("흑색 걸레받이", (0.10, 0.10, 0.11), "Skirting", 0.8, 0.2),
     RenderMaterial("콘크리트 면처리", (0.72, 0.72, 0.70), "Polished Concrete New", 2.0, 2.0),
     RenderMaterial("패널", (0.80, 0.80, 0.78)),
+    RenderMaterial("조명", (1.0, 1.0, 0.96), "light_on", 0.3, 1.2),          # 면 한 장 (frame), 웹 뷰어는 끄면 light_off
+    RenderMaterial("디퓨저", (0.88, 0.88, 0.88), "diffuser", 0.6, 0.6),
+    RenderMaterial("기구 몸체", (0.85, 0.85, 0.85)),
     RenderMaterial("문틀", (0.36, 0.38, 0.40)),
     RenderMaterial("문짝", (0.50, 0.56, 0.60)),
     RenderMaterial("방화문", (0.62, 0.60, 0.56)),
@@ -108,11 +111,13 @@ def layer_material(layer: str) -> RenderMaterial:
 
 
 def find_image(texture: str, texture_dir=TEXTURE_DIR):
-    """텍스처 이름 → 이미지 파일 경로 (없으면 None)"""
+    """텍스처 이름 → 이미지 파일 경로 (없으면 None). 조명·설비 이미지는 옆 폴더(../light, ../mep)에서도 찾음"""
     if not texture:
         return None
-    for ext in IMAGE_EXTS:
-        p = Path(texture_dir) / f"{texture}{ext}"
-        if p.is_file():
-            return p
+    base = Path(texture_dir)
+    for folder in (base, base.parent / "light", base.parent / "mep"):
+        for ext in IMAGE_EXTS:
+            p = folder / f"{texture}{ext}"
+            if p.is_file():
+                return p
     return None

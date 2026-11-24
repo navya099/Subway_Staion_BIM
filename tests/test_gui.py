@@ -1437,7 +1437,7 @@ def test_generate_with_vent_end_to_end_and_project_round_trip(app, monkeypatch, 
     paths = BIMEngine.build(cfg, tmp_path / "out")
     f = ifcopenshell.open(next(p for p in paths if p.endswith(".ifc")))
     assert [a.Name for a in f.by_type("IfcElementAssembly") if a.ObjectType == "VENTILATION"] == ["VS1"]
-    assert len(f.by_type("IfcAirTerminal")) == 5
+    assert len([x for x in f.by_type("IfcAirTerminal") if x.PredefinedType == "GRILLE"]) == 5        # 천장 디퓨저(DIFFUSER)는 제외
     path = str(tmp_path / "v.ssbim")
     patch_files(monkeypatch, save_path=path, answer=False)
     app.on_save()

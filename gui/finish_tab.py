@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.finish_draft import (FACE_FIELD, PFACE_FIELD, FILL_LABELS, FRAME_LABELS, NUM_FIELDS, SKIRT_FIELDS, SKIRT_TEXT,
+from gui.finish_draft import (FACE_FIELD, PFACE_FIELD, FILL_LABELS, FIXTURE_FIELDS, FRAME_LABELS, NUM_FIELDS, SKIRT_FIELDS, SKIRT_TEXT,
                               STAIR_NUM_FIELDS, STAIR_TEXT_FIELDS,
                               STEP_LABELS, TEXT_FIELDS, FinishDrafts, FinishTypeDraft, preview, stair_preview)
 
@@ -35,7 +35,8 @@ class FinishTab:
                       "• 바닥: 마감 높이(구조 바닥 상면 → 마감면) · 마감재 두께 · 그 아래 몰탈 채움 / 빈 공간(액세스 플로어)\n"
                       "• 벽: 두께 0 = 면처리(형상 없음). 본체 벽·칸막이벽·기둥·승강로 바깥면, 문·통로 자리 비움\n"
                       "• 걸레받이: 높이 0 = 없음. 벽 하단(기둥·승강로·통로·출입구 포함), 패널 표면에서 '들어감' 만큼 안쪽 (이격이 모자라면 같은 면)\n"
-                      "• 천장: 바닥 마감면 + 천장 높이 = 천장판 하면. 천장판 + 천장틀(M/T바 간격, 캐링 채널)").pack(anchor="w", padx=15)
+                      "• 천장: 바닥 마감면 + 천장 높이 = 천장판 하면. 천장판 + 천장틀(M/T바 간격, 캐링 채널)\n"
+                      "• 천장 기구: 매입 조명 0.3×1.2 · 디퓨저 0.6×0.6 을 간격(0 = 없음)에 맞춰 천장판 격자에 자동 배치").pack(anchor="w", padx=15)
         bar = tk.Frame(self.parent)
         bar.pack(fill="x", padx=15, pady=(6, 2))
         var = tk.BooleanVar(value=self.drafts.enabled)
@@ -143,7 +144,8 @@ class FinishTab:
         self._combo(row, i, "frame", list(FRAME_LABELS), it.frame, it, 4).pack(side="left", padx=(2, 0))
         grid = tk.Frame(box)
         grid.pack(fill="x", pady=(2, 0))
-        cells = [(a, lb, ENTRY_W) for a, lb, _ in NUM_FIELDS[3:]] + [(TEXT_FIELDS[2][0], TEXT_FIELDS[2][1], 14)]
+        cells = ([(a, lb, ENTRY_W) for a, lb, _ in NUM_FIELDS[3:]] + [(TEXT_FIELDS[2][0], TEXT_FIELDS[2][1], 14)]
+                 + [(a, lb, ENTRY_W) for a, lb, _ in FIXTURE_FIELDS])
         for n, (attr, label, w) in enumerate(cells):
             r, col = divmod(n, 3)
             tk.Label(grid, text=label, font=FONT).grid(row=r, column=col * 2, sticky="w")

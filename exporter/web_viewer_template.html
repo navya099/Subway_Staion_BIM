@@ -40,6 +40,7 @@
   <div class="help" id="stats">불러오는 중…</div>
   <h2>표시</h2>
   <label><input type="checkbox" id="tex" checked> 텍스처</label>
+  <label id="lightrow" style="display:none"><input type="checkbox" id="lights" checked> 조명 켬</label>
   <div id="groups"></div>
   <h2>보이는 층 (위를 잘라냄)</h2>
   <select id="floor"></select>
@@ -143,7 +144,20 @@ const LIVE = /*__LIVE__*/false;
     m.userData.init = true;
     m.needsUpdate = true;
   }
-  $("tex").onchange = () => { texOn = $("tex").checked; for (const mm of meshes) applyTexture(mm); };
+  $("tex").onchange = () => { texOn = $("tex").checked; for (const mm of [...meshes, ...insts]) applyTexture(mm); lightState(); };
+  $("lights").onchange = () => lightState();
+  function lightState() {                   // 조명 면: 켜짐 = 켜진 이미지 + 스스로 빛남, 꺼짐 = 꺼진 이미지
+    const on = $("lights").checked;
+    for (const m of insts) {
+      if (!m.userData.chunk.light) continue;
+      m.userData.tex = textureOf(on ? m.userData.chunk.tex : "light_off") || textureOf(m.userData.chunk.tex);
+      m.userData.init = false; m.material.userData.init = false;
+      applyTexture(m);
+      m.material.emissive.setRGB(...(on ? [0.75, 0.75, 0.75] : [0, 0, 0]));
+      m.material.emissiveMap = on && texOn ? m.material.map : null;
+      m.material.needsUpdate = true;
+    }
+  }
 
   function makeMaterial(color, alpha) {
     const m = new THREE.MeshPhongMaterial({ color: new THREE.Color(color[0], color[1], color[2]), flatShading: true,
@@ -258,6 +272,7 @@ const LIVE = /*__LIVE__*/false;
   })();
 
   const meshes = [];
+  const insts = [];                         // 천장 기구 (형상 하나 + 배치 여러 개, THREE.InstancedMesh)
   const box = new THREE.Box3();
   const groupOn = {};                       // 표시 묶음 켬/끔 (모델을 바꿔도 유지)
   const fsel = $("floor");
@@ -269,7 +284,8 @@ const LIVE = /*__LIVE__*/false;
     const old = DATA && DATA.origin ? DATA.origin : null;
     if (highlight) { scene.remove(highlight); highlight.geometry.dispose(); highlight = null; }
     for (const m of meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
-    meshes.length = 0; box.makeEmpty();
+    for (const m of insts) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); m.dispose(); }
+    meshes.length = 0; insts.length = 0; box.makeEmpty();
     DATA = data;
     if (old) {                              // 원점이 바뀌면 카메라를 같은 세계 위치로
       const d = new THREE.Vector3(data.origin[0] - old[0], data.origin[1] - old[1], data.origin[2] - old[2]);
@@ -293,15 +309,39 @@ const LIVE = /*__LIVE__*/false;
       box.union(g.boundingBox);
       tris += c.nt;
     }
+    const M4 = new THREE.Matrix4();
+    for (const c of DATA.instances || []) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf, c.pos, c.nv * 3), 3));
+      g.setIndex(new THREE.BufferAttribute(new Uint32Array(buf, c.idx, c.nt * 3), 1));
+      if (c.uv !== undefined) g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(buf, c.uv, c.nv * 2), 2));
+      const it = new Float32Array(buf, c.items, c.count * 10), sh = new Float32Array(c.count * 2), elem = new Uint32Array(c.count);
+      const mesh = new THREE.InstancedMesh(g, makeMaterial(c.color, c.alpha), c.count);
+      for (let i = 0; i < c.count; i++) {
+        const [x, y, z, co, si, k, sc, s, h, id] = it.subarray(i * 10, i * 10 + 10);
+        M4.set(co * sc, -si, 0, x, si * sc, co, 0, y, k, 0, 1, z, 0, 0, 0, 1);          // (ds, dt, dz) → 세계: 선형 방향 회전 + 종단구배
+        mesh.setMatrixAt(i, M4); sh[i * 2] = s; sh[i * 2 + 1] = h; elem[i] = id;
+        box.expandByPoint(new THREE.Vector3(x, y, z));
+      }
+      g.setAttribute("aSH", new THREE.InstancedBufferAttribute(sh, 2));
+      g.computeBoundingSphere();
+      mesh.frustumCulled = false;           // 배치가 정거장 전체에 흩어져 있음
+      mesh.userData = { chunk: c, elem, tex: c.tex ? textureOf(c.tex) : null };
+      applyTexture(mesh);
+      scene.add(mesh); insts.push(mesh);
+    }
+    $("lightrow").style.display = insts.some((m) => m.userData.chunk.light) ? "flex" : "none";
+    textureOf("light_off");                 // 미리 읽어 둠 (처음 끌 때 검게 보이지 않게)
+    lightState();
     const used = new Set(Object.values(DATA.images || {}));
     for (const [url, t] of texCache) if (!used.has(url)) { t.dispose(); texCache.delete(url); }   // 안 쓰는 이미지 정리
     const miss = (DATA.missing_textures || []).length ? ` · 텍스처 이미지 없음: ${DATA.missing_textures.join(", ")}` : "";
-    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개${DATA.hidden ? ` (가려진 면 ${DATA.hidden.toLocaleString()}개 뺌)` : ""} · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
+    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개${DATA.hidden ? ` (가려진 면 ${DATA.hidden.toLocaleString()}개 뺌)` : ""}${DATA.instanced_triangles ? ` · 기구 ${(DATA.instanced_triangles / 24).toLocaleString()}개` : ""} · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
 
     // 표시 묶음
     $("groups").innerHTML = "";
     for (const gr of DATA.groups) {
-      if (!DATA.chunks.some((c) => c.group === gr.name)) continue;
+      if (![...DATA.chunks, ...(DATA.instances || [])].some((c) => c.group === gr.name)) continue;
       if (!(gr.name in groupOn)) groupOn[gr.name] = gr.on;
       const lab = document.createElement("label");
       const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = groupOn[gr.name];
@@ -329,7 +369,7 @@ const LIVE = /*__LIVE__*/false;
       if (id >= 0) { highlight = buildHighlight(id); scene.add(highlight); } else { $("info").style.display = "none"; selectedName = null; }
     }
   }
-  function applyVisibility() { for (const m of meshes) m.visible = groupOn[m.userData.chunk.group] !== false; }
+  function applyVisibility() { for (const m of [...meshes, ...insts]) m.visible = groupOn[m.userData.chunk.group] !== false; }
 
   // ---------------------------------------------------------------- 층 · STA 잘라 보기
   function onFloor() { const i = +fsel.value; clip.uHMax.value = i < 0 ? 1e9 : DATA.floors[i].top - 0.005; }
@@ -415,7 +455,12 @@ const LIVE = /*__LIVE__*/false;
     raycaster.setFromCamera(p, camera);
     return raycaster.ray;
   }
+  const elemOf = (h) => h.object.isInstancedMesh ? h.object.userData.elem[h.instanceId] : h.object.userData.elem[h.faceIndex];
   function clippedAt(hit) {
+    if (hit.object.isInstancedMesh) {       // 천장 기구: 배치마다 (s, h) 하나
+      const q = hit.object.geometry.getAttribute("aSH"), s = q.getX(hit.instanceId), h = q.getY(hit.instanceId);
+      return s < clip.uSMin.value || s > clip.uSMax.value || h > clip.uHMax.value ? null : { s, h };
+    }
     const a = hit.object.geometry.getAttribute("aSH");
     const f = hit.face, bc = new THREE.Vector3();
     THREE.Triangle.getBarycoord(hit.object.worldToLocal(hit.point.clone()),
@@ -428,7 +473,7 @@ const LIVE = /*__LIVE__*/false;
   }
   function firstHit(e) {
     rayAt(e);
-    const hits = raycaster.intersectObjects(meshes.filter((m) => m.visible), false);
+    const hits = raycaster.intersectObjects([...meshes, ...insts].filter((m) => m.visible), false);
     for (const h of hits) { const sh = clippedAt(h); if (sh) return Object.assign(h, sh); }
     return null;
   }
@@ -437,7 +482,7 @@ const LIVE = /*__LIVE__*/false;
     if (center) { if (hit) { orbit.target.copy(hit.point); orbit.dist = camera.position.distanceTo(hit.point); updateOrbitCamera(); } return; }
     if (highlight) { scene.remove(highlight); highlight.geometry.dispose(); highlight = null; }
     if (!hit) { $("info").style.display = "none"; selectedName = null; return; }
-    const id = hit.object.userData.elem[hit.faceIndex];
+    const id = elemOf(hit);
     selectedName = DATA.elements[id].name;
     EV.press(selectedName); DOOR.press(selectedName);
     const info = DATA.elements[id];
@@ -468,6 +513,14 @@ const LIVE = /*__LIVE__*/false;
         for (let k = 0; k < 3; k++) { const v = idx.getX(i * 3 + k); pos.push(p.getX(v), p.getY(v), p.getZ(v)); }
         if (m.userData.chunk.anim && m.userData.chunk.anim[0] !== "E") follow = m;
       }
+    }
+    const I4 = new THREE.Matrix4(), V3 = new THREE.Vector3();
+    for (const m of insts) {                // 천장 기구: 그 배치의 변환을 적용
+      const i = m.userData.elem.indexOf(id);
+      if (i < 0) continue;
+      m.getMatrixAt(i, I4);
+      const p = m.geometry.attributes.position, idx = m.geometry.index;
+      for (let k = 0; k < idx.count; k++) { V3.fromBufferAttribute(p, idx.getX(k)).applyMatrix4(I4); pos.push(V3.x, V3.y, V3.z); }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -1019,7 +1072,7 @@ ${st.message}`, true);
   const WALK = { core, keys, begin: (yaw_) => { beginWalk(); if (yaw_ !== undefined) yaw = yaw_; walking = true; }, end: () => { walking = false; body = null; },
     setCollide, standOnFloor, put: (x, y, foot, yaw_) => { newBody(x, y, foot); if (yaw_ !== undefined) yaw = yaw_; }, get body() { return body; },
     get yaw() { return yaw; }, get floor() { return walkFloor; }, get message() { return headT > 0 ? $("headmsg").textContent : ""; } };
-  window.__viewer = { EV, ESC, DOOR, BVH, WALK, tick, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
+  window.__viewer = { EV, ESC, DOOR, BVH, WALK, tick, scene, camera, meshes, insts, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

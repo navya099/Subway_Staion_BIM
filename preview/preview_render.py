@@ -28,6 +28,7 @@ LAYER_GROUPS = [
     ("사인", ("STRUCT_SIGN", "STRUCT_SIGN_FACE"), True),
     ("바닥·벽 마감", ("FIN_FLOOR", "FIN_WALL", "FIN_TACTILE", "FIN_STAIR"), True),
     ("천장판", ("FIN_CEILING",), False),
+    ("조명·디퓨저", ("FIN_LIGHT", "FIN_DIFFUSER"), False),
     ("천장틀", ("FIN_FRAME",), False),
 ]
 

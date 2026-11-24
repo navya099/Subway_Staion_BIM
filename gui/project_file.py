@@ -97,6 +97,9 @@ def _build(cls, d, where: str):
     if cls is FinishTypeDraft and "skirt_h" not in d:            # 옛 파일: 걸레받이는 벽 재질로 정함 (금속패널만)
         inst.skirt_h = None
         inst.__post_init__()
+    if cls is FinishTypeDraft and "light_s" not in d:            # 옛 파일: 천장 기구는 천장이 있는 종류만 기본 간격
+        inst.light_s = inst.light_t = inst.diff_gap = None
+        inst.__post_init__()
     return inst
 
 

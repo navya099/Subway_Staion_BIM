@@ -32,6 +32,7 @@ from preview.preview_render import LAYER_GROUPS, station_of
 from rooms.room_layout import ceiling_rel
 
 THREE_JS = Path(__file__).resolve().parent.parent / "assets" / "web" / "three.min.js"
+WALK_JS = Path(__file__).with_name("web_walk.js")          # 걷기 충돌 (화면 비의존)
 TEMPLATE = Path(__file__).resolve().parent / "web_viewer_template.html"
 SKIP_LAYERS = {"FIN_FRAME"}
 IMAGE_MAX = 1024                     # 텍스처 이미지 긴 변 (px) — HTML 크기를 줄임
@@ -274,7 +275,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
     data = {"origin": [float(c) for c in origin], "chunks": meta, "elements": elems,
             "groups": [{"name": n, "on": on} for n, _, on in LAYER_GROUPS] + [{"name": "기타", "on": True}],
             "floors": floors, "length": st.length,
-            "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
+            "half_width": st.width / 2.0, "platform_top": cfg.platform.top_level if cfg.platform.exists else None, "start_station": base, "centerline": cl,
             "title": "정거장 3D 뷰어", "triangles": tri_total, "hidden": n_hidden, "images": images, "evs": evs, "escs": escs, "missing_textures": sorted(missing)}
     return data, gzip.compress(bytes(blob), compresslevel=6)
 
@@ -284,7 +285,7 @@ def export_web_viewer(engine, path, frames: bool = False) -> WebResult:
     data, packed = build_web_data(engine, frames)
     html = TEMPLATE.read_text(encoding="utf-8")
     three = THREE_JS.read_text(encoding="utf-8")
-    html = html.replace("/*__THREE__*/", lambda_safe(three)) \
+    html = html.replace("/*__THREE__*/", lambda_safe(three)).replace("/*__WALK__*/", lambda_safe(WALK_JS.read_text(encoding="utf-8"))) \
         .replace("/*__DATA__*/", json.dumps(data, ensure_ascii=False).replace("</", "<\\/")) \
         .replace("/*__BLOB__*/", base64.b64encode(packed).decode("ascii"))
     path = Path(path)

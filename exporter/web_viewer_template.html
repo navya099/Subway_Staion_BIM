@@ -23,6 +23,7 @@
   #info td { padding: 1px 4px; vertical-align: top; }
   #info td:first-child { color: var(--muted); white-space: nowrap; }
   #hud { left: 50%; top: 12px; transform: translateX(-50%); display: none; text-align: center; }
+  #headmsg { left: 50%; bottom: 18%; transform: translateX(-50%); display: none; color: #ffb4a9; border-color: #c0392b; }
   #status { right: 12px; top: 12px; color: var(--muted); font-size: 12px; }
   #cross { position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; display: none; pointer-events: none; }
   #cross::before, #cross::after { content: ""; position: absolute; background: #fff; }
@@ -58,21 +59,24 @@
   </div>
   <h2>보기</h2>
   <button id="fit">전체 보기</button><button id="walk">걷기 (W)</button>
+  <label><input type="checkbox" id="collide" checked> 걷기 충돌 (<kbd>C</kbd>)</label>
   <h2>조작</h2>
   <div class="help">
     왼쪽 끌기 = 회전, 오른쪽(또는 Shift) 끌기 = 이동, 휠 = 확대<br>
     클릭 = 부재 정보, 더블클릭 = 그 점을 회전 중심으로<br>
     걷기: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동, 마우스 = 시선, <kbd>Shift</kbd> 달리기,
-    <kbd>E</kbd>/<kbd>Q</kbd> 위·아래, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> 층 이동, <kbd>Esc</kbd> 끝<br>
+    <kbd>Space</kbd> 점프, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> 층 이동, <kbd>C</kbd> 충돌 켬·끔(끄면 벽 통과, <kbd>E</kbd>/<kbd>Q</kbd> 위·아래), <kbd>Esc</kbd> 끝<br>
     엘리베이터: 호출 버튼 클릭(걷기는 가운데 점), 카 안에서는 <kbd>1</kbd>~<kbd>9</kbd> = 층 선택(아래부터)
   </div>
 </div>
 <div id="info" class="panel"><table id="infotab"></table></div>
 <div id="hud" class="panel"></div>
+<div id="headmsg" class="panel"></div>
 <div id="status" class="panel"></div>
 <div id="live" class="panel" style="display:none; left:12px; bottom:12px; white-space:pre-line; color:var(--muted); font-size:12px; max-width:420px"></div>
 <div id="cross"></div>
 <script>/*__THREE__*/</script>
+<script>/*__WALK__*/</script>
 <script>
 const DATA_EMBED = /*__DATA__*/;
 const BLOB = "/*__BLOB__*/";
@@ -216,7 +220,26 @@ const LIVE = /*__LIVE__*/false;
         }
       }
     }
-    return { build, raycast };
+    // 상자(세계 좌표)에 걸칠 수 있는 삼각형마다 cb — 메쉬는 평행 이동만 (엘리베이터)
+    function query(mesh, x0, y0, z0, x1, y1, z1, cb) {
+      const g = mesh.geometry; if (!g.bvh) g.bvh = build(g);
+      const t = g.bvh; if (!t.tri.length) return;
+      const ox = mesh.position.x, oy = mesh.position.y, oz = mesh.position.z;
+      const lo = [x0 - ox, y0 - oy, z0 - oz], hi = [x1 - ox, y1 - oy, z1 - oz], bb = t.bb, p = t.p;
+      const stack = [0];
+      while (stack.length) {
+        const node = stack.pop(), o = node * 6;
+        if (bb[o] > hi[0] || bb[o + 3] < lo[0] || bb[o + 1] > hi[1] || bb[o + 4] < lo[1] || bb[o + 2] > hi[2] || bb[o + 5] < lo[2]) continue;
+        if (t.kid[node] >= 0) { stack.push(t.kid[node], t.kid[node] + 1); continue; }
+        for (let i = t.from[node], e = i + t.cnt[node]; i < e; i++) {
+          const k = t.tri[i], a = t.ix[k * 3] * 3, b = t.ix[k * 3 + 1] * 3, c = t.ix[k * 3 + 2] * 3;
+          if (Math.min(p[a], p[b], p[c]) > hi[0] || Math.max(p[a], p[b], p[c]) < lo[0] || Math.min(p[a + 1], p[b + 1], p[c + 1]) > hi[1]
+            || Math.max(p[a + 1], p[b + 1], p[c + 1]) < lo[1] || Math.min(p[a + 2], p[b + 2], p[c + 2]) > hi[2] || Math.max(p[a + 2], p[b + 2], p[c + 2]) < lo[2]) continue;
+          cb(k, p[a] + ox, p[a + 1] + oy, p[a + 2] + oz, p[b] + ox, p[b + 1] + oy, p[b + 2] + oz, p[c] + ox, p[c + 1] + oy, p[c + 2] + oz);
+        }
+      }
+    }
+    return { build, raycast, query };
   })();
 
   const meshes = [];
@@ -446,28 +469,91 @@ const LIVE = /*__LIVE__*/false;
     for (let i = 0; i < cl.length; i++) { const d = (cl[i][1] - x) ** 2 + (cl[i][2] - y) ** 2; if (d < bd) { bd = d; best = i; } }
     return cl[best];
   }
+  // 충돌: 보이는 면만 (끈 묶음·층/STA 로 잘라낸 면 제외), 에스컬레이터 스텝은 ESC.ride 가 높이를 정하므로 제외. 부딪힌 면 = 부재 번호
+  const core = WalkCore((x0, y0, z0, x1, y1, z1, cb) => {
+    for (const m of meshes) {
+      const c = m.userData.chunk;
+      if (!m.visible || (c.anim && c.anim[0] === "E")) continue;
+      const gb = m.geometry.boundingBox, q = m.position;
+      if (gb.min.x + q.x > x1 || gb.max.x + q.x < x0 || gb.min.y + q.y > y1 || gb.max.y + q.y < y0 || gb.min.z + q.z > z1 || gb.max.z + q.z < z0) continue;
+      const sh = m.geometry.attributes.aSH.array, ix = m.geometry.index.array, dh = m.material.userData.uDH.value;
+      const cutS0 = clip.uSMin.value, cutS1 = clip.uSMax.value, cutH = clip.uHMax.value;
+      BVH.query(m, x0, y0, z0, x1, y1, z1, (k, ...v) => {
+        const i = ix[k * 3] * 2, j = ix[k * 3 + 1] * 2, l = ix[k * 3 + 2] * 2;
+        if (Math.min(sh[i + 1], sh[j + 1], sh[l + 1]) + dh > cutH || Math.max(sh[i], sh[j], sh[l]) < cutS0 || Math.min(sh[i], sh[j], sh[l]) > cutS1) return;
+        cb(...v, m.userData.elem[k]);
+      });
+    }
+  });
+  const EYE = 1.6;
   let holdW = false;
-  let walking = false, walkFloor = 0, eye = 1.6, yaw = 0, pitch = 0;
+  let walking = false, walkFloor = 0, eye = EYE, yaw = 0, pitch = 0;
+  let body = null;                          // 충돌을 켠 걷기의 몸 { x, y, foot, vz, grounded, head } (끄면 null)
+  let riding = false;                       // 이번 걸음에 에스컬레이터를 타고 있음 (높이는 ESC 가 정함)
+  let headT = 0;
   const keys = {};
   function floorBase(i) { const f = DATA.floors[i]; return i === 0 && DATA.platform_top != null ? DATA.platform_top : f.fl; }
+  const isRoof = (tag) => /_ROOF|^ROOF/.test(DATA.elements[tag].name);
+  function floorOf(h) { let k = 0; DATA.floors.forEach((f, i) => { if (h >= f.fl) k = i; }); return k; }
+  function newBody(x, y, foot) { body = { x, y, foot, vz: 0, grounded: true, head: null }; camera.position.set(x, y, foot + EYE); }
+
+  // 층 i 에서 (x, y) 에 가장 가까운 설 수 있는 자리 (선형 중심 표본 × 1m 간격 t)
+  function standOnFloor(i, x, y) {
+    const cl = DATA.centerline, pts = [];
+    for (let k = 0; k + 1 < cl.length; k++) {
+      const a = cl[k], n = cl[k + 1], dx = n[1] - a[1], dy = n[2] - a[2], l = Math.hypot(dx, dy) || 1;
+      if (a[0] < 1 || a[0] > DATA.length - 1) continue;
+      const w = Math.floor(DATA.half_width - 0.5);           // 본체 내공 안만 (바깥 벽 턱 제외)
+      for (let t = -w; t <= w; t++) { const px = a[1] - dy / l * t, py = a[2] + dx / l * t; pts.push([(px - x) ** 2 + (py - y) ** 2, px, py, a[3]]); }
+    }
+    pts.sort((p, q) => p[0] - q[0]);
+    for (const [, px, py, fl] of pts.slice(0, 4000)) {
+      const base = fl + floorBase(i), s = core.stands(px, py, base - 0.05, base + 0.6, isRoof);
+      if (s.length) return [px, py, Math.max(...s.map((h) => h[0]))];
+    }
+    return null;
+  }
+  // 충돌을 켜고 걷기 시작: 보던 자리 위아래 3m 안에 설 수 있는 바닥이 있으면 거기, 없으면 가장 가까운 층의 가장 가까운 자리 (사용자 지정)
+  function standNearest() {
+    const p = camera.position;
+    const here = core.stands(p.x, p.y, p.z - 4.6, p.z + 1.4, isRoof).map((h) => h[0]);
+    if (here.length) { here.sort((a, b) => Math.abs(a + EYE - p.z) - Math.abs(b + EYE - p.z)); newBody(p.x, p.y, here[0]); return true; }
+    const fl = nearestCl(p.x, p.y)[3];
+    const order = DATA.floors.map((_, i) => i).sort((a, b) => Math.abs(fl + floorBase(a) + EYE - p.z) - Math.abs(fl + floorBase(b) + EYE - p.z));
+    for (const i of order) { const s = standOnFloor(i, p.x, p.y); if (s) { newBody(...s); return true; } }
+    return false;
+  }
+  function setCollide(on) {
+    $("collide").checked = on;
+    if (!walking) return;
+    if (on) { if (!standNearest()) body = null; }
+    else if (body) { eye = camera.position.z - nearestCl(camera.position.x, camera.position.y)[3]; body = null; }
+  }
+  $("collide").onchange = () => setCollide($("collide").checked);
   function startWalk() {
     if (walking) return;
-    // 지금 보는 화면 그대로 시작: 카메라 위치·시선을 유지 (층 눈높이로 가려면 PgUp/PgDn)
+    beginWalk();
+    el.requestPointerLock();
+  }
+  function beginWalk() {
+    // 시선은 지금 보는 방향 그대로. 충돌을 끄면 위치도 그대로 (층 눈높이로 가려면 PgUp/PgDn)
+    body = null;
     const c = nearestCl(camera.position.x, camera.position.y);
     eye = camera.position.z - c[3];
-    walkFloor = 0;
-    DATA.floors.forEach((f, i) => { if (eye >= f.fl) walkFloor = i; });
+    walkFloor = floorOf(eye);
     yaw = orbit.az + Math.PI; pitch = -orbit.el;
     holdW = !!keys.KeyW;                    // W 로 시작했으면 그 W 를 뗄 때까지는 앞으로 가지 않음
-    el.requestPointerLock();
+    if ($("collide").checked) standNearest();
   }
   $("walk").onclick = startWalk;
   document.addEventListener("pointerlockchange", () => {
     walking = document.pointerLockElement === el;
     $("cross").style.display = walking ? "block" : "none";
     $("hud").style.display = walking ? "block" : "none";
+    $("headmsg").style.display = "none";
     if (!walking) {                       // 걷기를 끝내면 지금 보는 앞쪽을 회전 중심으로
       const dir = new THREE.Vector3(Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch));
+      body = null;
       orbit.dist = 8; orbit.target.copy(camera.position).addScaledVector(dir, orbit.dist);
       orbit.az = Math.atan2(-dir.y, -dir.x); orbit.el = Math.asin(-dir.z);
       updateOrbitCamera();
@@ -491,7 +577,13 @@ const LIVE = /*__LIVE__*/false;
     keys[e.code] = true;
     if (/^Digit[1-9]$/.test(e.code)) EV.inCarKey(+e.code.slice(5) - 1);
     if (e.code === "KeyW" && !walking && document.activeElement.tagName !== "SELECT") { startWalk(); }
-    if (walking && (e.code === "PageUp" || e.code === "PageDown")) {
+    if (e.code === "KeyC" && !e.ctrlKey && !e.repeat && walking) setCollide(!$("collide").checked);
+    if (e.code === "Space" && walking) { e.preventDefault(); if (body && !e.repeat) core.jump(body); }
+    if (walking && body && (e.code === "PageUp" || e.code === "PageDown")) {   // 충돌: 위·아래 층의 가장 가까운 설 수 있는 자리로
+      e.preventDefault();
+      const i = Math.max(0, Math.min(DATA.floors.length - 1, walkFloor + (e.code === "PageUp" ? 1 : -1))), s = standOnFloor(i, body.x, body.y);
+      if (s) { newBody(...s); walkFloor = i; }
+    } else if (walking && (e.code === "PageUp" || e.code === "PageDown")) {
       const at = floorBase(walkFloor) + 1.6, up = e.code === "PageUp";     // 층 눈높이보다 높이 떠 있으면 PgDn 은 먼저 그 층 바닥으로
       if (up || eye <= at + 0.5) walkFloor = Math.max(0, Math.min(DATA.floors.length - 1, walkFloor + (up ? 1 : -1)));
       eye = floorBase(walkFloor) + 1.6; e.preventDefault();
@@ -508,13 +600,33 @@ const LIVE = /*__LIVE__*/false;
     if (keys.KeyW && !holdW) { mx += fx; my += fy; } if (keys.KeyS) { mx -= fx; my -= fy; }
     if (keys.KeyA) { mx -= fy; my += fx; } if (keys.KeyD) { mx += fy; my -= fx; }
     const n = Math.hypot(mx, my) || 1;
+    if (body) { stepBody(mx / n * v * (mx || my ? 1 : 0), my / n * v * (mx || my ? 1 : 0), dt); return; }
     camera.position.x += mx / n * v * (mx || my ? 1 : 0); camera.position.y += my / n * v * (mx || my ? 1 : 0);
     if (keys.KeyE) eye += 2 * dt; if (keys.KeyQ) eye -= 2 * dt;
     const c = nearestCl(camera.position.x, camera.position.y);
     camera.position.z = c[3] + eye;
+    look(c, "충돌 끔(C)");
+  }
+  function look(c, note) {
     const dir = new THREE.Vector3(Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch));
     camera.lookAt(camera.position.clone().add(dir));
-    $("hud").textContent = `${DATA.floors[walkFloor].name} · STA ${fmtSta(c[0])} · 눈높이 FL+${(eye - DATA.floors[walkFloor].fl).toFixed(2)} m  (Esc 끝)`;
+    $("hud").textContent = `${DATA.floors[walkFloor].name} · STA ${fmtSta(c[0])} · 눈높이 FL+${(eye - DATA.floors[walkFloor].fl).toFixed(2)} m · ${note}  (Esc 끝)`;
+  }
+  function stepBody(dx, dy, dt) {           // 충돌을 켠 한 걸음: 벽에 막히고 바닥을 따라감, 머리가 닿으면 막고 표시
+    core.move(body, dx, dy, dt, { ride: riding });
+    riding = false;
+    const p = camera.position, z = body.foot + EYE, dz = z - p.z;
+    p.x = body.x; p.y = body.y;
+    p.z = Math.abs(dz) > 0.6 ? z : p.z + dz * Math.min(1, dt * 14);          // 디딤판마다 튀지 않게 눈높이는 부드럽게
+    const c = nearestCl(body.x, body.y);
+    eye = p.z - c[3];
+    walkFloor = floorOf(body.foot - c[3] + 0.3);
+    if (body.head) {
+      $("headmsg").textContent = `머리 높이 부족 ${body.head.clear.toFixed(2)} m (< ${core.H.toFixed(1)}) — ${DATA.elements[body.head.tag].name}`;
+      headT = 1.5;
+    } else headT -= dt;
+    $("headmsg").style.display = headT > 0 ? "block" : "none";
+    look(c, "충돌 켬(C)");
   }
 
   // ---------------------------------------------------------------- 엘리베이터 (카 이동 · 문 열림 · 층 표시)
@@ -610,6 +722,7 @@ const LIVE = /*__LIVE__*/false;
       pose(c);
       if (rider && c.z !== z0) {                            // 탄 사람은 카와 함께
         eye += c.z - z0;
+        if (body) { body.foot += c.z - z0; camera.position.z += c.z - z0; }
         const cl = nearestCl(camera.position.x, camera.position.y);
         const h = camera.position.z - cl[3] + (c.z - z0);
         for (let i = 0; i < DATA.floors.length; i++) if (h + 0.05 >= DATA.floors[i].fl) walkFloor = i;
@@ -728,7 +841,7 @@ const LIVE = /*__LIVE__*/false;
       if (e) state();
     }
     function ride(e, move) {                // 걷기 중 스텝 위에 있으면 코 선 높이를 따르고 스텝과 함께 움직임 (멈춰 있으면 높이만)
-      const c = camera.position, foot = c.z - 1.6;
+      const c = camera.position, foot = body ? body.foot : c.z - 1.6;
       let bd = 1e9, bi = -1;
       for (let i = 0; i + 1 < e.path.length; i += 4) { const p = e.path[i], d = (p[0] - c.x) ** 2 + (p[1] - c.y) ** 2; if (d < bd) { bd = d; bi = i; } }
       if (bd > 1.5) return;
@@ -740,6 +853,7 @@ const LIVE = /*__LIVE__*/false;
       const u2 = u + move, px = P.x, py = P.y;
       at(e, u2, Q);
       c.x += Q.x - px; c.y += Q.y - py;
+      if (body) { body.x = c.x; body.y = c.y; body.foot = Q.z; riding = true; return; }   // 눈높이·층은 stepBody 가
       const cl = nearestCl(c.x, c.y);
       eye = Q.z + 1.6 - cl[3];
       c.z = Q.z + 1.6;
@@ -812,7 +926,10 @@ ${st.message}`, true);
       fit();
     }
   } catch (e) { $("stats").textContent = "자료를 풀 수 없습니다 (최신 브라우저 필요): " + e; }
-  window.__viewer = { EV, ESC, BVH, tick, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
+  const WALK = { core, keys, begin: (yaw_) => { beginWalk(); if (yaw_ !== undefined) yaw = yaw_; walking = true; }, end: () => { walking = false; body = null; },
+    setCollide, standOnFloor, put: (x, y, foot, yaw_) => { newBody(x, y, foot); if (yaw_ !== undefined) yaw = yaw_; }, get body() { return body; },
+    get yaw() { return yaw; }, get floor() { return walkFloor; }, get message() { return headT > 0 ? $("headmsg").textContent : ""; } };
+  window.__viewer = { EV, ESC, BVH, WALK, tick, scene, camera, meshes, clip, orbit, fit, updateOrbitCamera, get DATA() { return DATA; }, get version() { return version; } };
 })();
 </script>
 </body>

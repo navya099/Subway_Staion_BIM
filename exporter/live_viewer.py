@@ -13,12 +13,12 @@ import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from exporter.web_viewer import TEMPLATE, THREE_JS, build_web_data, lambda_safe
+from exporter.web_viewer import TEMPLATE, THREE_JS, WALK_JS, build_web_data, lambda_safe
 
 
 def live_html() -> str:
     html = TEMPLATE.read_text(encoding="utf-8")
-    return html.replace("/*__THREE__*/", lambda_safe(THREE_JS.read_text(encoding="utf-8"))) \
+    return html.replace("/*__THREE__*/", lambda_safe(THREE_JS.read_text(encoding="utf-8"))).replace("/*__WALK__*/", lambda_safe(WALK_JS.read_text(encoding="utf-8"))) \
         .replace("/*__DATA__*/", "null").replace("/*__BLOB__*/", "").replace("/*__LIVE__*/false", "true")
 
 

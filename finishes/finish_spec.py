@@ -13,6 +13,22 @@ FRAMES = (FRAME_M, FRAME_T)
 FALLBACK = "기본"                # 마감표에 없는 용도가 쓰는 마감 종류
 
 
+SKIRT_MIN = 0.005               # 걸레받이가 마감 표면에서 들어가려면 남아야 하는 최소 두께
+
+
+@dataclasses.dataclass(frozen=True)
+class WallPass:
+    """벽 마감 한 벌의 배치 값 (패널 또는 걸레받이): 구조체 면 → 뒷면·앞면 (본체 벽·기둥 gap/face, 칸막이벽 pgap/pface),
+    z0 = 바닥 마감면 위 시작 높이, z1 = 끝 높이 (None = 천장판 하면 등 벽 윗면)"""
+    gap: float
+    face: float
+    pgap: float
+    pface: float
+    z0: float
+    z1: float
+    skirt: bool
+
+
 @dataclasses.dataclass
 class FinishType:
     """마감 종류 1개 (보통 실 용도 이름과 같음).
@@ -22,6 +38,8 @@ class FinishType:
         partition_face = 칸막이벽·구획분리 벽 면 → 마감 표면 거리 (None = wall_t, 이격 없음 — 본체 벽 wall_face 와 따로)
         wall_face = 구조체 면 → 마감 표면 거리 (None = wall_t, 이격 없음). 마감재 뒷면 이격 = wall_face − wall_t (빈 공간,
         하지재 미모델링). 예) 금속패널: 표면 0.15, 판 T1.6 → 이격 0.1484 (실무 상세 WB-14). 기둥·승강로 둘레에도 같은 거리
+    걸레받이: skirt_h = 높이 (0 = 없음), skirt_t = 두께, skirt_recess = 벽 마감 표면에서 들어간 거리, 벽 마감재는 걸레받이 윗면부터.
+        본체 벽·칸막이벽·기둥·승강로 둘레·통로·출입구, 벽 마감이 있을 때(wall_t > 0)만
     천장: ceiling = 천장 있음, ceiling_h = 바닥 마감면에서 천장판 하면까지, board_t = 천장판 두께,
           frame = M | T, bar_spacing = 천장틀 바(M/T) 간격 (t 방향으로 뻗은 바를 s 방향으로 배열),
           carrier_spacing = 캐링 채널 간격 (s 방향으로 뻗은 바를 t 방향으로 배열), bar 단면 = 폭 bar_w × 높이 bar_h,
@@ -47,6 +65,33 @@ class FinishType:
     carrier_h: float = 0.038
     wall_face: float = None
     partition_face: float = None
+    skirt_h: float = 0.0
+    skirt_t: float = 0.03
+    skirt_recess: float = 0.01
+    skirt_material: str = "흑색 걸레받이"
+
+    @property
+    def has_skirt(self) -> bool:
+        """걸레받이를 만드는가 (벽이 면처리(wall_t 0)면 없음)"""
+        return self.skirt_h > 0 and self.wall_t > 0
+
+    def skirt_span(self, face: float) -> tuple:
+        """구조체 면에서 잰 걸레받이 (뒷면, 앞면). face = 그 벽의 구조체 면 → 마감 표면 거리.
+        앞면 = 마감 표면에서 skirt_recess 들어간 면. 이격이 모자라 들어갈 자리가 없으면(남는 두께 < SKIRT_MIN) 표면과 같은 면,
+        두께는 구조체 면까지로 줄임"""
+        front = face - self.skirt_recess
+        if front < SKIRT_MIN - 1e-12:
+            front = face
+        return max(0.0, front - self.skirt_t), front
+
+    def panel_pass(self) -> "WallPass":
+        """벽 마감재(패널) 배치 값: 걸레받이가 있으면 그 윗면부터"""
+        gap = self.wall_gap if self.wall_t > 0 else 0.0
+        return WallPass(gap, gap + self.wall_t, self.pgap, self.pface, self.skirt_h if self.has_skirt else 0.0, None, False)
+
+    def skirt_pass(self) -> "WallPass":
+        """걸레받이 배치 값: 바닥 마감면 ~ skirt_h"""
+        return WallPass(*self.skirt_span(self.face), *self.skirt_span(self.pface), 0.0, self.skirt_h, True)
 
     @property
     def pface(self) -> float:

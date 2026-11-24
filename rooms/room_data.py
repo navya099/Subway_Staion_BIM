@@ -30,6 +30,7 @@ class RoomPiece:
     pos_z: float = 0.0
     shape: RoomBox = field(default_factory=RoomBox)
     trap: tuple = None           # 사다리꼴 조각 (t0, t1 @ s 시작, t0, t1 @ s 끝 — 구조물 확폭 전이부), None = 직사각형
+    ztrap: tuple = None          # 상·하면이 기운 조각 (하단, 상단 @ s 시작, 하단, 상단 @ s 끝 — 하면 기준 높이), None = 높이 일정
 
 
 @dataclass

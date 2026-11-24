@@ -748,10 +748,15 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
             from passages.passage_finish import ceiling_fit
             if ceiling_fit(pl.spec, pft)[0]:
                 joint_top = min(joint_top, zp + pft.ffl + pft.ceiling_h)         # 통로 천장판 하면까지 막음
+        if surfaces:                                     # 걸레받이 피치선은 도착 코(승강구 높이)까지
+            arrive_pitch = pitch_points(surfaces, ssp.tread, r)
+            if surfaces[-1][2] < Gt - r / 2.0:
+                arrive_pitch.append((surfaces[-1][1], Gt))
         finish = layout_entrance_finish(spec, eft, a=a, a_p=a_p, T=T, zones=zones, e_side=e_side if spec.escalator else 1,
                                         zl=zl, G=Gt, ground=G, u_s0=u_s0, surfaces=surfaces, u_top=u_top, u_re=u_re, truss_lo=truss_lo,
                                         nose_at=nose, nose_breaks=nose_bps, ceil_pl=ceil_pl, roof_pl=roof_bot,
-                                        joint_top=joint_top, a_open=a_o if spec.open_narrow > 0 else None)
+                                        joint_top=joint_top, a_open=a_o if spec.open_narrow > 0 else None,
+                                        pitch=arrive_pitch if surfaces else ())
 
     # ---------- 캐노피 (지붕 없는 개구부 위 철골 + 유리 지붕, 앞 출구 사인)
     canopy = []

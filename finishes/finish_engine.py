@@ -21,6 +21,7 @@ KINDS = {"FLOOR": ("IfcCovering", "FLOORING", "바닥 마감재", "FIN_FLOOR"),
          "FILL": ("IfcCovering", "FLOORING", "바닥 채움", "FIN_FLOOR"),
          "WALL": ("IfcCovering", "CLADDING", "벽 마감", "FIN_WALL"),
          "COLUMN": ("IfcCovering", "CLADDING", "기둥·승강로 마감", "FIN_WALL"),
+         "SKIRT": ("IfcCovering", "SKIRTINGBOARD", "걸레받이", "FIN_WALL"),
          "CEILING": ("IfcCovering", "CEILING", "천장판", "FIN_CEILING"),
          "FRAME": ("IfcMember", "USERDEFINED", "천장틀", "FIN_FRAME")}
 
@@ -68,6 +69,14 @@ def room_piece(cfg, name, s0, s1, t0, t1, z0, z1, trap=None) -> RoomPiece:
                                    curve_factor=PM.curve_factor(cfg, s0, s1, (lo + hi) / 2.0)))
 
 
+def sloped_piece(cfg, name, s0, s1, t0, t1, zb0, zt0, zb1, zt1) -> RoomPiece:
+    """상·하면이 기운 조각 (FL 기준 높이, s0 에서 zb0 ~ zt0, s1 에서 zb1 ~ zt1): 하면·높이는 평균 (체적 정확)"""
+    za, zb = (zb0 + zb1) / 2.0, (zt0 + zt1) / 2.0
+    p = room_piece(cfg, name, s0, s1, t0, t1, za, zb)
+    p.ztrap = (zb0 - za, zt0 - za, zb1 - za, zt1 - za)
+    return p
+
+
 def column_footprints(cfg, column_engine) -> list:
     """기둥 평면 [(층, s, t, 반폭 s, 반폭 t, 반지름|None)] (마감·점자블록 배치가 기둥을 피할 때)"""
     if column_engine is None:
@@ -111,14 +120,17 @@ class FinishEngine:
                       ("FILL", rf.floor_fill, [], "몰탈", ft.ffl - ft.floor_t),
                       ("WALL", rf.walls, [], ft.wall_material, ft.wall_t),
                       ("COLUMN", rf.columns, rf.rings, ft.wall_material, ft.wall_t),
+                      ("SKIRT", rf.skirts, rf.skirt_rings, ft.skirt_material, ft.skirt_t),
                       ("CEILING", rf.ceiling, [], ft.ceiling_material, ft.board_t),
                       ("FRAME", rf.bars + rf.carriers, [], f"{ft.frame}바 천장틀", ft.frame_depth))
             elements = []
             for code, rects, boxes, material, thick in groups:
-                if not rects and not boxes:
+                slopes = {"WALL": rf.wall_slopes, "SKIRT": rf.skirt_slopes}.get(code, [])
+                if not rects and not boxes and not slopes:
                     continue
                 name = f"FIN_{rf.room}_{code}"
                 pieces = [self._piece(f"{name}_P{k}", *r) for k, r in enumerate(rects, start=1)]
+                pieces += [sloped_piece(cfg, f"{name}_S{k}", *r) for k, r in enumerate(slopes, start=1)]
                 elements.append(FinishElementData(
                     name=name, family_name=KINDS[code][2], type_name=f"{material} {int(round(thick * 1000))}mm", level=level,
                     material=material, code=code, room=rf.room, pieces=pieces, boxes=list(boxes)))
@@ -148,8 +160,8 @@ class FinishEngine:
             for p in e.pieces:
                 cut = PM.section_rect(self.cfg, p, sta)
                 if cut:
-                    t0, t1, zb = cut
-                    items.append(ViewItem.rect(e.name, "SEC_FINISH", t0, t1, zb, zb + p.shape.height))
+                    t0, t1, _ = cut
+                    items.append(ViewItem.rect(e.name, "SEC_FINISH", t0, t1, *PM.z_range_at(self.cfg, p, sta)))
             for b in e.boxes:
                 poly = b.cut_by_plane(cx, cy, nx, ny)
                 if poly:
@@ -172,7 +184,7 @@ class FinishEngine:
             if r.floor != floor:
                 continue
             for e in r.elements:
-                if e.code not in ("WALL", "COLUMN"):
+                if e.code not in ("WALL", "COLUMN", "SKIRT"):
                     continue
                 for p in e.pieces:
                     z0 = PM.z_off(self.cfg, p)

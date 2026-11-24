@@ -56,7 +56,7 @@ class EntranceEngine:
                     kind=p.kind, code=p.code, t_range=p.t_range, shape=StripShape(strips=p.strips, width=t1 - t0),
                     pieces=(list(lay.haunches) if p.code in ("ROOF", "ROOF_Z1") else []) + list(p.pieces)))
             stair = self._stair(lay, level) if lay.stair is not None else None
-            fin_labels = {"FLOOR": "바닥 마감", "FILL": "바닥 채움", "WALL": "벽 마감", "CEILING": "천장판", "FRAME": "천장틀"}
+            fin_labels = {"FLOOR": "바닥 마감", "FILL": "바닥 채움", "WALL": "벽 마감", "SKIRT": "걸레받이", "CEILING": "천장판", "FRAME": "천장틀"}
             finishes = []
             for code, kind, mat, t_rng, strips in lay.finish:
                 ft0, ft1 = t_rng
@@ -218,7 +218,7 @@ class EntranceEngine:
                     m.source_element = body + m.face_entities
                     continue                                 # 계단 마감 = 정거장 계단 마감과 같은 레이어
                 if isinstance(m, EntranceFinishData):                    # 내부 마감 = 실 마감과 같은 레이어
-                    layer = {"FLOOR": "FIN_FLOOR", "FILL": "FIN_FLOOR", "WALL": "FIN_WALL", "CEILING": "FIN_CEILING",
+                    layer = {"FLOOR": "FIN_FLOOR", "FILL": "FIN_FLOOR", "WALL": "FIN_WALL", "SKIRT": "FIN_WALL", "CEILING": "FIN_CEILING",
                              "FRAME": "FIN_FRAME"}[m.kind]
                 if isinstance(m, (EscalatorPartData, EscalatorStepData)):
                     glass = getattr(m, "kind", None) == EscalatorPartKind.BALUSTRADE and m.material == "Glass_Balustrade"

@@ -48,6 +48,18 @@ def corners(cfg, m) -> tuple[float, float, float, float, float, float]:
     return s0, s1, t0, t1, z_at(cfg, m, s0), z_at(cfg, m, s1)
 
 
+def z_range_at(cfg, m, s: float) -> tuple[float, float]:
+    """측점 s 에서의 (하단, 상단) 표고. ztrap = (하단, 상단 @ s0, 하단, 상단 @ s1 — z_off 기준 높이)이면 상·하면이 기운 조각 (계단 옆
+    걸레받이), 아니면 하단 + 연직 치수"""
+    zb = z_at(cfg, m, s)
+    zt = getattr(m, "ztrap", None)
+    if not zt:
+        return zb, zb + m.shape.vertical
+    s0, s1 = s_range(m)
+    k = 0.0 if s1 - s0 < 1e-12 else min(1.0, max(0.0, (s - s0) / (s1 - s0)))
+    return zb + zt[0] + (zt[2] - zt[0]) * k, zb + zt[1] + (zt[3] - zt[1]) * k
+
+
 def samples(cfg, m) -> list[float]:
     s0, s1 = s_range(m)
     return cfg.sample_s(s0, s1)
@@ -84,6 +96,10 @@ def profile_view(cfg, m, layer: str, **kw) -> ViewItem:
     """종단면 윤곽: 직선이면 평행사변형(병합 가능), 곡선이면 선형 표고를 따르는 다각형"""
     xs = samples(cfg, m)
     v = m.shape.vertical
+    if getattr(m, "ztrap", None):
+        rows = [(s, *z_range_at(cfg, m, s)) for s in xs]
+        kw.pop("merge", None)
+        return ViewItem(m.name, layer, u0=xs[0], u1=xs[-1], pts=[(s, a) for s, a, _ in rows] + [(s, b) for s, _, b in reversed(rows)], **kw)
     if len(xs) == 2:
         s0, s1, _, _, z0, z1 = corners(cfg, m)
         return ViewItem.sloped(m.name, layer, s0, s1, z0, z1, v, **kw)
@@ -96,13 +112,12 @@ def profile_view(cfg, m, layer: str, **kw) -> ViewItem:
 # ---------------- 3D ----------------
 def rings(cfg, m) -> list[list[tuple[float, float, float]]]:
     """표본 측점마다의 단면 링: [t0 하단, t1 하단, t1 상단, t0 상단] (WCS 좌표). 사다리꼴 부재는 측점마다 t 범위 보간"""
-    v = m.shape.vertical
     out = []
     for s in samples(cfg, m):
         t0, t1 = t_range_at(m, s)
-        zb = z_at(cfg, m, s)
+        zb, zt = z_range_at(cfg, m, s)
         (xa, ya), (xb, yb) = cfg.to_world(s, t0), cfg.to_world(s, t1)
-        out.append([(xa, ya, zb), (xb, yb, zb), (xb, yb, zb + v), (xa, ya, zb + v)])
+        out.append([(xa, ya, zb), (xb, yb, zb), (xb, yb, zt), (xa, ya, zt)])
     return out
 
 
@@ -149,7 +164,7 @@ def sweep_quads(rs) -> list[tuple]:
 
 def mesh_faces(cfg, m) -> list[tuple]:
     """DXF 3DFACE 용 면. 직선은 기존과 같은 6면 각기둥, 곡선·사다리꼴(확폭 전이부)은 스윕 면"""
-    if len(samples(cfg, m)) == 2 and not getattr(m, "trap", None):
+    if len(samples(cfg, m)) == 2 and not getattr(m, "trap", None) and not getattr(m, "ztrap", None):
         s0, s1, t0, t1, z0, z1 = corners(cfg, m)
         v = m.shape.vertical
         return CommonHelper.create_sloped_box_faces_global(s0, s1, t0, t1, z0, z1, z0 + v, z1 + v, cfg.to_world)

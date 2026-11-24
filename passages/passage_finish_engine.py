@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 
 from bim_data.common_bim_data import CommonBIMData
 from helper.view_item import ViewItem
-from passages.passage_finish import CEILING, FILL, FLOOR, FRAME, WALL, layout_passage_finishes
+from passages.passage_finish import CEILING, FILL, FLOOR, FRAME, SKIRT, WALL, layout_passage_finishes
 
-LAYERS = {FLOOR: "FIN_FLOOR", FILL: "FIN_FLOOR", WALL: "FIN_WALL", CEILING: "FIN_CEILING", FRAME: "FIN_FRAME"}
-LABELS = {FLOOR: "바닥 마감", FILL: "바닥 채움", WALL: "벽 마감", CEILING: "천장판", FRAME: "천장틀"}
+LAYERS = {FLOOR: "FIN_FLOOR", FILL: "FIN_FLOOR", WALL: "FIN_WALL", SKIRT: "FIN_WALL", CEILING: "FIN_CEILING", FRAME: "FIN_FRAME"}
+LABELS = {FLOOR: "바닥 마감", FILL: "바닥 채움", WALL: "벽 마감", SKIRT: "걸레받이", CEILING: "천장판", FRAME: "천장틀"}
 
 
 @dataclass
@@ -36,9 +36,9 @@ class PassageFinishEngine:
         st = config.station
         for lay in lays:
             ft = lay.ft
-            mats = {FLOOR: ft.floor_material, FILL: "몰탈", WALL: ft.wall_material, CEILING: ft.ceiling_material,
+            mats = {FLOOR: ft.floor_material, FILL: "몰탈", WALL: ft.wall_material, SKIRT: ft.skirt_material, CEILING: ft.ceiling_material,
                     FRAME: f"{ft.frame}바 천장틀"}
-            for code in (FILL, FLOOR, WALL, CEILING, FRAME):
+            for code in (FILL, FLOOR, WALL, SKIRT, CEILING, FRAME):
                 pieces = lay.parts.get(code) or []
                 if not pieces:
                     continue
@@ -76,7 +76,7 @@ class PassageFinishEngine:
         st = self.cfg.station
         items = []
         for e in self.elements:
-            if e.code != WALL or e.floor != floor:
+            if e.code not in (WALL, SKIRT) or e.floor != floor:
                 continue
             h = cut_h - st.floor_level(floor)                          # 통로 바닥(구조) 상면 기준 절단 높이
             for p in e.pieces:

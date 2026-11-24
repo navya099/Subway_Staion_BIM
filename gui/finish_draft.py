@@ -19,6 +19,11 @@ TEXT_FIELDS = [("floor_material", "바닥 재질"), ("wall_material", "벽 재�
 FACE_FIELD = ("wall_face", "벽 마감면 거리")    # 구조체 면 → 마감 표면 (비우면 = 벽 마감 두께, 이격 없음)
 PFACE_FIELD = ("partition_face", "칸막이 마감면")   # 칸막이벽 면 → 마감 표면 (비우면 = 벽 마감 두께, 이격 없음)
 
+# 걸레받이 (높이 0 = 없음, 벽 마감이 면처리(두께 0)면 만들지 않음)
+SKIRT_FIELDS = [("skirt_h", "걸레받이 높이", "nonneg"), ("skirt_t", "걸레받이 두께", "pos"), ("skirt_recess", "들어감", "nonneg")]
+SKIRT_TEXT = ("skirt_material", "걸레받이 재질")
+SKIRT_WALLS = ("금속패널", "패널")       # GUI 기본으로 걸레받이를 두는 벽 재질 (옛 프로젝트도)
+
 
 @dataclass
 class FinishTypeDraft:
@@ -39,6 +44,18 @@ class FinishTypeDraft:
     frame: str = "M바"
     bar_spacing: str = "0.6"
     carrier_spacing: str = "0.9"
+    skirt_h: str = None                 # None = 벽 재질로 정함 (금속패널 0.2, 그 밖 0)
+    skirt_t: str = "0.03"
+    skirt_recess: str = "0.01"
+    skirt_material: str = "흑색 걸레받이"
+
+    def __post_init__(self):
+        if self.skirt_h is None:
+            try:
+                panel = str(self.wall_material).strip() in SKIRT_WALLS and float(self.wall_t) > 0
+            except ValueError:
+                panel = False
+            self.skirt_h = "0.2" if panel else "0"
 
     @classmethod
     def from_type(cls, ft: FinishType) -> "FinishTypeDraft":
@@ -48,7 +65,8 @@ class FinishTypeDraft:
                    wall_face="" if ft.wall_face is None else g(ft.wall_face), ceiling=ft.ceiling,
                    partition_face="" if ft.partition_face is None else g(ft.partition_face),
                    ceiling_h=g(ft.ceiling_h), board_t=g(ft.board_t), ceiling_material=ft.ceiling_material,
-                   frame=FRAME_OF.get(ft.frame, "M바"), bar_spacing=g(ft.bar_spacing), carrier_spacing=g(ft.carrier_spacing))
+                   skirt_h=g(ft.skirt_h) if ft.skirt_h > 0 else None, skirt_t=g(ft.skirt_t), skirt_recess=g(ft.skirt_recess),
+                   skirt_material=ft.skirt_material, frame=FRAME_OF.get(ft.frame, "M바"), bar_spacing=g(ft.bar_spacing), carrier_spacing=g(ft.carrier_spacing))
 
     def to_type(self, where: str) -> FinishType:
         name = str(self.name).strip()
@@ -63,6 +81,11 @@ class FinishTypeDraft:
             if attr in ("ceiling_h", "board_t", "bar_spacing", "carrier_spacing") and not self.ceiling:
                 continue                                       # 천장이 없으면 천장 입력은 검사하지 않음
             vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
+        for attr, label, rule in SKIRT_FIELDS:
+            vals[attr] = _num(getattr(self, attr), where, label, positive=rule == "pos", nonneg=rule == "nonneg")
+        if self.ceiling and vals["skirt_h"] >= vals["ceiling_h"]:
+            raise ValueError(f"{where}: 걸레받이 높이({vals['skirt_h']:g})가 천장 높이({vals['ceiling_h']:g}) 이상입니다")
+        vals["skirt_material"] = str(self.skirt_material).strip()
         texts = {attr: str(getattr(self, attr)).strip() for attr, _ in TEXT_FIELDS}
         face = None
         if str(self.wall_face).strip():
@@ -178,6 +201,10 @@ def preview(it: FinishTypeDraft) -> str:
         wall += f" (구조면→표면 {ft.face:g}, 이격 {ft.wall_gap:g})"
     if ft.wall_t > 0 and ft.pgap > 1e-9:
         wall += f" · 칸막이벽 면→표면 {ft.pface:g}"
+    if ft.has_skirt:
+        wall += f" · 걸레받이 {ft.skirt_material} {ft.skirt_h:g}×{ft.skirt_t:g}"
+        if ft.skirt_span(ft.face)[1] < ft.face - 1e-9:
+            wall += f" ({ft.skirt_recess:g} 들어감)"
     ceil = f"천장 마감면+{ft.ceiling_h:g} ({ft.ceiling_material}, {ft.frame}바 {ft.bar_spacing:g})" if ft.ceiling else "천장 없음"
     return f"→ {floor} · {wall} · {ceil}"
 

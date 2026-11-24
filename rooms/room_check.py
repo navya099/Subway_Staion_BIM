@@ -93,13 +93,14 @@ def check_room_layouts(cfg, floors: list, openings: list, stairs: list, escalato
         for pw in fl.partitions:
             for s0, s1, t0, t1, *zz in pw.pieces:
                 r = (s0, s1, t0, t1)
+                r_in = (s0 + 1e-5, s1 - 1e-5, t0 + 1e-5, t1 - 1e-5)      # 벽 선 좌표는 1e-6 반올림 — 계단·ESC 끝에 맞닿은 창고 뒷 벽은 겹침이 아님
                 for op in openings:
                     if fl.floor - 1 in op.slabs and overlap_area(r, (op.s_start, op.s_end, op.t_lo, op.t_hi)) > 1e-9:
                         raise ValueError(f"칸막이벽 {pw.name}: {st.level_name(fl.floor)} 바닥 슬래브의 오프닝 {op.name or op.kind.label} "
                                          "위에 놓입니다 (실 경계를 옮기세요)")
                 for kind, items in (("계단", stairs), ("에스컬레이터", escalators)):
                     for it in items:
-                        if it.lower_floor == fl.floor and overlap_area(r, (*it.s_range, *it.t_range)) > 1e-9                                 and not _below_member(cfg, r, zz[1] if len(zz) > 1 else None, it):
+                        if it.lower_floor == fl.floor and overlap_area(r_in, (*it.s_range, *it.t_range)) > 1e-9                                 and not _below_member(cfg, r, zz[1] if len(zz) > 1 else None, it):
                             raise ValueError(f"칸막이벽 {pw.name}: {kind} {it.name} 과(와) 겹칩니다 (실 경계를 옮기세요)")
                 for ev in elevators:
                     if ev.lower_floor <= fl.floor <= ev.upper_floor and overlap_area(r, ev.outer_rect()) > 1e-9:

@@ -9,6 +9,7 @@
 원점은 <asset> 설명과 반환값에 남긴다. 레이어마다 노드 1개(스케치업 그룹), 그 안에 재질마다 삼각형 묶음.
 """
 import datetime
+import math
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -175,11 +176,61 @@ def stair_face_frames(engine) -> dict:
     for esc in (escs.all_escalators() if escs is not None else []) + ent_escs:
         for stp in esc.steps:
             out.update(stp.face_frames or {})
+    out.update(skirt_frames(engine))
     return out
+
+
+def skirt_frames(engine) -> dict:
+    """3DFACE 핸들 → 걸레받이 텍스처 틀 ("skirt", 왼쪽 아래 평면 좌표, u 방향, 한 장 길이, u 시작, 면 길이, 아래·위 변 높이 @ 양 끝).
+    연직 면마다 이미지 높이 한 장 = 걸레받이 높이 (경사 띠는 띠를 따라 기움), 길이 방향은 세계 좌표 기준으로 반복해 이웃 면과 이어짐"""
+    els = list(engine.finishes.all_elements()) if getattr(engine, "finishes", None) is not None else []
+    pf = getattr(engine, "passage_finishes", None)
+    els += pf.elements if pf is not None else []
+    ents = getattr(engine, "entrances", None)
+    els += [f for en in (ents.entrances if ents is not None else []) for f in en.finishes]
+    out = {}
+    for e in els:
+        if (getattr(e, "code", "") != "SKIRT" and getattr(e, "kind", "") != "SKIRT") or not e.source_element:
+            continue
+        w = finish_material(e.material).size_u
+        for ent in e.source_element:
+            fr = _skirt_frame(ent.dxf, w)
+            if fr is not None:
+                out[ent.dxf.handle] = fr
+    return out
+
+
+def _skirt_frame(d, w: float):
+    pts = np.array([d.vtx0, d.vtx1, d.vtx2, d.vtx3], dtype=float)
+    n = np.cross(pts[2] - pts[0], pts[3] - pts[1])
+    ln = np.linalg.norm(n)
+    if ln < 1e-12 or abs(n[2]) / ln >= HORIZONTAL_NZ:
+        return None
+    u = np.array([-n[1], n[0], 0.0]) / math.hypot(n[0], n[1])
+    a = pts @ u
+    lo, hi = a.min(), a.max()
+    if hi - lo < 1e-9:
+        return None
+    mid = (lo + hi) / 2.0
+    left, right = pts[a < mid], pts[a >= mid]
+    o = left[0]
+    return ("skirt", o, u, w, float((o @ u) % w), hi - lo, float(left[:, 2].min()), float(left[:, 2].max()),
+            float(right[:, 2].min()), float(right[:, 2].max()))
+
+
+def skirt_uv(frame, pts: np.ndarray) -> np.ndarray:
+    """걸레받이 틀 + 세계 좌표 점 → 텍스처 좌표 (u = 길이 / 한 장 길이, v = 아래 변 0 ~ 위 변 1)"""
+    _, o, u, w, u0, length, b0, t0, b1, t1 = frame
+    a = (pts - o) @ u
+    k = np.clip(a / length, 0.0, 1.0)
+    zb, zt = b0 + (b1 - b0) * k, t0 + (t1 - t0) * k
+    return np.stack([(a + u0) / w, (pts[:, 2] - zb) / np.maximum(zt - zb, 1e-9)], axis=1)
 
 
 def tread_uv(frame, pts: np.ndarray) -> np.ndarray:
     """계단석 틀 + 세계 좌표 점 (K, 3) → (K, 2) 텍스처 좌표 (u = 폭 방향 / 한 장 폭, v = 앞 코에서 / 깊이)"""
+    if frame[0] == "skirt":
+        return skirt_uv(frame, pts)
     o, u, v, w, depth = frame
     d = pts - np.asarray(o, dtype=float)
     d[:, 2] = 0.0
@@ -194,7 +245,7 @@ def apply_tread_uv(uv: np.ndarray, tris: np.ndarray, handles: list, frames: dict
     flat = np.abs(n[:, 2]) >= HORIZONTAL_NZ * np.maximum(np.linalg.norm(n, axis=1), 1e-12)
     for i, h in enumerate(handles):
         fr = frames.get(h)
-        if fr is not None and flat[i]:
+        if fr is not None and (flat[i] or fr[0] == "skirt"):
             uv[i] = tread_uv(fr, tris[i])
     return uv
 

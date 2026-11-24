@@ -257,7 +257,7 @@ def build_web_data(engine, frames: bool = False, texture_dir=TEXTURE_DIR) -> tup
                         if fr is None:
                             continue
                         nz = np.cross(t1[1] - t1[0], t1[2] - t1[0])
-                        if abs(nz[2]) >= 0.7 * max(np.linalg.norm(nz), 1e-12):
+                        if fr[0] == "skirt" or abs(nz[2]) >= 0.7 * max(np.linalg.norm(nz), 1e-12):
                             uv[a:a + len(f)] = tread_uv(fr, pts[a:a + len(f)])
             item["tex"] = key
             item["uv"] = put(uv.astype(np.float32))

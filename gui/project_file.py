@@ -94,6 +94,9 @@ def _build(cls, d, where: str):
         except (TypeError, ValueError):
             raise ValueError(f"{where}: '{f.name}' 값이 올바르지 않습니다 ({v!r})") from None
         setattr(inst, f.name, v)
+    if cls is FinishTypeDraft and "skirt_h" not in d:            # 옛 파일: 걸레받이는 벽 재질로 정함 (금속패널만)
+        inst.skirt_h = None
+        inst.__post_init__()
     return inst
 
 

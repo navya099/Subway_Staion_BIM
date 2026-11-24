@@ -12,6 +12,14 @@ def check_finish_type(ft: FinishType):
     for label, v in (("바닥 마감 높이", ft.ffl), ("바닥 마감재 두께", ft.floor_t), ("벽 마감 두께", ft.wall_t)):
         if not v >= 0:
             raise ValueError(f"{w}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    for label, v in (("걸레받이 높이", ft.skirt_h), ("걸레받이 들어감", ft.skirt_recess)):
+        if not v >= 0:
+            raise ValueError(f"{w}: {label}은(는) 0 이상이어야 합니다 ({v})")
+    if ft.skirt_h > 0:
+        if not ft.skirt_t > 0:
+            raise ValueError(f"{w}: 걸레받이 두께는 0보다 커야 합니다 ({ft.skirt_t})")
+        if ft.ceiling and ft.skirt_h >= ft.ceiling_h:
+            raise ValueError(f"{w}: 걸레받이 높이({ft.skirt_h:g})가 천장 높이({ft.ceiling_h:g}) 이상입니다")
     if ft.partition_face is not None and not ft.wall_t - _EPS <= ft.partition_face:
         raise ValueError(f"{w}: 칸막이벽 마감면 거리({ft.partition_face:g})가 마감재 두께({ft.wall_t:g})보다 작습니다")
     if ft.wall_face is not None:

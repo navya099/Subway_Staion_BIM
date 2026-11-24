@@ -13,11 +13,6 @@ _EPS = 1e-6
 
 
 
-def room_wall_hole(cfg, op):
-    """본체 측벽 오프닝 → 실 벽 마감에서 비울 (s0, s1, z0, z1) (출구통로 마감이 있으면 통로 마감 개구부 — passage_finish)"""
-    from passages.passage_finish import room_wall_hole as hole
-    return hole(cfg, op)
-
 def _out(p, z0, z1, extra=()):
     s0, s1, ta, tb = T.bbox(p)
     tr = T.trap_of(p)
@@ -70,7 +65,7 @@ def _cut_s_holes(p, z0, z1, holes):
 
 def finish_trap_room(cfg, room, rf, ft, ctx):
     """사다리꼴 영역 실 하나의 마감 → rf (RoomFinishLayout) 에 채움. ctx: layout_room_finishes 의 층 공통 값"""
-    from finishes.finish_layout import FILL_MORTAR, _circle_ring, _cut_holes, _grid, _grow, _ring_rects
+    from finishes.finish_layout import FILL_MORTAR, _circle_ring, _cut_holes, _grid, _grow, _ring_rects, room_wall_holes
     st = cfg.station
     n, L, hw = rf.floor, st.length, st.width / 2.0
     clear = ctx["clear"]
@@ -100,10 +95,11 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
             if ft.floor_fill == FILL_MORTAR and z_top - ft.floor_t - zb > _EPS:
                 rf.floor_fill += [_out(p, zb, z_top - ft.floor_t) for p in area]
 
-    gap = ft.wall_gap if f > _EPS else 0.0
-    face = gap + f
-    face_regs = []                                       # 구조체 면 ~ 마감 표면 (천장에서 뺌)
-    if f > _EPS:
+    def wall_pass(w):
+        """벽 마감 한 벌 (패널 또는 걸레받이, finish_spec.WallPass) → (벽 조각, 둘레 조각, 원기둥 고리, 마감 표면까지 영역)"""
+        gap, face = w.gap, w.face
+        columns_out, rings_out = [], []
+        face_regs = []                                       # 구조체 면 ~ 마감 표면 (천장에서 뺌)
         segs = T.boundary(region)
         sides = set()
         for a, b, _ in segs:
@@ -140,7 +136,7 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
                     if x1 - x0 > _EPS:
                         backs.append((x0, x1, half, "wall"))
             for x0, x1, off, kind in backs:
-                kg, kf = (ft.pgap, ft.pface) if kind == "wall" else (gap, face)   # 칸막이벽은 칸막이벽 전용 거리
+                kg, kf = (w.pgap, w.pface) if kind == "wall" else (gap, face)   # 칸막이벽은 칸막이벽 전용 거리
                 if vertical:                                     # 측벽 내공면에 닿는 끝은 넓혀서 띠에서 끝나게
                     if on_inner_face(cfg, n, (c, x0), (c, x0)):
                         x0 = -T.BIG
@@ -164,13 +160,14 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
                 for q in T.subtract(T.subtract(T.subtract([p], obstacles), gaps), cut_by) if (obstacles or gaps or cut_by) else [p]:
                     for zt, zb in zones:
                         for zz in T.intersect([q], [zt]):
-                            z0 = zb + ft.ffl
+                            z0 = zb + ft.ffl + w.z0
+                            z1 = wall_top if w.z1 is None else min(wall_top, zb + ft.ffl + w.z1)
                             if wall_top <= z0 + _EPS:
-                                raise ValueError(f"실 {room.name}: 벽 마감 높이가 0 이하입니다 (바닥 마감 높이·천장 높이 확인)")
+                                raise ValueError(f"실 {room.name}: 벽 마감 높이가 0 이하입니다 (바닥 마감 높이·걸레받이 높이·천장 높이 확인)")
                             if item[1] == "side":                    # 측벽: 본체 측벽 오프닝 (출구통로·환기구)
                                 side = item[2]
-                                holes = [room_wall_hole(cfg, o) for o in wall_ops if o[1] == n and o[2] == side]
-                                pieces += _cut_s_holes(zz, z0, wall_top, holes)
+                                holes = [x for o in wall_ops if o[1] == n and o[2] == side for x in room_wall_holes(cfg, o, w.skirt)]
+                                pieces += _cut_s_holes(zz, z0, z1, holes)
                                 continue
                             _, kind, axis, c = item
                             holes = []
@@ -180,12 +177,11 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
                                 if across[0] - _EPS <= c <= across[1] + _EPS:
                                     holes.append(((o[0], o[1]) if axis == "s" else (o[2], o[3])) + (o[4], o[5]))
                             if T.is_rect(zz):
-                                pieces += _cut_holes((*T.bbox(zz), z0, wall_top), axis, holes)
+                                pieces += _cut_holes((*T.bbox(zz), z0, z1), axis, holes)
                             elif axis == "s":
-                                pieces += _cut_s_holes(zz, z0, wall_top, holes)
+                                pieces += _cut_s_holes(zz, z0, z1, holes)
                             else:
-                                pieces.append(_out(zz, z0, wall_top))
-        rf.walls = pieces
+                                pieces.append(_out(zz, z0, z1))
 
         # ---- 기둥 둘레 · 승강로 바깥면
         wall_regs = list(ctx["walls_t"]) + [piece_region(x) for x in pieces]
@@ -199,7 +195,8 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
             if rad is None:
                 rings.append(((s - hs, s + hs, t - ht, t + ht), zb, []))
             else:
-                rf.rings += _circle_ring(cfg, s, t, rad + gap, f, zb + ft.ffl, wall_top)
+                z1 = wall_top if w.z1 is None else min(wall_top, zb + ft.ffl + w.z1)
+                rings_out += _circle_ring(cfg, s, t, rad + gap, face - gap, zb + ft.ffl + w.z0, z1)
         for ev in ctx["evs"]:
             S0, S1, T0, T1 = ev.outer_rect()
             if not room.contains((S0 + S1) / 2.0, (T0 + T1) / 2.0):
@@ -214,9 +211,10 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
             rings.append(((S0, S1, T0, T1), zb, holes))
         col_rects = ctx["col_rects"]
         for rect, zb, door_holes in rings:
-            z0 = zb + ft.ffl
+            z0 = zb + ft.ffl + w.z0
+            z1 = wall_top if w.z1 is None else min(wall_top, zb + ft.ffl + w.z1)
             face_regs.append(T.rect(*_grow(rect, face)))
-            for r, axis, sign, c in _ring_rects(_grow(rect, gap), f):
+            for r, axis, sign, c in _ring_rects(_grow(rect, gap), face - gap):
                 others = wall_regs + T.from_rects([x for x in col_rects if x != rect])
                 for rr in T.intersect(clear, T.subtract([T.rect(*r)], others) if others else [T.rect(*r)]):
                     holes = []
@@ -225,9 +223,17 @@ def finish_trap_room(cfg, room, rf, ft, ctx):
                         if across[0] - gap - _EPS <= c <= across[1] + gap + _EPS:   # 마감은 벽면에서 이격(gap)만큼 떨어져 있음
                             holes.append(((a0, a1) if axis == "s" else (b0, b1)) + (h0, h1))
                     if T.is_rect(rr):
-                        rf.columns += _cut_holes((*T.bbox(rr), z0, wall_top), axis, holes)
+                        columns_out += _cut_holes((*T.bbox(rr), z0, z1), axis, holes)
                     else:
-                        rf.columns.append(_out(rr, z0, wall_top))
+                        columns_out.append(_out(rr, z0, z1))
+        return pieces, columns_out, rings_out, face_regs
+
+    face_regs = []
+    if f > _EPS:
+        rf.walls, rf.columns, rf.rings, face_regs = wall_pass(ft.panel_pass())
+        if ft.has_skirt:
+            sw, sc, rf.skirt_rings, _ = wall_pass(ft.skirt_pass())
+            rf.skirts = sw + sc
 
     # ---- 천장 · 천장틀
     if ft.ceiling:

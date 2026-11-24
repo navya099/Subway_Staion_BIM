@@ -13,7 +13,7 @@ xvfb-run -a python -m pytest -q     # 전체 테스트 (GUI 포함, 디스플레
 python -m pyflakes <소스 디렉터리>   # 소스는 경고 0 유지 (tests/ 에는 기존 미사용 import 경고가 일부 있음)
 ```
 
-- 현재 기준 **테스트 1283개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
+- 현재 기준 **테스트 1307개 통과** (GUI 138개 포함). 코드를 바꾸면 반드시 전체 테스트를 돌릴 것.
 - 코드 전체에서 길이 단위는 **m**, 각도 내부 단위는 rad.
 - 패키지 폴더에는 `__init__.py` 를 두지 않는다 (네임스페이스 패키지로 통일).
 
@@ -78,7 +78,7 @@ assets/image/tile/          텍스처 이미지(metal_panel·granite·ceiling_pa
 assets/image/light/, mep/   나중 조명(light_on/off)·설비 디퓨저(diffuser) 텍스처 (아직 코드에서 안 씀)
 gui/                        station_tab / platform_tab / column_tab / room_tab / finish_tab / opening_tab / stair_tab / escalator_tab / elevator_tab / passage_tab / entrance_tab / vent_tab / tactile_tab / print_tab / sign_tab (탭 1~15, 제목은 짧게 '1.선형' …, 창 폭 680),
                             column_draft·room_draft·finish_draft·opening_draft·stair_draft·escalator_draft·elevator_draft·ext_ev_draft·passage_draft·entrance_draft·vent_draft·tactile_draft·train_draft·psd_draft·sign_draft·print_draft(화면 비의존 입력 초안), tk_adapter(입력 → Config), project_file(프로젝트 저장/불러오기, 화면 비의존), preview_window(미리보기 창 + 선택 모드), pick_fill(고른 점 → 초안 값, 화면 비의존), pick_buttons(탭의 [선택] 버튼 공통)
-tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
+tests/                      test_patch, test_curved, test_sampled, test_landxml, test_openings, test_rooms, test_finishes, test_stairs, test_escalators, test_elevators, test_ext_ev, test_ev_fixtures, test_esc_anim, test_outer_views, test_passages, test_entrances, test_vents, test_project_file, test_output_options, test_preview, test_dae, test_tactile, test_train, test_psd, test_signs, test_passage_branch, test_widening, test_widening_phase2, test_web_viewer, test_web_light, test_skirting, test_stair_finishes, test_railings, test_stair_enclosure, test_smoke_barriers, test_stair_clearance, test_path_edit, test_passage_finish, test_layout_cache, test_path_profile, test_gui
 samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파일 포함)
 ```
 
@@ -134,6 +134,12 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
   - IFC: 실마다 IfcCovering(FLOORING 마감재·채움 / CLADDING 벽·기둥·승강로 / CEILING 천장판) + IfcMember(천장틀), IfcRelCoversSpaces → IfcSpace, 층 storey. IfcSpace 에 속성 세트 `SSBIM_SpaceFinish`(종류·재질·마감 높이·벽 마감 두께·`WallFinishFace`·`WallFinishGap`·천장 높이·천장틀). 곡선 선형의 얇은 마감 층은 면을 중심점 4분할 삼각형으로 내보냄(비틀린 사각 면의 분할 방향 차이로 IFC 체적이 어긋나는 것 방지).
   - 3D DXF FIN_FLOOR / FIN_WALL / FIN_CEILING / FIN_FRAME, 횡단 SEC_FINISH·종단 PROF_FINISH(윤곽), 평면 PLAN_FINISH(절단 높이를 지나는 벽·기둥 마감, 원기둥 둘레는 기둥 중심 기준 회전으로 로컬 좌표 — to_station 반복은 매우 느림).
   - **바깥 모서리(다른 실 모서리를 감싸는 반사각 꼭짓점, `_reflex`)**: 모서리를 돌아 이어지는 칸막이벽이 있으면 s 방향 마감을 모서리 너머(벽 반두께 + 마감 표면)까지, t 방향 마감은 그 뒷면(반두께 + 이격)까지 늘려 서로 만남(예전엔 틈, 사용자 지적). 이격 공간은 벽 끝까지만. 열린 끝(이어지는 벽 없음)은 끝막음이 맡음. 확폭 포켓 경로는 아직.
+  - **걸레받이(`FinishType.skirt_h/skirt_t/skirt_recess/skirt_material`, 마감 종류마다)**: 높이 0 = 없음(모델 기본 — 기존 출력 유지), **GUI 는 금속패널·패널 벽에 0.2 × 0.03·들어감 0.01·'흑색 걸레받이'**(사용자 지정, 옛 프로젝트도 벽 재질로 정함 — `FinishTypeDraft.__post_init__`), 벽 면처리(wall_t 0)면 없음. 앞면 = 벽 마감 표면에서 들어간 면(`skirt_span(face)` = 구조체 면에서 (뒷면, 앞면)), 이격이 모자라면 두께를 구조체 면까지 줄이고, 들어갈 자리가 5mm 미만이면(칸막이벽에 바로 붙인 T1.6 패널) 패널과 같은 자리. 벽 마감재는 걸레받이 윗면부터.
+    - 배치: 실 벽 마감을 같은 코드로 두 번(`wall_pass(WallPass)`: `panel_pass` / `skirt_pass`) — 모서리·문·기둥·승강로·끝막음·확폭 포켓 규칙이 그대로. `RoomFinishLayout.skirts/skirt_rings`, 부재 코드 SKIRT(`FIN_{실}_SKIRT`, FIN_WALL 레이어, IfcCovering SKIRTINGBOARD, Pset `SkirtingMaterial`·`SkirtingHeight`, 평면은 절단 높이를 지날 때만).
+    - **계단 옆 = 경사 띠(사용자 지정, 에스컬레이터 옆은 없음)** `finish_layout._stair_skirts`·`stair_band`: 피치선(디딤판 코를 잇는 선, 첫 코 한 단 앞 ~ 도착 디딤판 끝, 계단참·도착부 수평) 아래 한 단 ~ 위 skirt_h. 계단 옆면에서 0.15 안의 벽 마감(`_side_hits`, 사이에 칸막이벽이 없을 것)을 (s, z) 사다리꼴 불 연산(`trap_region`)으로 잘라 `skirt_slopes`·`wall_slopes` — 띠는 벽 마감재와 **같은 면·같은 두께**(계단 구간 패널 뒤는 슬래브 단면이라 들어갈 자리가 없음). 상·하면이 기운 조각 = `RoomPiece.ztrap`(하단·상단 @ 양 끝, `prism_member.z_range_at`, `finish_engine.sloped_piece`). 위층 오프닝(계단·ESC) 옆 벽은 바닥이 없으므로 평 걸레받이를 빼고 벽 마감을 바닥 마감면까지 내림.
+    - 출구통로(SKIRT 코드, 하부 헌치 위, 연귀): 접합부는 그쪽 걸레받이(없으면 마감재) 뒷면까지, 그쪽 걸레받이는 통로 걸레받이 앞면 사이를 비움(`room_wall_skirt_hole`·분기 `_cut_branch(code=SKIRT)`) → 끝면이 같은 면. 외부 EV 문 자리도 비움. 출입구(`FIN_SKIRT_*`, 종류 SKIRT): 평탄부 + 계단 쪽은 디딤판 윗면 ~ 피치선 + h(들어간 면) + 이음벽·끝벽, 에스컬레이터 쪽은 하부 평탄부까지.
+    - 보기 텍스처: 이미지 한 장 높이 = 걸레받이 높이(`dae_exporter.skirt_frames`·`skirt_uv`, 면마다 아래 변 0 ~ 위 변 1, 길이 방향은 0.8m 반복, 경사 띠도 따라 기움) — 예전 세계 좌표 타일이면 이미지 위쪽 모따기가 가운데에 옴.
+    - 함께 고친 결함: −s 로 오르는 계단·ESC 옆 계단 구간 패널이 만들어지지 않아 콘크리트가 보이던 문제(`_shaft_panels` 가 시작 쪽 실을 못 찾음), 계단·ESC 끝에 맞닿은 창고 뒷 벽이 좌표 반올림으로 겹침 오류가 나던 문제(`room_check` 1e-5 여유).
   - 알려진 단순화: 원기둥은 바닥·천장에서 빼지 않음(겹침), 천장 행거·액세스 플로어 받침 미모델링.
 - **점자블록(1단계, `tactiles/`)**: `cfg.tactile_settings = TactileSettings`(모델 기본 끔 — 기존 출력 유지, GUI 13.점자 탭은 켬, 옛 프로젝트도 켬). 일반값 예시 기본값(실무 기준 받으면 교체).
   - 자동 점형(경고): 승강장 연단(최하층, 선로 쪽 끝단 |t| = D/2 + 끝단 거리에서 `edge_offset` 0.6 떨어져 폭 `edge_width` 0.6, s 0~L), 계단 첫 챌판 앞(`s_at(−clear−depth .. −clear)`)·위층 도착 뒤(`s_at(length + clear ..)`, 위층), 에스컬레이터 트러스 끝 앞·뒤(`u_range` 기준, 폭 = 트러스 외폭), 엘리베이터 정지층마다 문 앞(승강로 바깥면에서 `ev_clear`, 폭 = 문 폭 + 2 × 블록 크기, 관통형은 양쪽). 이격 0.3·깊이 0.6.
@@ -365,7 +371,7 @@ samples/                    예제 선형(JSON/xyz/LandXML, 실제 Civil 3D 파�
 - 오프닝 위에 실제 계단/에스컬레이터/엘리베이터 BIM 객체 배치 (용도별 IfcStair/IfcTransportElement 등) — "본격적인 정거장 구현"의 다음 단계.
 - 오프닝 IFC 속성(Pset: 용도, 치수) 추가, 오프닝 간 최소 이격/벽체 이격 검증 규칙.
 - 승강장 슬래브·지지벽체와 바닥 슬래브 오프닝의 간섭 검사 (현재 기둥만 검사).
-- 마감 다음 후보: 벽 마감 하지재(각파이프·앵글·패널 클립 — 이격 공간), 걸레받이(실무 상세의 화강석 물갈기 T24/T30), 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 걸레받이·몰딩, 계단 하부·에스컬레이터 마감, 마감 물량표.
+- 마감 다음 후보: 벽 마감 하지재(각파이프·앵글·패널 클립 — 이격 공간), 천장 행거·액세스 플로어 받침, 실무 마감표 반영, 원기둥 바닥·천장 빼기, 몰딩, 계단 하부·에스컬레이터 마감, 마감 물량표.
 - 실 다음 후보: 사각형이 아닌 실(L자 등 사각형 조합), 실 면적표 출력, 기둥과 칸막이벽 체적 중복 정리.
 - 프로젝트 파일 다음 후보: 자동 저장·복구, 프로젝트에서 선형 원본 다시 꺼내기(내보내기).
 - 미리보기 다음 후보: UI 고도화 때 메인 창 안에 내장, 3D 를 OpenGL(pyvista 등)로 바꿔 깊이 정확·빠른 회전, 입력 중인 부재 강조, 횡단·종단에서도 위치 선택(높이), 평면에서 부재를 클릭해 해당 탭 항목 열기, 끌어서 옮기기(그립 편집).

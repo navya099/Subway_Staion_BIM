@@ -511,7 +511,7 @@ class IFCExporter:
                 if fe.kind == "FRAME":
                     members.append(self._frame_element("IfcMember", fe, ent.frame, items, PredefinedType="USERDEFINED"))
                 else:
-                    pre = {"FLOOR": "FLOORING", "FILL": "FLOORING", "WALL": "CLADDING", "CEILING": "CEILING"}[fe.kind]
+                    pre = {"FLOOR": "FLOORING", "FILL": "FLOORING", "WALL": "CLADDING", "SKIRT": "SKIRTINGBOARD", "CEILING": "CEILING"}[fe.kind]
                     members.append(self._frame_element("IfcCovering", fe, ent.frame, items, PredefinedType=pre))
             for ce in ent.canopy:                              # 캐노피: 기둥 IfcColumn · 보 IfcBeam · 유리 IfcPlate · 출구 사인
                 items = self._frame_strip_solids(ce, "EntranceCanopyProfile")
@@ -821,7 +821,8 @@ class IFCExporter:
         return [tri for q in quads for tri in _fan(q)]
 
     _PASSAGE_FINISH = {"FLOOR": ("IfcCovering", "FLOORING"), "FILL": ("IfcCovering", "FLOORING"),
-                       "WALL": ("IfcCovering", "CLADDING"), "CEILING": ("IfcCovering", "CEILING"), "FRAME": ("IfcMember", "USERDEFINED")}
+                       "WALL": ("IfcCovering", "CLADDING"), "SKIRT": ("IfcCovering", "SKIRTINGBOARD"),
+                       "CEILING": ("IfcCovering", "CEILING"), "FRAME": ("IfcMember", "USERDEFINED")}
 
     def export_passage_finishes(self, engine):
         """출구통로 마감: 바닥 마감재·채움(IfcCovering FLOORING), 벽(CLADDING), 천장판(CEILING), 천장틀(IfcMember) — 면 집합,
@@ -875,6 +876,8 @@ class IFCExporter:
                     ("WallFinishFace", "IfcLengthMeasure", float(ft.face)),          # 구조체 면 → 마감 표면
                     ("WallFinishGap", "IfcLengthMeasure", float(ft.wall_gap)),       # 마감재 뒷면 이격 (하지 공간)
                     ("PartitionFinishFace", "IfcLengthMeasure", float(ft.pface)),    # 칸막이벽 면 → 마감 표면
+                    ("SkirtingMaterial", "IfcLabel", ft.skirt_material if ft.has_skirt else "없음"),
+                    ("SkirtingHeight", "IfcLengthMeasure", float(ft.skirt_h if ft.has_skirt else 0.0)),
                     ("CeilingMaterial", "IfcLabel", ft.ceiling_material if ft.ceiling else "없음"),
                     ("CeilingHeight", "IfcLengthMeasure", float(ft.ceiling_h if ft.ceiling else 0.0)),
                     ("CeilingFrame", "IfcLabel", f"{ft.frame}바" if ft.ceiling else "없음")]

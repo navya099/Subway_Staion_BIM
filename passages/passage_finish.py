@@ -6,6 +6,7 @@
 단면 (v = 진행방향 왼쪽 +, dz = 그 자리 구조 바닥 상면 기준):
 - 바닥: 구조 벽 면 사이 (하부 헌치가 있으면 헌치 빗면을 따라 좁아짐), 채움 [0, ffl − floor_t] + 마감재 [ffl − floor_t, ffl]
 - 벽: 구조 벽 면에서 마감 표면 거리(face)만큼 안쪽이 표면, 마감재 두께 wall_t (0 이면 면처리 — 형상 없음), 높이 ffl ~ 천장판 하면
+- 걸레받이(마감 종류의 skirt_*): ffl ~ ffl + skirt_h, 벽 마감 표면에서 들어간 면 (FinishType.skirt_span), 벽 마감은 그 윗면부터
 - 천장판: 벽 마감 표면 사이, 하면 = ffl + ceiling_h, 위로 천장틀(바: 축에 직각, 캐링 채널: 축 방향)
 천장(판 + 틀)이 내공(상부 헌치 아래)에 들어가지 않으면 천장 없이 만들고 경고 (통로 내공 높이를 늘려야 함 — 필요한 높이 안내).
 
@@ -20,8 +21,8 @@ from dataclasses import dataclass, field
 from finishes.finish_spec import FILL_MORTAR
 from helper.box_piece import BoxPiece
 
-FLOOR, FILL, WALL, CEILING, FRAME = "FLOOR", "FILL", "WALL", "CEILING", "FRAME"
-CODES = (FILL, FLOOR, WALL, CEILING, FRAME)
+FLOOR, FILL, WALL, SKIRT, CEILING, FRAME = "FLOOR", "FILL", "WALL", "SKIRT", "CEILING", "FRAME"
+CODES = (FILL, FLOOR, WALL, SKIRT, CEILING, FRAME)
 PASSAGE_USE = "통로"
 _EPS = 1e-6
 
@@ -83,8 +84,28 @@ def room_wall_hole(cfg, op) -> tuple:
     return s0 + gap, s1 - gap, z0, z1
 
 
+def room_wall_skirt_hole(cfg, op) -> list:
+    """본체 실 걸레받이에서 출구통로 걸레받이 자리로 더 비울 곳: 통로 걸레받이 앞면 사이 × 통로 걸레받이 윗면까지 (통로 걸레받이는
+    실 걸레받이 뒷면까지 들어가고, 실 걸레받이 끝면이 통로 걸레받이 앞면과 같은 면이 됨). 통로에 걸레받이가 없으면 없음"""
+    if len(op) < 8 or op[7] != "PASSAGE":
+        return []
+    lay = next((x for x in cfg.passage_layouts() if x.name == op[0]), None)
+    ft = passage_finish_type(cfg, lay.spec) if lay is not None else None
+    if ft is None or not ft.has_skirt:
+        return []
+    front = ft.skirt_span(ft.face)[1]
+    return [(op[3] + front, op[4] - front, op[5], op[5] + ft.ffl + ft.skirt_h)]
+
+
+def _back_of(ft) -> float:
+    """구조 벽 면 → 벽 마감 맨 아래(걸레받이, 없으면 마감재) 뒷면 (마감 없으면 0)"""
+    if ft is None or ft.wall_t <= 0:
+        return 0.0
+    return ft.skirt_span(ft.face)[0] if ft.has_skirt else ft.wall_gap
+
+
 def _host_station(cfg, lay):
-    """본체 접합부: (구조 벽 두께, 실 벽 마감 표면 거리, 실 벽 마감재 두께)"""
+    """본체 접합부: (구조 벽 두께, 실 벽 마감 표면 거리, 실 벽 마감재 두께, 걸레받이(없으면 마감재) 뒷면 거리)"""
     from config.widening import inner_min
     from finishes.finish_clear import room_finish_at
     v0 = lay.vertices[0]
@@ -92,7 +113,7 @@ def _host_station(cfg, lay):
     inner = inner_min(cfg, lay.floor, lay.side, v0.s - a, v0.s + a)
     wst = abs(v0.t) - inner
     rf = room_finish_at(cfg, lay.floor, v0.s, lay.side * (inner - 0.01))
-    return wst, (rf.face if rf is not None else 0.0), (rf.wall_t if rf is not None else 0.0)
+    return wst, (rf.face if rf is not None else 0.0), (rf.wall_t if rf is not None else 0.0), _back_of(rf)
 
 
 def _rect(v0, v1, d0, d1):
@@ -133,17 +154,21 @@ def layout_passage_finishes(cfg) -> tuple:
         face = ft.face if ft.wall_t > 0 else 0.0
         cb = ft.ffl + ft.ceiling_h                                     # 천장판 하면 (바닥 상면 기준)
         w_top = cb if ceil else _haunch_limit(sp, face - ft.wall_t) if ft.wall_t > 0 else H
-        w_bot = max(ft.ffl, _haunch_floor(sp, face - ft.wall_t)) if ft.wall_t > 0 else ft.ffl
+        w_bot = max(ft.ffl + (ft.skirt_h if ft.has_skirt else 0.0), _haunch_floor(sp, face - ft.wall_t)) if ft.wall_t > 0 else ft.ffl
         c_half = a - face                                              # 벽 마감 표면 (천장판 반폭)
         parts = {c: [] for c in CODES}
         # 접합부 (본체 또는 부모 통로): 구조 벽 두께, 그쪽 마감 표면 거리, 그쪽 마감재 두께
         if lay.parent:
             pft = fts.get(lay.parent)
             host = (by_name[lay.parent].spec.wall_t, (pft.face if pft is not None and pft.wall_t > 0 else 0.0),
-                    (pft.wall_t if pft is not None else 0.0))
+                    (pft.wall_t if pft is not None else 0.0), _back_of(pft))
         else:
             host = _host_station(cfg, lay)
-        wst, hface, hwall = host
+        wst, hface, hwall, hback = host
+        sk = ft.has_skirt
+        sb, sf = ft.skirt_span(face) if sk else (0.0, 0.0)             # 걸레받이 뒷면·앞면 (구조 벽 면에서)
+        s_top = ft.ffl + (ft.skirt_h if sk else 0.0)                   # 벽 마감 시작 높이
+        s_bot = max(ft.ffl, _haunch_floor(sp, sb)) if sk else 0.0      # 하부 헌치 위
         last = len(lay.segments) - 1
         for seg in lay.segments:
             L = seg.length
@@ -170,11 +195,17 @@ def layout_passage_finishes(cfg) -> tuple:
                 # 벽 (접합부는 그쪽 마감 표면까지 연장)
                 if ft.wall_t > 0 and w_top - w_bot > _EPS:
                     wa0 = -(wst + hface) if ext else a0
-                    wb = ft.ffl if ext else w_bot
+                    wb = s_top if ext else w_bot
                     wt = cb if (ext and ceil) else (H if ext else w_top)
                     for sgn in (1, -1):
                         v0, v1 = sorted((sgn * c_half, sgn * (c_half + ft.wall_t)))
                         parts[WALL].append(_piece(seg, wa0, a1, _rect(v0, v1, wb, wt), kk, ke, flat))
+                # 걸레받이 (접합부는 그쪽 걸레받이(없으면 마감재) 뒷면까지)
+                if sk and s_top - (ft.ffl if ext else s_bot) > _EPS:
+                    for sgn in (1, -1):
+                        v0, v1 = sorted((sgn * (a - sf), sgn * (a - sb)))
+                        parts[SKIRT].append(_piece(seg, -(wst + hback) if ext else a0, a1,
+                                                   _rect(v0, v1, ft.ffl if ext else s_bot, s_top), kk, ke, flat))
                 # 천장판 (접합부는 그쪽 벽 마감재 뒷면까지)
                 if ceil:
                     ca0 = -(wst + hface) + hwall if ext else a0
@@ -186,8 +217,11 @@ def layout_passage_finishes(cfg) -> tuple:
                                        end - face if (sp.close_end and seg.index == last) else end, ke_end)
             if sp.close_end and seg.index == last and ft.wall_t > 0:   # 끝 벽 마감
                 e0 = L - sp.wall_t - face
-                parts[WALL].append(_piece(seg, e0, e0 + ft.wall_t, _rect(-c_half, c_half, ft.ffl, cb if ceil else w_top),
+                parts[WALL].append(_piece(seg, e0, e0 + ft.wall_t, _rect(-c_half, c_half, s_top, cb if ceil else w_top),
                                           0.0, 0.0))
+                if sk:
+                    parts[SKIRT].append(_piece(seg, L - sp.wall_t - sf, L - sp.wall_t - sb, _rect(-(a - sf), a - sf, ft.ffl, s_top),
+                                               0.0, 0.0))
         out.append(PassageFinishLayout(lay.name, lay.floor, ft, ceil, parts))
     # 분기: 부모 벽 마감에 자식 통로 마감 개구부 (자식 벽 마감재 뒷면 사이 × 바닥 ~ 자식 천장판 하면)
     res = {x.name: x for x in out}
@@ -199,6 +233,11 @@ def layout_passage_finishes(cfg) -> tuple:
         w = lay.spec.half_in - gap
         top = ft.ffl + ft.ceiling_h if fits[lay.name] else lay.spec.inner_height
         _cut_branch(res[lay.parent], by_name[lay.parent], lay.branch_seg, lay.side, lay.branch_a - w, lay.branch_a + w, top)
+        cuts = [(w, top)]                                    # 부모 걸레받이: 자식 걸레받이 앞면 사이(자식 걸레받이 높이까지) + 위와 같은 개구부
+        if ft.has_skirt:
+            cuts.append((lay.spec.half_in - ft.skirt_span(ft.face)[1], ft.ffl + ft.skirt_h))
+        for cw, ct in sorted(cuts, reverse=True):            # 넓은 것부터 (좁은 것은 남은 인방에서)
+            _cut_branch(res[lay.parent], by_name[lay.parent], lay.branch_seg, lay.side, lay.branch_a - cw, lay.branch_a + cw, ct, SKIRT)
     from elevators.ext_ev import passage_front
     from passages.passage_layout import ext_ev_hosts, host_position
     for xn, xs, pn in ext_ev_hosts(cfg):                      # 외부 엘리베이터 문 자리 (벽 마감 비움, 위는 인방)
@@ -206,7 +245,8 @@ def layout_passage_finishes(cfg) -> tuple:
             seg_i, a, _ = host_position(by_name[pn], xs.along, f"외부 엘리베이터 {xn}")
             fs, ffl, _ = passage_front(cfg, by_name[pn].spec, xs, f"외부 엘리베이터 {xn}")
             half, h = fs.low_front()
-            _cut_branch(res[pn], by_name[pn], seg_i, xs.host_side, a - half, a + half, ffl + h)
+            for code in (WALL, SKIRT):
+                _cut_branch(res[pn], by_name[pn], seg_i, xs.host_side, a - half, a + half, ffl + h, code)
     return out, warns
 
 
@@ -237,10 +277,10 @@ def _frame(seg, ft, c_half, z_board, end, ke_end) -> list:
     return out
 
 
-def _cut_branch(res, parent, seg_i, side, o0, o1, top):
+def _cut_branch(res, parent, seg_i, side, o0, o1, top, code=WALL):
     """부모 통로 마감 res 의 side 쪽 벽 마감 조각(구간 seg_i)에서 축 o0 ~ o1 × 아래 ~ top 을 비움 (위는 인방으로 남김)"""
     new = []
-    for pc in res.parts[WALL]:
+    for pc in res.parts[code]:
         vs = [v for v, _ in pc.sect]
         on_side = min(vs) > 0 if side > 0 else max(vs) < 0
         if pc.local.get("seg") != seg_i or not on_side or not (pc.a0 - _EPS <= o0 and o1 <= pc.a1 + _EPS):
@@ -254,4 +294,4 @@ def _cut_branch(res, parent, seg_i, side, o0, o1, top):
             v0, v1 = min(vs), max(vs)
             new.append(BoxPiece(pc.ox, pc.oy, pc.ux, pc.uy, o0, o1, _rect(v0, v1, max(top, d0), d1), z(o0), pc.slope, 0.0, 0.0,
                                 dict(pc.local, lintel=True)))
-    res.parts[WALL] = new
+    res.parts[code] = new

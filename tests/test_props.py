@@ -20,7 +20,7 @@ from helper.prism_member import mesh_volume
 from openings.opening_kind import OpeningKind
 from openings.opening_spec import OpeningSpec
 from props.prop_check import circle, depth, rect
-from props.prop_kinds import CEILING, FLOOR, HANG, INT, KINDS, NUM, TEXT, WALL
+from props.prop_kinds import CEILING, FLOOR, HANG, INT, KINDS, MODEL_KINDS, NUM, TEXT, WALL
 from props.prop_spec import PropSpec, check_props, resolve_prop_names
 from rooms.room_spec import DoorSpec, RoomSpec
 from stairs.stair_spec import StairSpec
@@ -43,8 +43,8 @@ def prop(kind, s, t, floor=2, angle=0.0, name="", **vals):
 
 # ===================================================== 등록부
 def test_kinds_cover_requested_list():
-    assert set(KINDS) == {"BENCH", "BIN", "EXT", "TVM", "GATE", "HYDRANT", "PANEL_W", "PANEL_C", "HSIGN"}
-    assert {c for c, k in KINDS.items() if k.mount == WALL} == {"HYDRANT", "PANEL_W"}
+    assert set(KINDS) - set(MODEL_KINDS) == {"BENCH", "BIN", "EXT", "TVM", "GATE", "HYDRANT", "PANEL_W", "PANEL_C", "HSIGN"}
+    assert {c for c, k in KINDS.items() if k.mount == WALL} == {"HYDRANT", "PANEL_W", "MODEL_W"}
     assert KINDS["PANEL_C"].mount == CEILING and KINDS["HSIGN"].mount == HANG and KINDS["BENCH"].mount == FLOOR
 
 

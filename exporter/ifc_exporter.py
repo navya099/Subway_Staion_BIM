@@ -959,11 +959,13 @@ class IFCExporter:
             el = f.create_entity(
                 entity, GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name, Description=f"비품 {e.type_name}",
                 ObjectType=e.kind, ObjectPlacement=self._placement(),
-                Representation=self._product_shape([self._face_set(engine.part_faces(e, p)) for p in e.parts], "Tessellation"),
+                Representation=self._product_shape(
+                    [self._tri_set([list(tris.tolist())]) for _, tris in engine.model_faces(e) if len(tris)] if e.detail
+                    else [self._face_set(engine.part_faces(e, p)) for p in e.parts], "Tessellation"),
                 PredefinedType=pre)
             if e.material:
                 self._assign_material(el, e.material)
-            vals = [("Kind", e.type_name)] + [(x.label, e.values[x.key]) for x in KINDS[e.kind].fields]
+            vals = [("Kind", e.type_name)] + ([("Model", e.model)] if e.model else []) + [(x.label, e.values[x.key]) for x in KINDS[e.kind].fields]
             props = [f.create_entity("IfcPropertySingleValue", Name=n, NominalValue=f.create_entity("IfcLabel", v) if isinstance(v, str)
                                      else f.create_entity("IfcReal", float(v))) for n, v in vals]
             pset = f.create_entity("IfcPropertySet", GlobalId=ifcopenshell.guid.new(), Name="SSBIM_Prop", HasProperties=props)

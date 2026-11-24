@@ -230,6 +230,10 @@ class StationBIMApp:
             self.passage_tab.update_floor_ui()
         if hasattr(self, 'vent_tab'):
             self.vent_tab.update_floor_ui()
+        if hasattr(self, 'tactile_tab'):
+            self.tactile_tab.update_floor_ui()
+        if hasattr(self, 'prop_tab'):
+            self.prop_tab.update_floor_ui()
         if hasattr(self, 'print_tab'):
             self.print_tab.update_floor_ui()
 
@@ -329,6 +333,7 @@ class StationBIMApp:
         st.train_draft = copy.deepcopy(self.platform_tab.train_draft)
         st.psd_draft = copy.deepcopy(self.platform_tab.psd_draft)
         st.sign_draft = copy.deepcopy(self.sign_tab.draft)
+        st.prop_model_limit = self.prop_tab.models.limit
         source = self.station_tab.source
         st.alignment = source.embedded if source.alignment is not None else None
         return st
@@ -343,7 +348,7 @@ class StationBIMApp:
 
     def apply_state(self, st: ProjectState) -> list:
         """상태를 화면에 복원. 경고 목록 반환 (포함된 선형을 읽지 못하면 BP/EP 직선으로 열고 경고)"""
-        warnings = []
+        warnings = list(st.warnings)
         self.station_tab.reset_alignment()
         for k, v in st.fields.items():
             if not k.startswith(FLOOR_KEYS) and isinstance(self.entries.get(k), tk.Entry):
@@ -367,6 +372,8 @@ class StationBIMApp:
         self.platform_tab.psd_draft.__dict__.update(copy.deepcopy(st.psd_draft).__dict__)
         self.platform_tab.render_psd()
         self.sign_tab.draft.__dict__.update(copy.deepcopy(st.sign_draft).__dict__)
+        self.prop_tab.limit_var.set(st.prop_model_limit)          # 모델 목록은 LIST_DRAFTS
+        self.prop_tab.render_models()
         self.tactile_tab.drafts.settings = copy.deepcopy(st.tactile_settings)     # 경로 목록은 LIST_DRAFTS, 탭 render 전에
         self.station_tab.render_widenings()
         for name in DRAFT_TABS:

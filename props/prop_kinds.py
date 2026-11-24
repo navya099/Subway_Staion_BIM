@@ -161,6 +161,30 @@ def _panel_c(v):
             box(WHITE, -d / 2 + f, d / 2 - f, -w / 2 + f, w / 2 - f, -t * 0.6, 0.0)]
 
 
+# ===================================================== 등록부에 없는 물건 = 외부 3D 모델 (모양은 model_spec, 파일을 못 읽으면 마지막 크기의 상자)
+MODEL_KINDS = ("MODEL_F", "MODEL_W", "MODEL_C", "MODEL_H")
+EMPTY_SIZE = (0.5, 0.5, 0.5)
+
+
+def size_box(mount, size, z=0.0) -> PropPart:
+    """외곽 상자 (크기 = 깊이 x, 폭 y, 높이 z) — 기준점은 모델과 같은 규칙"""
+    d, w, h = size
+    x0 = 0.0 if mount == WALL else -d / 2
+    z0 = -h if mount == CEILING else z
+    return box(WHITE, x0, x0 + d, -w / 2, w / 2, z0, z0 + h)
+
+
+def _define_models():
+    z = ("z", "바닥에서 하단", 0.3, NUM, -1e-9)
+    for code, word, mount, fields in (("MODEL_F", "바닥", FLOOR, []), ("MODEL_W", "벽", WALL, [z]), ("MODEL_C", "천장", CEILING, []),
+                                      ("MODEL_H", "매달림", HANG, [("z", "바닥에서 하단", 2.5, NUM, 0.5)])):
+        define(code, f"외부 모델 ({word})", mount, fields, material=WHITE)(
+            lambda v, m=mount: [size_box(m, v.get("size") or EMPTY_SIZE, v.get("z", 0.0))])
+
+
+_define_models()
+
+
 # ===================================================== 매달림 안내사인 (높이는 바닥 기준이라 천장까지 거리 'ceil' 을 받음)
 ROD = 0.01                        # 행거 반폭
 

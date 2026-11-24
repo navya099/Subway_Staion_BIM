@@ -150,21 +150,49 @@ def fixture_instances(fixtures, cfg, origin, elems, put, tex_key) -> tuple:
     return out, tri
 
 
+def _model_items(e, items, count, put, images, data_url) -> list:
+    """외부 모델 비품 하나의 재질마다 형상 자료. 걷기 충돌(solid) = 면이 적으면 실제 면, 많으면 보이지 않는 외곽 상자(hidden)"""
+    from props.prop_engine import LAYER
+    base = {"layer": LAYER, "group": _group_of(LAYER), "light": False, "count": count, "items": items}
+    out = []
+    for j, p in enumerate(e.mesh):
+        item = {**base, "material": p.name, "color": [round(float(c), 4) for c in p.color], "alpha": round(float(p.alpha), 3), "tex": None,
+                "solid": e.detail, "nv": len(p.pos), "nt": len(p.idx), "pos": put(p.pos.astype(np.float32)), "idx": put(p.idx.astype(np.uint32))}
+        if p.image is not None:
+            item["tex"], item["cut"] = f"모델 {e.model}|{j}", bool(p.cut)
+            images[item["tex"]] = data_url(p.image)
+            item["uv"] = put(p.uv.astype(np.float32))
+        out.append(item)
+    if not e.detail:
+        (b,) = e.parts
+        v = [(*q, z) for z in (b.z0, b.z1) for q in b.poly]
+        idx = [i for a, c, d, f in BOX_FACES for i in (a, c, d, a, d, f)]
+        out.append({**base, "material": "외곽 상자", "color": [1.0, 1.0, 1.0], "alpha": 1.0, "tex": None, "solid": True, "hidden": True, "nv": 8,
+                    "nt": 12, "pos": put(np.array(v, dtype=np.float32)), "idx": put(np.array(idx, dtype=np.uint32))})
+    return out
+
+
 def prop_instances(props, origin, elems, put, images, data_url) -> tuple:
     """비품을 형상 하나 + 배치 목록으로: 같은 종류·치수·문구끼리 묶어 재질(그림)마다 한 형상. 배치는 천장 기구와 같은 형식
     (구배 0 — 비품은 연직·수평). 그림 있는 면은 따로 (uv 한 장)"""
     from props.prop_engine import LAYER
     groups = {}
     for e in props.elements if props is not None else []:
-        groups.setdefault((e.kind, json.dumps(e.values, sort_keys=True, ensure_ascii=False)), []).append(e)
+        key = (e.model, e.parts[0].poly, e.parts[0].z0) if e.mesh else (e.kind, json.dumps(e.values, sort_keys=True, ensure_ascii=False))
+        groups.setdefault(key, []).append(e)                          # 외부 모델은 종류와 관계없이 같은 기준점이면 한 형상
     out, tri = [], 0
-    for g, ((kind, _), els) in enumerate(groups.items()):
+    for g, els in enumerate(groups.values()):
         rows = []
         for e in els:
             x, y, z, th = props.transform(e)
             elems.append({"name": e.name, "layer": LAYER, "group": _group_of(LAYER), "level": e.level, "material": e.material, "type": e.type_name})
             rows.append((x - origin[0], y - origin[1], z - origin[2], np.cos(th), np.sin(th), 0.0, 1.0, e.s, e.z, len(elems) - 1))
         items = put(np.array(rows, dtype=np.float32))
+        if els[0].mesh:
+            for j, item in enumerate(_model_items(els[0], items, len(rows), put, images, data_url)):
+                out.append(item)
+                tri += 0 if item.get("hidden") else len(rows) * item["nt"]
+            continue
         imgs = props.images(els[0])
         shapes = {}                                                   # (재질, 그림 키) → (꼭짓점, uv, 번호)
         for part in els[0].parts:

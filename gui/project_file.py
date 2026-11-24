@@ -31,7 +31,7 @@ from gui.passage_draft import PassageDraft, PassageDrafts, VertexDraft
 from gui.print_draft import PrintDraft
 from gui.room_draft import DoorDraft, RoomDraft, RoomDrafts, RoomSettingsDraft
 from gui.stair_draft import StairDraft, StairDrafts
-from gui.prop_draft import PropDraft, PropDrafts, default_values
+from gui.prop_draft import ModelDraft, ModelDrafts, PropDraft, PropDrafts, default_values, fix_model_paths
 from gui.psd_draft import PsdDraft
 from gui.sign_draft import ExitDraft, SignDraft
 from gui.train_draft import TrainDraft
@@ -56,7 +56,7 @@ LIST_DRAFTS = {"opening_drafts": (OpeningDrafts, OpeningDraft), "stair_drafts": 
                "elevator_drafts": (ElevatorDrafts, ElevatorDraft), "ext_ev_drafts": (ExtEvDrafts, ExtEvDraft),
                "room_drafts": (RoomDrafts, RoomDraft),
                "tactile_drafts": (TactileDrafts, TactilePathDraft), "widen_drafts": (WidenDrafts, WidenDraft),
-               "prop_drafts": (PropDrafts, PropDraft)}
+               "prop_drafts": (PropDrafts, PropDraft), "prop_models": (ModelDrafts, ModelDraft)}
 
 
 # ====================================================================== 초안 dataclass ↔ JSON
@@ -243,7 +243,10 @@ class ProjectState:
     tactile_drafts: list = field(default_factory=list)                           # 유도블록 경로 (TactilePathDraft)
     tactile_settings: TactileSettingsDraft = field(default_factory=TactileSettingsDraft)   # 점자블록 공통·자동 경고
     prop_drafts: list = field(default_factory=list)                              # 비품 (PropDraft)
+    prop_models: list = field(default_factory=list)                              # 비품 외부 모델 (ModelDraft, 파일 경로만)
+    prop_model_limit: str = field(default_factory=lambda: ModelDrafts().limit)   # DXF·IFC 면 한도
     alignment: Optional[EmbeddedAlignment] = None
+    warnings: list = field(default_factory=list, compare=False)                  # 열 때 알릴 것 (저장하지 않음)
 
     def to_dict(self) -> dict:
         d = {"format": FORMAT, "version": VERSION, "fields": dict(self.fields), "platform_type": self.platform_type,
@@ -262,6 +265,7 @@ class ProjectState:
         d["train_draft"] = _plain(self.train_draft)
         d["psd_draft"] = _plain(self.psd_draft)
         d["sign_draft"] = _plain(self.sign_draft)
+        d["prop_model_limit"] = self.prop_model_limit
         d["alignment"] = _alignment_plain(self.alignment)
         return d
 
@@ -305,6 +309,8 @@ class ProjectState:
             st.room_settings.default_uses = {str(k): str(v) for k, v in (st.room_settings.default_uses or {}).items()}
         if d.get("sign_draft") is not None:                        # 옛 파일에는 없음 → 기본 (사용)
             st.sign_draft = _build(SignDraft, d["sign_draft"], "사인")
+        if d.get("prop_model_limit") is not None:
+            st.prop_model_limit = str(d["prop_model_limit"])
         if d.get("psd_draft") is not None:                         # 옛 파일에는 없음 → 기본 (사용)
             st.psd_draft = _build(PsdDraft, d["psd_draft"], "스크린도어")
         if d.get("train_draft") is not None:                       # 옛 파일에는 없음 → 기본 (사용)
@@ -348,7 +354,9 @@ def open_project(path) -> ProjectState:
         raise ValueError("정거장 BIM 프로젝트 파일이 아닙니다 (텍스트가 아님)") from None
     except OSError as e:
         raise ValueError(f"파일을 열 수 없습니다 ({e.strerror})") from None
-    return ProjectState.from_dict(d)
+    st = ProjectState.from_dict(d)
+    st.warnings = fix_model_paths(st.prop_models, path)
+    return st
 
 
 # ====================================================================== 최근 프로젝트

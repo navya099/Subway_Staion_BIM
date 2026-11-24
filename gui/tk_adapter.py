@@ -13,7 +13,7 @@ from gui.passage_draft import PassageDrafts
 from gui.print_draft import PrintDraft
 from gui.room_draft import RoomDrafts
 from gui.tactile_draft import TactileDrafts
-from gui.prop_draft import PropDrafts
+from gui.prop_draft import ModelDrafts, PropDrafts
 from gui.psd_draft import PsdDraft
 from gui.sign_draft import SignDraft
 from gui.train_draft import TrainDraft
@@ -120,6 +120,8 @@ class TkAdapter:
                                    enclosure_settings=(entries.get("enclosure_draft") or EnclosureDraft(enabled=False)).to_settings(),
                                    smoke_settings=(entries.get("smoke_draft") or SmokeDraft(enabled=False)).to_settings(),
                                    props=(entries.get("prop_drafts") or PropDrafts()).to_specs(station_p.start_station),
+                                   prop_models=(entries.get("prop_models") or ModelDrafts()).to_models(),
+                                   prop_model_limit=(entries.get("prop_models") or ModelDrafts()).to_limit(),
                                    widenings=(entries.get("widen_drafts") or WidenDrafts()).to_specs(station_p.start_station,
                                                                                                      station_p.floors))
         cfg.validate()

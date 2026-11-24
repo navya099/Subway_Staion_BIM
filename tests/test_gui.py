@@ -2026,6 +2026,63 @@ def test_prop_tab_add_pick_copy_and_collect(app, monkeypatch, tmp_path):
     app.preview.close()
 
 
+def test_prop_tab_external_models(app, monkeypatch, tmp_path):
+    """외부 모델 목록: 파일 등록·이름 바꾸면 비품도 따라감·삭제하면 코드 형상, 프로젝트 저장/열기(없는 파일 경고)"""
+    from gui.prop_draft import CODE_SHAPE, KIND_CODES
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from test_prop_models import gltf
+    path = gltf(tmp_path, "화분.glb")
+    tab = app.prop_tab
+    monkeypatch.setattr(tab, "ask_model_paths", lambda: (str(path),))
+    tab.add_models()
+    tab.add_models()
+    assert tab.models.names() == ["화분", "화분 2"] and "면 12개" in tab._minfo[0].get()
+    tab._mvars[(0, "scale")].set("0.4")
+    assert "폭 0.80" in tab._minfo[0].get()
+    tab.new_kind.current(KIND_CODES.index("MODEL_F"))
+    tab.add_prop()
+    tab.new_kind.current(KIND_CODES.index("BENCH"))
+    tab.add_prop()
+    assert [x.model for x in tab.drafts.items] == ["화분", ""]                    # 외부 모델 종류는 첫 모델
+    c = tab._combos[(1, "model")]
+    c.set("화분 2")
+    c.event_generate("<<ComboboxSelected>>")
+    app.root.update()
+    assert tab.drafts.items[1].model == "화분 2"
+    for text in ("나", "나무", "", "화분", "큰 나무"):                              # 치는 동안 비거나 겹쳐도 연결 유지
+        tab._mvars[(1, "name")].set(text)
+    assert tab.drafts.items[1].model == "큰 나무" and tab._combos[(1, "model")].get() == "큰 나무" and tab.drafts.items[0].model == "화분"
+    tab.limit_var.set("10")
+    tab._vars[(1, "sta")].set("1000")
+    cfg = TkAdapter.collect_entries(app.entries)
+    assert [(m.name, m.scale) for m in cfg.prop_models] == [("화분", 0.4), ("큰 나무", 1.0)] and cfg.prop_model_limit == 10
+    st = app.collect_state()
+    from gui.project_file import open_project, save_project
+    save_project(tmp_path / "a.ssbim", st)
+    tab.remove_model(1)
+    assert tab.drafts.items[1].model == "" and tab._combos[(1, "model")].get() == CODE_SHAPE
+    path.unlink()
+    warns = app.apply_state(open_project(tmp_path / "a.ssbim"))
+    assert len(warns) == 2 and app.prop_tab.limit_var.get() == "10" and "파일이 없습니다" in app.prop_tab._minfo[0].get()
+    assert app.prop_tab._combos[(1, "model")].get() == "큰 나무"
+
+
+def test_open_project_keeps_top_floor_of_props_and_tactile_paths(app, tmp_path):
+    """층수가 화면과 다른 프로젝트를 열어도 맨 위층 비품·점자 경로의 층이 바뀌지 않음 (아래층으로 밀리던 결함)"""
+    from gui.project_file import open_project, save_project
+    from gui.prop_draft import new_draft
+    from gui.tactile_draft import default_path
+    st = app.collect_state()
+    n = int(st.fields["floors"])
+    st.fields["floors"] = str(n + 2)
+    st.prop_drafts = [new_draft("BENCH", n + 2, 1000.0)]
+    st.tactile_drafts = [default_path(n + 2, 1000.0, 3.0)]
+    save_project(tmp_path / "a.ssbim", st)
+    app.apply_state(open_project(tmp_path / "a.ssbim"))
+    assert app.prop_tab.drafts.items[0].floor == n + 2 and app.tactile_tab.drafts.items[0].floor == n + 2
+    assert app.prop_tab._combos[(0, "floor")].current() == n + 1
+
+
 def test_pick_on_curved_alignment_uses_world_plan(app, monkeypatch):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from gui.preview_window import PreviewWindow

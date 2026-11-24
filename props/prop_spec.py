@@ -2,7 +2,8 @@
 import dataclasses
 import re
 
-from props.prop_kinds import INT, KINDS, NUM, TEXT
+from props.model_spec import check_models
+from props.prop_kinds import INT, KINDS, MODEL_KINDS, NUM, TEXT
 
 
 @dataclasses.dataclass
@@ -19,6 +20,7 @@ class PropSpec:
     angle: float = 0.0
     values: dict = dataclasses.field(default_factory=dict)
     name: str = ""
+    model: str = ""              # 외부 모델 이름 (StationProjectConfig.prop_models), "" = 종류의 코드 형상
 
     def resolved(self) -> dict:
         """기본값을 채운 입력 값"""
@@ -27,18 +29,22 @@ class PropSpec:
 
 
 def resolve_prop_names(specs) -> list:
-    """이름 목록 (비우면 종류 이름(괄호 앞) + 같은 종류 순번)"""
+    """이름 목록 (비우면 종류 이름(괄호 앞, 외부 모델은 모델 이름) + 순번)"""
     cnt, out = {}, []
     for sp in specs:
-        cnt[sp.kind] = cnt.get(sp.kind, 0) + 1
         label = KINDS[sp.kind].label.split(" (")[0] if sp.kind in KINDS else sp.kind
-        out.append(sp.name.strip() or f"{label} {cnt[sp.kind]}")
+        if sp.kind in MODEL_KINDS and sp.model:
+            label = sp.model
+        cnt[label] = cnt.get(label, 0) + 1
+        out.append(sp.name.strip() or f"{label} {cnt[label]}")
     return out
 
 
 def check_props(cfg) -> None:
     """입력 형식·범위 검사 (겹침은 엔진이 만든 뒤 prop_check)"""
     st = cfg.station
+    check_models(cfg.prop_models, cfg.prop_model_limit)
+    known_models = {m.name.strip() for m in cfg.prop_models}
     for sp in cfg.props:
         if not isinstance(sp, PropSpec) or sp.kind not in KINDS:
             raise ValueError(f"비품 종류가 올바르지 않습니다 ({getattr(sp, 'kind', sp)!r})")
@@ -47,6 +53,10 @@ def check_props(cfg) -> None:
         w = f"비품 {nm}"
         if not isinstance(sp.floor, int) or isinstance(sp.floor, bool) or not 1 <= sp.floor <= st.floors:
             raise ValueError(f"{w}: 층 번호 {sp.floor!r} 이(가) 범위(1 ~ {st.floors})를 벗어납니다")
+        if sp.model and sp.model not in known_models:
+            raise ValueError(f"{w}: 모델 '{sp.model}' 이(가) 비품 모델 목록에 없습니다")
+        if sp.kind in MODEL_KINDS and not sp.model:
+            raise ValueError(f"{w}: 외부 모델은 '형상'에서 모델을 골라야 합니다")
         known = {f.key for f in KINDS[sp.kind].fields}
         for k in sp.values:
             if k not in known:

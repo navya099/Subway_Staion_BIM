@@ -1,12 +1,14 @@
 import copy
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 from gui import pick_buttons as PB
 from gui.passage_draft import floor_label
-from gui.prop_draft import ANGLES, KIND_CODES, KIND_LABELS, PropDrafts, new_draft, preview, titles
+from gui.prop_draft import (ANGLES, CODE_SHAPE, KIND_CODES, KIND_LABELS, TURNS, UNIT_NAMES, UP_NAMES, ModelDrafts, PropDrafts, model_info, new_draft,
+                            new_model, preview, titles)
 from preview.pick import POINT
-from props.prop_kinds import KINDS, TEXT
+from props.model_file import SUFFIXES
+from props.prop_kinds import KINDS, MODEL_KINDS, TEXT
 
 FONT = ("Malgun Gothic", 9)
 FONT_B = ("Malgun Gothic", 9, "bold")
@@ -17,6 +19,7 @@ class PropTab:
 
     - 종류를 골라 추가하고 [위치 선택] 으로 미리보기 평면에서 놓을 점을 고름 (앞면 방향은 따로)
     - 벽에 붙는 종류는 고른 점에서 0.5m 안의 가장 가까운 벽 마감 표면에 붙음 (방향 자동)
+    - 외부 3D 모델(GLB·glTF·OBJ)을 목록에 등록하면 비품마다 '형상'에서 고를 수 있음 (파일은 경로만 저장)
     - 벽·기둥·문·다른 비품과 겹치면 모델을 만들 때 오류
     """
 
@@ -25,6 +28,10 @@ class PropTab:
         self.entries = entries_dict
         self.drafts = PropDrafts()
         self.entries['prop_drafts'] = self.drafts
+        self.models = ModelDrafts()
+        self.entries['prop_models'] = self.models
+        self._mvars = {}           # (번호, 속성) → 모델 목록 StringVar
+        self._minfo = []           # 모델 크기 안내 변수
         self.floor_count = 0
         self._vars = {}            # (번호, 속성) / (번호, 'v', 치수 키) → StringVar
         self._combos = {}          # (번호, 'kind'|'floor'|'angle')
@@ -38,6 +45,18 @@ class PropTab:
                  text="• 종류를 골라 추가하고 [위치 선택]으로 미리보기 평면에서 놓을 점을 고름 (STA·t = 비품 중심)\n"
                       "• 옥내소화전·벽 점검구는 고른 점에서 0.5m 안의 가장 가까운 벽 마감 표면에 붙음 (방향 자동)\n"
                       "• 높이는 그 자리 바닥 마감면(천장 점검구는 천장판) 기준 자동. 벽·기둥·문·다른 비품과 겹치면 오류").pack(anchor="w", padx=15)
+        mbox = tk.LabelFrame(self.parent, text=" 외부 3D 모델 (GLB · glTF · OBJ) ", font=FONT_B, fg="#4E342E", padx=6, pady=3)
+        mbox.pack(fill="x", padx=(15, 18), pady=(4, 2))
+        row = tk.Frame(mbox)
+        row.pack(fill="x")
+        tk.Button(row, text="+ 모델 파일…", font=FONT, command=self.add_models).pack(side="left")
+        tk.Label(row, text="DXF·IFC 면 한도 (넘으면 상자)", font=FONT).pack(side="left", padx=(12, 2))
+        self.limit_var = tk.StringVar(value=self.models.limit)
+        self.limit_var.trace_add("write", lambda *_: setattr(self.models, "limit", self.limit_var.get()))
+        tk.Entry(row, textvariable=self.limit_var, width=7, font=FONT).pack(side="left")
+        self.mbody = tk.Frame(mbox)
+        self.mbody.pack(fill="x")
+
         bar = tk.Frame(self.parent)
         bar.pack(fill="x", padx=15, pady=(6, 2))
         tk.Label(bar, text="종류", font=FONT).pack(side="left")
@@ -66,6 +85,7 @@ class PropTab:
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(win, width=e.width))
         self.canvas.bind("<Enter>", lambda e: self._bind_wheel(True))
         self.canvas.bind("<Leave>", lambda e: self._bind_wheel(False))
+        self.render_models()
         self.update_floor_ui()
 
     def _bind_wheel(self, on: bool):
@@ -102,9 +122,105 @@ class PropTab:
     def floor_choices(self) -> list:
         return [floor_label(self.floor_count, n) for n in range(1, self.floor_count + 1)]
 
+    # ------------------------------------------------------------------ 외부 모델 목록
+    def ask_model_paths(self):
+        return filedialog.askopenfilenames(title="3D 모델 파일", filetypes=[("3D 모델", " ".join("*" + s for s in SUFFIXES)), ("모든 파일", "*.*")],
+                                           parent=self.parent)
+
+    def add_models(self):
+        for path in self.ask_model_paths() or ():
+            self.models.items.append(new_model(path, set(self.models.names())))
+        self.render_models()
+        self.render()
+
+    def remove_model(self, i):
+        """목록에서 빼면 그 모델을 쓰던 비품은 코드 형상으로"""
+        name = self.models.items.pop(i).name.strip()
+        if name not in self.models.names():
+            for it in self.drafts.items:
+                if it.model == name:
+                    it.model = ""
+        self.render_models()
+        self.render()
+
+    def change_model_path(self, i):
+        paths = self.ask_model_paths()
+        if paths:
+            self.models.items[i].path = paths[0]
+            self.render_models()
+
+    def rename_model(self, i, new):
+        """이름을 바꾸면 그 모델을 쓰는 비품도 따라감 (비우거나 겹치는 동안은 그대로 두고, 고친 뒤 따라감)"""
+        it = self.models.items[i]
+        it.name = new
+        new = new.strip()
+        old = self._mnames[i]
+        if new and new != old and self.models.names().count(new) == 1:
+            for p in self.drafts.items:
+                if old and p.model == old:
+                    p.model = new
+            self._mnames[i] = new
+        for (k, attr), c in self._combos.items():
+            if attr == "model":
+                c.configure(values=[CODE_SHAPE] + self.models.names())
+                c.set(self.drafts.items[k].model or CODE_SHAPE)
+        self.refresh_info()
+
+    def render_models(self):
+        for w in self.mbody.winfo_children():
+            w.destroy()
+        self._mvars.clear()
+        self._minfo = []
+        self._mnames = [it.name.strip() for it in self.models.items]          # 이름 바꾸기 전 이름
+        for i, it in enumerate(self.models.items):
+            self._build_model(i, it)
+        if not self.models.items:
+            tk.Frame(self.mbody, height=1).pack()               # 빈 틀이 줄어들게
+
+    def _build_model(self, i, it):
+        row = tk.Frame(self.mbody)
+        row.pack(fill="x", pady=(3, 0))
+
+        def keep(attr, setter=None):
+            var = tk.StringVar(value=getattr(it, attr))
+            self._mvars[(i, attr)] = var
+
+            def on_write(*_):
+                if setter is not None:
+                    setter(var.get())
+                else:
+                    setattr(it, attr, var.get())
+                    self.refresh_model(i)
+            var.trace_add("write", on_write)
+            return var
+        tk.Entry(row, textvariable=keep("name", lambda v: self.rename_model(i, v)), width=13, font=FONT).pack(side="left")
+        tk.Button(row, text="파일…", font=FONT, command=lambda: self.change_model_path(i)).pack(side="left", padx=(3, 0))
+        for label, attr, values, width in (("단위", "unit", UNIT_NAMES, 4), ("위쪽", "up", UP_NAMES, 2), ("돌림", "angle", TURNS, 4)):
+            tk.Label(row, text=label, font=FONT).pack(side="left", padx=(8, 2))
+            ttk.Combobox(row, values=values, textvariable=keep(attr), width=width, state="normal" if attr == "angle" else "readonly", font=FONT).pack(side="left")
+        tk.Label(row, text="배율", font=FONT).pack(side="left", padx=(8, 2))
+        tk.Entry(row, textvariable=keep("scale"), width=6, font=FONT).pack(side="left")
+        tk.Button(row, text="삭제", font=FONT, command=lambda: self.remove_model(i)).pack(side="right")
+        var = tk.StringVar(value="")
+        self._minfo.append(var)
+        tk.Label(self.mbody, textvariable=var, font=("Malgun Gothic", 8), fg="#1565C0", anchor="w", justify="left", wraplength=620).pack(fill="x")
+        self.refresh_model(i)
+
+    def refresh_model(self, i):
+        if i < len(self._minfo):
+            it = self.models.items[i]
+            self._minfo[i].set(f"{it.path}  {model_info(it)}")
+
+    def set_model(self, i, name):
+        self.drafts.items[i].model = "" if name == CODE_SHAPE else name
+        self.refresh_info()
+
     # ------------------------------------------------------------------ 편집 동작
     def _add(self, sta, t=0.0):
-        self.drafts.items.append(new_draft(KIND_CODES[self.new_kind.current()], self.new_floor.current() + 1, sta, t))
+        it = new_draft(KIND_CODES[self.new_kind.current()], self.new_floor.current() + 1, sta, t)
+        if it.kind in MODEL_KINDS and self.models.names():
+            it.model = self.models.names()[0]
+        self.drafts.items.append(it)
         self.render()
         self.canvas.yview_moveto(1.0)
 
@@ -201,6 +317,12 @@ class PropTab:
             self._combos[(i, "angle")] = a
         PB.button(row, "위치 선택", lambda: self.pick_position(i)).pack(side="left", padx=(8, 0))
         opened = id(it) in self._open
+        tk.Label(row, text="형상", font=FONT).pack(side="left", padx=(8, 2))
+        m = ttk.Combobox(row, values=[CODE_SHAPE] + self.models.names(), state="readonly", width=12, font=FONT)
+        m.set(it.model or CODE_SHAPE)
+        m.bind("<<ComboboxSelected>>", lambda e: self.set_model(i, m.get()))
+        m.pack(side="left")
+        self._combos[(i, "model")] = m
         tk.Button(row, text="치수 ▲" if opened else "치수 ▼", font=FONT, command=lambda: self.toggle(i)).pack(side="right")
         if opened and it.kind in KINDS:
             self._build_values(tk.Frame(box), i, it)

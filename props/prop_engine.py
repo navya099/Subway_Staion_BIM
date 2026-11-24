@@ -6,10 +6,13 @@
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from bim_data.common_bim_data import CommonBIMData
 from helper.view_item import ViewItem
 from props.prop_check import FIXTURE, TOL, Obstacles, depth, length_text, rect, snap_to_wall
-from props.prop_kinds import CEILING, FLOOR, HANG, KINDS, ROD, WALL, rod_ys
+from props.prop_kinds import CEILING, EMPTY_SIZE, FLOOR, KINDS, MODEL_KINDS, ROD, WALL, rod_ys, size_box
+from props.model_spec import mesh_size, model_mesh, placed_mesh, triangle_count
 from props.prop_spec import resolve_prop_names
 from signs.sign_layout import floor_and_ceiling
 
@@ -27,10 +30,14 @@ class PropData(CommonBIMData):
     z: float = 0.0
     values: dict = field(default_factory=dict)
     parts: list = field(default_factory=list)
+    model: str = ""                                        # 외부 모델 이름 ("" = 코드 형상)
+    mesh: list = field(default_factory=list)               # 외부 모델 삼각형 (객체 좌표, MeshPart) — parts 는 겹침·도면용 외곽 상자
+    detail: bool = False                                   # 3D DXF·IFC 에 mesh 를 씀 (면 수 한도 안)
     image_entities: dict = field(default_factory=dict)     # 그림 이름 → 3DFACE 목록
 
     @property
     def volume(self) -> float:
+        """코드 형상의 체적 (외부 모델은 외곽 상자 — 파일의 면이 닫혀 있다는 보장이 없음)"""
         return sum(p.volume for p in self.parts)
 
     def local(self, part) -> list:
@@ -45,18 +52,26 @@ class PropEngine:
         """engine: 이미 만든 StationCADEngine (벽 붙임·겹침 검사에 다른 부재를 씀)"""
         self.cfg = config
         self.elements: list[PropData] = []
+        self.warnings: list[str] = []
         if not config.props:
             return
         st = config.station
         obs = Obstacles(engine)
         ops = {n: [rect(o.s_start, o.s_end, o.t_lo, o.t_hi) for o in config.all_openings() if n - 1 in o.slabs] for n in range(1, st.floors + 1)}
+        models = self._load_models()
         for name, sp in zip(resolve_prop_names(config.props), config.props):
             k, v = KINDS[sp.kind], sp.resolved()
+            mesh, build = models.get(sp.model), k.build
+            if mesh:
+                mesh = placed_mesh(mesh, k.mount, v.get("z", 0.0))
+                build = lambda v, b=size_box(k.mount, mesh_size(mesh), v.get("z", 0.0)): [b]
+            elif sp.kind in MODEL_KINDS:                                 # 파일을 못 읽음 → 마지막 크기의 상자
+                v["size"] = next(m.size for m in config.prop_models if m.name.strip() == sp.model) or EMPTY_SIZE
             w = f"비품 {name}"
             s, t, ang = sp.s, sp.t, sp.angle % 360.0
             base, ceil = floor_and_ceiling(config, sp.floor, s, t)
             if k.mount == WALL:
-                zs = [(p.z0, p.z1) for p in k.build(v)]
+                zs = [(p.z0, p.z1) for p in build(v)]
                 mid = base + (min(a for a, _ in zs) + max(b for _, b in zs)) / 2.0
                 hit = snap_to_wall(engine, sp.floor, s, t, mid)
                 if hit is None:
@@ -65,13 +80,25 @@ class PropEngine:
                 n = math.radians(ang)
                 base, ceil = floor_and_ceiling(config, sp.floor, s + 0.05 * math.cos(n), t + 0.05 * math.sin(n))
             v = dict(v, ceil=ceil - base)
-            if k.mount == HANG:
+            if sp.kind == "HSIGN" and not mesh:
                 v["rods"] = self._rods(obs, v, s, t, ang, ceil)
             e = PropData(name=name, family_name="비품", type_name=k.label, level=st.level_name(sp.floor), material=k.material, pos_x=s, pos_y=t,
-                         kind=sp.kind, floor=sp.floor, s=s, t=t, angle=ang, z=ceil if k.mount == CEILING else base, values=v, parts=k.build(v))
+                         kind=sp.kind, floor=sp.floor, s=s, t=t, angle=ang, z=ceil if k.mount == CEILING else base, values=v, parts=build(v),
+                         model=sp.model if mesh else "", mesh=mesh or [], detail=bool(mesh) and triangle_count(mesh) <= config.prop_model_limit)
             e.pos_z = config.lv(s) - st.offset + e.z
             self._check(e, k, w, obs, ops[sp.floor], ceil)
             self.elements.append(e)
+
+    def _load_models(self) -> dict:
+        """모델 이름 → MeshPart 목록 (쓰는 것만). 못 읽은 모델은 빠지고 경고"""
+        out, used = {}, {sp.model for sp in self.cfg.props if sp.model}
+        for m in self.cfg.prop_models:
+            if m.name.strip() in used:
+                try:
+                    out[m.name.strip()] = model_mesh(m)
+                except ValueError as e:
+                    self.warnings.append(f"비품 모델 '{m.name.strip()}': {e} — 코드 형상(외부 모델은 상자)으로 대신함")
+        return out
 
     @staticmethod
     def _rods(obs, v, s, t, ang, ceil) -> tuple:
@@ -141,6 +168,17 @@ class PropEngine:
         out = [(lo[i], lo[(i + 1) % m], hi[(i + 1) % m], hi[i]) for i in range(m)]
         return out + [tuple(reversed(lo)), tuple(hi)]
 
+    def model_faces(self, e) -> list:
+        """외부 모델의 세계 삼각형 [(MeshPart, 점 (M, 3, 3))] — 넓이 0 인 면은 뺌"""
+        x, y, z, th = self.transform(e)
+        c, n = math.cos(th), math.sin(th)
+        R = np.array([[c, -n, 0], [n, c, 0], [0, 0, 1]])
+        out = []
+        for p in e.mesh:
+            t = (p.pos @ R.T + (x, y, z))[p.idx]
+            out.append((p, t[np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-10]))
+        return out
+
     @staticmethod
     def image_index(part) -> int:
         """그림이 붙는 옆면 번호 (사각 조각: 변 1 = +x, 변 3 = −x)"""
@@ -151,6 +189,12 @@ class PropEngine:
         """3D 메쉬 (STRUCT_PROP). 다각형 윗·아랫면은 부채꼴 삼각형. 한 번만 호출할 것"""
         for e in self.elements:
             e.source_element, e.image_entities, e.part_entities = [], {}, []
+            if e.detail:
+                for part, tris in self.model_faces(e):
+                    ents = [msp.add_3dface([tuple(map(float, q)) for q in t], dxfattribs={"layer": LAYER}) for t in tris]
+                    e.part_entities.append(("비품 흰색", ents))
+                    e.source_element += ents
+                continue
             for part in e.parts:
                 ents = []
                 for i, f in enumerate(self.part_faces(e, part)):
@@ -165,6 +209,8 @@ class PropEngine:
     def images(self, e) -> dict:
         """그림 이름 → PIL 이미지"""
         k = KINDS[e.kind]
+        if e.mesh:
+            return {}
         return {n: fn() for n, fn in (k.images(e.values) if k.images else {}).items()}
 
     def sign_images(self) -> list:

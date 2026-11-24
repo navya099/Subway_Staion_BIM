@@ -343,6 +343,9 @@ const LIVE = /*__LIVE__*/false;
       mesh.userData = { chunk: c, elem, tex: c.tex ? textureOf(c.tex) : null };
       if (c.solid) mesh.userData.solid = solidOf(g, it, c.count);      // 걷기 충돌용 (세계 삼각형 + 배치마다 상자)
       applyTexture(mesh);
+      if (c.alpha < 1) mesh.renderOrder = 1;
+      if (c.cut) mesh.material.alphaTest = 0.5;                         // 잎·격자처럼 투명한 픽셀을 잘라 내는 이미지
+      if (c.hidden) mesh.material.visible = false;                      // 걷기 충돌용 외곽 상자
       scene.add(mesh); insts.push(mesh);
     }
     $("lightrow").style.display = insts.some((m) => m.userData.chunk.light) ? "flex" : "none";
@@ -488,7 +491,7 @@ const LIVE = /*__LIVE__*/false;
   }
   function firstHit(e) {
     rayAt(e);
-    const hits = raycaster.intersectObjects([...meshes, ...insts].filter((m) => m.visible), false);
+    const hits = raycaster.intersectObjects([...meshes, ...insts].filter((m) => m.visible && m.material.visible), false);
     for (const h of hits) { const sh = clippedAt(h); if (sh) return Object.assign(h, sh); }
     return null;
   }
@@ -532,7 +535,7 @@ const LIVE = /*__LIVE__*/false;
     const I4 = new THREE.Matrix4(), V3 = new THREE.Vector3();
     for (const m of insts) {                // 천장 기구: 그 배치의 변환을 적용
       const i = m.userData.elem.indexOf(id);
-      if (i < 0) continue;
+      if (i < 0 || m.userData.chunk.hidden) continue;
       m.getMatrixAt(i, I4);
       const p = m.geometry.attributes.position, idx = m.geometry.index;
       for (let k = 0; k < idx.count; k++) { V3.fromBufferAttribute(p, idx.getX(k)).applyMatrix4(I4); pos.push(V3.x, V3.y, V3.z); }

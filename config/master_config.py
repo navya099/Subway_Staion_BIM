@@ -22,6 +22,7 @@ from ventilations.vent_check import check_vent_layouts, layout_vents
 from tactiles.tactile_layout import check_tactile
 from tactiles.tactile_spec import TactileSettings
 from config.widening import check_widenings
+from props.prop_spec import check_props
 from psds.psd_layout import check_psd
 from signs.sign_layout import check_signs
 from railings.railing_layout import check_railings
@@ -49,6 +50,9 @@ class StationProjectConfig:
     entrances: list = dataclasses.field(default_factory=list)     # list[EntranceSpec]: 출입구 (출구통로 끝에 이어 지표까지)
     elevators: list = dataclasses.field(default_factory=list)     # list[ElevatorSpec]: 엘리베이터 (승강로 슬래브 오프닝 자동)
     ext_evs: list = dataclasses.field(default_factory=list)       # list[ExtEvSpec]: 외부 엘리베이터 (통로·출입구와 별개 객체)
+    props: list = dataclasses.field(default_factory=list)         # list[PropSpec]: 배치 객체 (비품)
+    prop_models: list = dataclasses.field(default_factory=list)   # list[PropModel]: 비품에 쓰는 외부 3D 모델 (파일 경로)
+    prop_model_limit: int = 5000                                  # 3D DXF·IFC 에 실제 모양을 쓰는 면 수 한도 (넘으면 외곽 상자)
     rooms: list = dataclasses.field(default_factory=list)         # list[RoomSpec]: 실(구획) — 나머지는 층별 기본 실, 경계 칸막이벽 자동
     room_settings: RoomSettings = dataclasses.field(default_factory=RoomSettings)
     finish_settings: FinishSettings = dataclasses.field(default_factory=FinishSettings)   # 용도별 마감표
@@ -125,6 +129,7 @@ class StationProjectConfig:
         check_tactile(self)
         check_signs(self)
         check_railings(self)
+        check_props(self)
         check_smoke_barriers(self)
         passages = layout_passages(self)
         check_passage_layouts(self, passages)

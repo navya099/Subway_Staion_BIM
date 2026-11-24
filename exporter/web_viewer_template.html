@@ -279,6 +279,20 @@ const LIVE = /*__LIVE__*/false;
   let L = 1, sMinAll = -5, sMaxAll = 6;
   let highlight = null, selectedName = null;
 
+  // 비품 충돌 자료: 배치마다 세계 꼭짓점과 상자 [x0, y0, z0, x1, y1, z1]
+  function solidOf(g, it, count) {
+    const p = g.attributes.position.array, ix = g.index.array, n = p.length / 3, out = [];
+    for (let i = 0; i < count; i++) {
+      const [x, y, z, co, si] = it.subarray(i * 10, i * 10 + 5), w = new Float32Array(p.length), b = [1e9, 1e9, 1e9, -1e9, -1e9, -1e9];
+      for (let k = 0; k < n; k++) {
+        const v = [x + p[k * 3] * co - p[k * 3 + 1] * si, y + p[k * 3] * si + p[k * 3 + 1] * co, z + p[k * 3 + 2]];
+        for (let a = 0; a < 3; a++) { w[k * 3 + a] = v[a]; b[a] = Math.min(b[a], v[a]); b[a + 3] = Math.max(b[a + 3], v[a]); }
+      }
+      out.push({ w, b });
+    }
+    return { ix, out };
+  }
+
   // 모델 자료(DATA + 풀린 바이트 열)로 장면을 (다시) 만든다. 카메라·잘라 보기·표시 묶음·고른 부재는 그대로 둠
   function loadModel(data, buf) {
     const old = DATA && DATA.origin ? DATA.origin : null;
@@ -327,7 +341,11 @@ const LIVE = /*__LIVE__*/false;
       g.computeBoundingSphere();
       mesh.frustumCulled = false;           // 배치가 정거장 전체에 흩어져 있음
       mesh.userData = { chunk: c, elem, tex: c.tex ? textureOf(c.tex) : null };
+      if (c.solid) mesh.userData.solid = solidOf(g, it, c.count);      // 걷기 충돌용 (세계 삼각형 + 배치마다 상자)
       applyTexture(mesh);
+      if (c.alpha < 1) mesh.renderOrder = 1;
+      if (c.cut) mesh.material.alphaTest = 0.5;                         // 잎·격자처럼 투명한 픽셀을 잘라 내는 이미지
+      if (c.hidden) mesh.material.visible = false;                      // 걷기 충돌용 외곽 상자
       scene.add(mesh); insts.push(mesh);
     }
     $("lightrow").style.display = insts.some((m) => m.userData.chunk.light) ? "flex" : "none";
@@ -336,7 +354,7 @@ const LIVE = /*__LIVE__*/false;
     const used = new Set(Object.values(DATA.images || {}));
     for (const [url, t] of texCache) if (!used.has(url)) { t.dispose(); texCache.delete(url); }   // 안 쓰는 이미지 정리
     const miss = (DATA.missing_textures || []).length ? ` · 텍스처 이미지 없음: ${DATA.missing_textures.join(", ")}` : "";
-    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개${DATA.hidden ? ` (가려진 면 ${DATA.hidden.toLocaleString()}개 뺌)` : ""}${DATA.instanced_triangles ? ` · 기구 ${(DATA.instanced_triangles / 24).toLocaleString()}개` : ""} · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
+    $("stats").textContent = `삼각형 ${tris.toLocaleString()}개 · 부재 ${DATA.elements.length.toLocaleString()}개${DATA.hidden ? ` (가려진 면 ${DATA.hidden.toLocaleString()}개 뺌)` : ""}${DATA.instanced_triangles ? ` · 배치(기구·비품) 삼각형 ${DATA.instanced_triangles.toLocaleString()}개` : ""} · 원점 (${DATA.origin.map((v) => v.toFixed(0)).join(", ")})${miss}`;
 
     // 표시 묶음
     $("groups").innerHTML = "";
@@ -473,7 +491,7 @@ const LIVE = /*__LIVE__*/false;
   }
   function firstHit(e) {
     rayAt(e);
-    const hits = raycaster.intersectObjects([...meshes, ...insts].filter((m) => m.visible), false);
+    const hits = raycaster.intersectObjects([...meshes, ...insts].filter((m) => m.visible && m.material.visible), false);
     for (const h of hits) { const sh = clippedAt(h); if (sh) return Object.assign(h, sh); }
     return null;
   }
@@ -517,7 +535,7 @@ const LIVE = /*__LIVE__*/false;
     const I4 = new THREE.Matrix4(), V3 = new THREE.Vector3();
     for (const m of insts) {                // 천장 기구: 그 배치의 변환을 적용
       const i = m.userData.elem.indexOf(id);
-      if (i < 0) continue;
+      if (i < 0 || m.userData.chunk.hidden) continue;
       m.getMatrixAt(i, I4);
       const p = m.geometry.attributes.position, idx = m.geometry.index;
       for (let k = 0; k < idx.count; k++) { V3.fromBufferAttribute(p, idx.getX(k)).applyMatrix4(I4); pos.push(V3.x, V3.y, V3.z); }
@@ -552,6 +570,19 @@ const LIVE = /*__LIVE__*/false;
         const i = ix[k * 3] * 2, j = ix[k * 3 + 1] * 2, l = ix[k * 3 + 2] * 2;
         if (Math.min(sh[i + 1], sh[j + 1], sh[l + 1]) + dh > cutH || Math.max(sh[i], sh[j], sh[l]) < cutS0 || Math.min(sh[i], sh[j], sh[l]) > cutS1) return;
         cb(...v, m.userData.elem[k]);
+      });
+    }
+    for (const m of insts) {                // 비품 (배치마다 상자로 먼저 거름)
+      const q = m.userData.solid;
+      if (!q || !m.visible) continue;
+      const sh = m.geometry.attributes.aSH.array;
+      q.out.forEach(({ w, b }, i) => {
+        if (b[0] > x1 || b[3] < x0 || b[1] > y1 || b[4] < y0 || b[2] > z1 || b[5] < z0) return;
+        if (sh[i * 2] < clip.uSMin.value || sh[i * 2] > clip.uSMax.value || sh[i * 2 + 1] > clip.uHMax.value) return;
+        for (let k = 0; k < q.ix.length; k += 3) {
+          const a = q.ix[k] * 3, c = q.ix[k + 1] * 3, d = q.ix[k + 2] * 3;
+          cb(w[a], w[a + 1], w[a + 2], w[c], w[c + 1], w[c + 2], w[d], w[d + 1], w[d + 2], m.userData.elem[i]);
+        }
       });
     }
   });

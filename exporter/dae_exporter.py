@@ -48,12 +48,12 @@ def dae_notes(res: DaeResult) -> list:
     return out
 
 
-def _triangles(doc, mat_of, skip_layers, handles=None):
+def _triangles(doc, mat_of, skip_layers, handles=None, skip=()):
     """3DFACE → {(레이어, 재질): [삼각형 (3, 3)]}. handles 를 주면 {(레이어, 재질): [3DFACE 핸들]} 을 같은 순서로 채움"""
     out = {}
     for ent in doc.modelspace().query("3DFACE"):
         d = ent.dxf
-        if d.layer in skip_layers:
+        if d.layer in skip_layers or d.handle in skip:
             continue
         v = [tuple(d.vtx0), tuple(d.vtx1), tuple(d.vtx2), tuple(d.vtx3)]
         mat = mat_of.get(d.handle) or layer_material(d.layer)
@@ -115,6 +115,11 @@ def element_materials(engine) -> dict:
     for e in (engine.finishes.all_elements() + (tactile.elements if tactile is not None else []) + stair_fin
               + (pfin.elements if pfin is not None else []) + ent_fin):
         put(e, finish_material(e.material))
+    pr = getattr(engine, "props", None)
+    for x in (pr.elements if pr is not None else []):                    # 비품: 조각마다 재질
+        for material, ents_x in x.part_entities:
+            for ent in ents_x:
+                mat_of[ent.dxf.handle] = finish_material(material)
     fx = getattr(engine, "fixtures", None)
     for x in (fx.elements if fx is not None else []):                    # 천장 기구: 면 = 이미지, 몸체 = 회색
         for ents_x, m in ((x.body_entities, "기구 몸체"), (x.face_entities, x.material)):
@@ -341,6 +346,39 @@ def _library(kind: str, items: list) -> str:
     return f"<library_{kind}>{''.join(items)}</library_{kind}>" if items else ""
 
 
+def _model_materials(models, tex_dir: Path) -> dict:
+    """외부 모델 비품의 재질 (모델 이름, 재질 번호) → RenderMaterial. 이미지는 tex_dir 에 저장"""
+    out, names = {}, {}
+    for e in models:
+        for j, p in enumerate(e.mesh):
+            if (e.model, j) in out:
+                continue
+            img = ""
+            if p.image is not None:
+                tex_dir.mkdir(exist_ok=True)
+                k = names.setdefault(e.model, len(names) + 1)
+                img = tex_dir / f"prop_model_{k:02d}_{j + 1:02d}.png"
+                p.image.convert("RGBA" if p.cut else "RGB").save(img)
+            out[(e.model, j)] = RenderMaterial(f"모델 {e.model} {j + 1} {p.name}", tuple(p.color), alpha=p.alpha, image=str(img))
+    return out
+
+
+def _model_geometry(gid: str, name: str, p, mid: str, textured: bool) -> str:
+    """MeshPart → COLLADA 기하 (객체 좌표)"""
+    nv = len(p.pos)
+    src = (f'<source id="{gid}-pos"><float_array id="{gid}-pos-array" count="{nv * 3}">{_floats(p.pos)}</float_array>'
+           f'<technique_common><accessor source="#{gid}-pos-array" count="{nv}" stride="3"><param name="X" type="float"/>'
+           f'<param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>')
+    inputs = f'<input semantic="VERTEX" source="#{gid}-vtx" offset="0"/>'
+    if textured:
+        src += (f'<source id="{gid}-uv"><float_array id="{gid}-uv-array" count="{nv * 2}">{_floats_uv(p.uv)}</float_array>'
+                f'<technique_common><accessor source="#{gid}-uv-array" count="{nv}" stride="2"><param name="S" type="float"/>'
+                f'<param name="T" type="float"/></accessor></technique_common></source>')
+        inputs += f'<input semantic="TEXCOORD" source="#{gid}-uv" offset="0" set="0"/>'
+    return (f'<geometry id="{gid}" name="{escape(name, {chr(34): "&quot;"})}"><mesh>{src}<vertices id="{gid}-vtx"><input semantic="POSITION" source="#{gid}-pos"/>'
+            f'</vertices><triangles material="{mid}" count="{len(p.idx)}">{inputs}<p>{" ".join(map(str, p.idx.ravel()))}</p></triangles></mesh></geometry>')
+
+
 def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> DaeResult:
     """engine (StationCADEngine) 의 3D 모델을 텍스처 COLLADA 로 저장. frames=False 면 천장틀(FIN_FRAME)은 뺌
     (면이 매우 많고 천장판에 가려 보이지 않음). 텍스처 이미지는 path 옆 textures/ 폴더로 복사"""
@@ -359,7 +397,7 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             m = RenderMaterial(f"사인 {e.name}", (1.0, 1.0, 1.0), image=str(img_path), frame=signs.uv_frame(e))
             for ent in e.face_entities:
                 mat_of[ent.dxf.handle] = m
-    extra = [s for k in ("entrances", "ext_evs", "elevators") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
+    extra = [s for k in ("entrances", "ext_evs", "elevators", "props") if getattr(engine, k, None) is not None for s in getattr(engine, k).sign_images()]
     if extra:                                                        # 출입구 캐노피 출구 사인 · 외부 엘리베이터 역명 띠
         tex_dir = path.parent / TEXTURE_FOLDER
         tex_dir.mkdir(exist_ok=True)
@@ -370,7 +408,10 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             for ent in faces:
                 mat_of[ent.dxf.handle] = m
     handles = {}
-    groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"}, handles)
+    props = getattr(engine, "props", None)
+    models = [e for e in (props.elements if props is not None else []) if e.mesh]       # 외부 모델 비품: 형상 하나 + 배치 (면 수와 관계없이 실제 모양)
+    groups = _triangles(doc, mat_of, set() if frames else {"FIN_FRAME"}, handles,
+                        {ent.dxf.handle for e in models for ent in e.source_element})
     tread_frames = stair_face_frames(engine)
     first = next((t[0][0] for t in groups.values() if t), (0.0, 0.0, 0.0))
     origin = np.floor(np.array(first, dtype=float))
@@ -378,7 +419,8 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
     res = DaeResult(path=str(path.resolve()), origin=tuple(float(x) for x in origin))
 
     # 재질 (이름 순서 고정)
-    mats = sorted({m for _, m in groups}, key=lambda m: m.name)
+    model_mats = _model_materials(models, path.parent / TEXTURE_FOLDER)
+    mats = sorted({m for _, m in groups} | set(model_mats.values()), key=lambda m: m.name)
     mat_id, images = {}, {}
     for k, m in enumerate(mats):
         mat_id[m] = f"mat{k}"
@@ -447,6 +489,29 @@ def export_dae(engine, path, texture_dir=TEXTURE_DIR, frames: bool = False) -> D
             f'target="#{mat_id[m]}">{bind}</instance_material></technique_common></bind_material></instance_geometry>')
         res.triangles += len(t)
         res.materials[m.name] = res.materials.get(m.name, 0) + len(t)
+
+    shapes = {}                                                        # (모델, 놓는 기준점) → [(기하 id, 재질)]
+    for e in models:
+        key = (e.model, e.parts[0].poly, e.parts[0].z0)
+        if key not in shapes:
+            shapes[key] = []
+            for j, p in enumerate(e.mesh):
+                gid, m = f"prop{len(shapes)}_{j}", model_mats[(e.model, j)]
+                geoms.append(_model_geometry(gid, e.model, p, mat_id[m], m in images))
+                shapes[key].append((gid, m))
+        x, y, z, th = props.transform(e)
+        c, s = math.cos(th), math.sin(th)
+        M = (c, -s, 0, x - origin[0], s, c, 0, y - origin[1], 0, 0, 1, z - origin[2], 0, 0, 0, 1)
+        inst = ""
+        for gid, m in shapes[key]:
+            bind = '<bind_vertex_input semantic="UVSET0" input_semantic="TEXCOORD" input_set="0"/>' if m in images else ""
+            inst += (f'<instance_geometry url="#{gid}"><bind_material><technique_common><instance_material symbol="{mat_id[m]}" '
+                     f'target="#{mat_id[m]}">{bind}</instance_material></technique_common></bind_material></instance_geometry>')
+        nodes.setdefault("STRUCT_PROP", []).append(
+            f'<node name="{escape(e.name, {chr(34): "&quot;"})}"><matrix>{" ".join(f"{v:.6f}" for v in M)}</matrix>{inst}</node>')
+        for p, (_, m) in zip(e.mesh, shapes[key]):
+            res.triangles += len(p.idx)
+            res.materials[m.name] = res.materials.get(m.name, 0) + len(p.idx)
 
     now = datetime.datetime.now().replace(microsecond=0).isoformat()
     ox, oy, oz = res.origin

@@ -47,6 +47,12 @@ FINISH_MATERIALS = {m.name: m for m in (
     RenderMaterial("조명", (1.0, 1.0, 0.96), "light_on", 0.3, 1.2),          # 면 한 장 (frame), 웹 뷰어는 끄면 light_off
     RenderMaterial("디퓨저", (0.88, 0.88, 0.88), "diffuser", 0.6, 0.6),
     RenderMaterial("기구 몸체", (0.85, 0.85, 0.85)),
+    RenderMaterial("비품 검정", (0.12, 0.12, 0.13)),
+    RenderMaterial("비품 빨강", (0.78, 0.10, 0.10)),
+    RenderMaterial("비품 유리", (0.70, 0.85, 0.90), alpha=0.4),
+    RenderMaterial("비품 목재", (0.62, 0.45, 0.28)),
+    RenderMaterial("비품 파랑", (0.10, 0.32, 0.65)),
+    RenderMaterial("비품 흰색", (0.90, 0.90, 0.90)),
     RenderMaterial("문틀", (0.36, 0.38, 0.40)),
     RenderMaterial("문짝", (0.50, 0.56, 0.60)),
     RenderMaterial("방화문", (0.62, 0.60, 0.56)),

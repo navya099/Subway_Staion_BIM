@@ -20,6 +20,7 @@ from engine.face_sink import FaceSink
 from escalators.escalator_engine import EscalatorEngine
 from finishes.finish_engine import FinishEngine
 from fixtures.fixture_engine import FixtureEngine
+from props.prop_engine import PropEngine
 from passages.passage_engine import PassageEngine
 from passages.passage_finish_engine import PassageFinishEngine
 from psds.psd_engine import PsdEngine
@@ -58,12 +59,13 @@ class StationCADEngine:
         self.railings = RailingEngine(config)
         self.smokes = SmokeBarrierEngine(config)
         self.passage_finishes = PassageFinishEngine(config)
+        self.props = PropEngine(config, self)
         self.slabs.check_columns(self.columns)
         self.stairs.check_columns(self.columns)
         self.escalators.check_columns(self.columns)
         self.sub_engines = [self.platform, self.slabs, self.walls, self.columns, self.stairs, self.escalators, self.elevators,
                             self.passages, self.entrances, self.ext_evs, self.vents, self.rooms, self.finishes, self.tactiles, self.psds, self.signs,
-                            self.railings, self.smokes, self.passage_finishes, self.fixtures]
+                            self.railings, self.smokes, self.passage_finishes, self.fixtures, self.props]
     @property
     def warnings(self) -> list:
         """모델은 만들었지만 사용자가 알아야 할 경고 (예: 출구통로 천장이 내공에 들어가지 않음 — 통로 확대 필요)"""
@@ -150,6 +152,8 @@ class StationCADEngine:
                 engine.add_passage_finish_mesh(msp)
             if hasattr(engine, 'add_fixture_mesh'):
                 engine.add_fixture_mesh(msp)
+            if hasattr(engine, 'add_prop_mesh'):
+                engine.add_prop_mesh(msp)
 
     # --- [2D 공통] ---
     PLAN_CUT_H = PLAN_CUT_H   # 평면도 절단 높이 기본값 (각 층 바닥 슬래브 상면 기준, m)
@@ -380,6 +384,7 @@ class StationCADEngine:
         exporter.export_passage_finishes(self.passage_finishes)
         exporter.export_tactiles(self.tactiles)
         exporter.export_fixtures(self.fixtures)
+        exporter.export_props(self.props)
         exporter.export_psds(self.psds)
         exporter.export_railings(self.railings)
         exporter.export_smoke_barriers(self.smokes)

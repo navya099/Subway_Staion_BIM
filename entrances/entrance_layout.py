@@ -77,7 +77,14 @@ class EntranceLayout:
     ceiling_raise: float = 0.0         # 천장판·천장틀 두께만큼 올린 천장 슬래브 높이
     escalators: list = field(default_factory=list)  # 에스컬레이터 대마다 (모두 같은 제원·u, t 만 다름)
     top_level: float = None            # 상부 승강구 바닥 표고 (지표 + top_rise)
+    fixtures: list = field(default_factory=list)    # 천장 조명 [(종류, u0, u1, t0, t1, 깊이, u0 의 천장판 하면 표고, 기울기)]
+    ceiling_runs: list = field(default_factory=list)   # 조명을 놓은 천장의 곧은 구간 (u0, u1, z0, z1, 기울기)
     canopy: list = field(default_factory=list)      # 캐노피 부재 EntrancePartLayout (CP_POST / CP_BEAM / CP_GLASS / CP_SIGN)
+
+    def ceiling_run(self, u: float) -> tuple:
+        """u 가 든 천장 곧은 구간의 (시작 u, 기울기) — 밖이면 가장 가까운 구간"""
+        r = min(self.ceiling_runs, key=lambda q: max(q[0] - u, u - q[1], 0.0))
+        return r[0], r[4]
 
 
 class PL:
@@ -758,6 +765,17 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
                                         joint_top=joint_top, a_open=a_o if spec.open_narrow > 0 else None,
                                         pitch=arrive_pitch if surfaces else ())
 
+    fixtures, runs = [], []
+    if eft is not None and eft.ceiling and eft.has_light:   # 천장 조명 (매입 — 천장판·천장틀에서 그 자리를 뺌)
+        from fixtures.corridor_layout import cut_strips, entrance_fixtures, straight_runs
+        fc = eft.face if eft.wall_t > 0 else 0.0
+        wt = max(eft.wall_t, 0.01)
+        hang = lambda t: rz - (spec.haunch_h * max(0.0, 1.0 - (a - t) / spec.haunch_w) if spec.haunch_w > 0 and spec.haunch_h > 0 else 0.0)
+        c_lo, c_hi = max(T + fc if a - a_p > 1e-6 else 0.0, wt), u_re - wt
+        runs = straight_runs(ceil_pl.segs, c_lo, c_hi)
+        fixtures = entrance_fixtures(eft, ceil_pl.segs, c_lo, c_hi, a - fc, hang)
+        finish = cut_strips(finish, [f[1:5] for f in fixtures])
+
     # ---------- 캐노피 (지붕 없는 개구부 위 철골 + 유리 지붕, 앞 출구 사인)
     canopy = []
     if spec.canopy:
@@ -796,4 +814,4 @@ def layout_entrance(cfg, spec, name: str, passage_layouts: list) -> EntranceLayo
         u=dict(wp_lo=u_wp, wp_hi=u_up, truss_lo=truss_lo, truss_hi=truss_hi, cross=u_cross, stair0=u_s0,
                arrive=arrive, top=u_top, end=end, roof_end=u_re, roof_knee=u_k),
         roof_clear=c, box_parts=parts, haunches=haunches, stair=stair, escalator=escalator, spec_stair_finish=fin,
-        finish=finish, finish_type=eft, ceiling_raise=rz, escalators=escalators, canopy=canopy)
+        finish=finish, finish_type=eft, ceiling_raise=rz, escalators=escalators, canopy=canopy, fixtures=fixtures, ceiling_runs=runs)

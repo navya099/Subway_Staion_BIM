@@ -76,6 +76,11 @@ def passage_profile_items(engine, name: str, t_off: float = 0.0) -> list:
         if e.passage == name and e.code != "FRAME":
             for pc in e.pieces:
                 add_piece(e.name, "PROF_FINISH", pc, False, beyond=False)
+    cf = getattr(engine, "corridor_fixtures", None)
+    for e in (cf.elements if cf is not None else []):                  # 천장 기구 (이 통로)
+        if e.host == name:
+            for pc in (e.body, e.face):
+                add_piece(e.name, "PROF_FINISH", pc, False, beyond=False)
     label_z = max((max(z for _, z in it.pts) for it in items if it.pts), default=lay.z_floor + 3.0) + 1.0
     items.append(ViewItem(name, "PROF_TEXT", pts=[], label=(f"{name} EXIT PASSAGE", 0.0, label_z, 0.6, "PROF_TEXT")))
 
@@ -102,6 +107,14 @@ def _entrance_items(engine, ent, x0: float, t_off: float) -> list:
     from stairs.stair_data import StairFinishData
     items = []
     fr = ent.frame
+    cf = getattr(engine, "corridor_fixtures", None)
+    for e in (cf.elements if cf is not None else []):                  # 천장 조명
+        if e.host == ent.name:
+            for pc in (e.body, e.face):
+                poly = pc.cut_by_plane(*_plane(fr.px, fr.py, fr.ux, fr.uy, t_off))
+                if poly:
+                    pts = [(x0 + w, z) for w, z in poly]
+                    items.append(ViewItem(e.name, "PROF_FINISH", u0=min(p[0] for p in pts), u1=max(p[0] for p in pts), pts=pts))
     for name, m in engine.entrances.strip_members(ent):
         if isinstance(m, EntranceFinishData) and m.kind == "FRAME":
             continue

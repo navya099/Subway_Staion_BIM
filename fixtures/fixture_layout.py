@@ -66,9 +66,16 @@ class _Region:
         return got >= want - 1e-6
 
 
-def layout_fixtures(ft, pieces: list, blocked: list) -> tuple:
+def _sym_mid(x: float) -> float:
+    """중심선(0)이 칸 가운데인 격자의 칸 가운데 (좌우 대칭)"""
+    import math
+    return math.copysign(math.floor(abs(x) / CELL + 0.5) * CELL, x) + 0.0
+
+
+def layout_fixtures(ft, pieces: list, blocked: list, centered: bool = False) -> tuple:
     """(조명 [(s0, s1, t0, t1, 긴 방향 's'|'t')], 디퓨저 [(s0, s1, t0, t1)]).
-    ft = FinishType (light_s·light_t·diff_gap, 0 = 없음), pieces = 천장판 사다리꼴 조각, blocked = 막힌 평면 사각형"""
+    ft = FinishType (light_s·light_t·diff_gap, 0 = 없음), pieces = 천장판 사다리꼴 조각, blocked = 막힌 평면 사각형.
+    centered (통로·출입구): 조명 긴 방향은 늘 s, t 격자는 중심선이 칸 가운데 (좌우 대칭)"""
     lights, diffs = [], []
     if not pieces or not (ft.has_light or ft.has_diffuser):
         return lights, diffs
@@ -76,9 +83,9 @@ def layout_fixtures(ft, pieces: list, blocked: list) -> tuple:
         reg = _Region(g)
         free = lambda r: reg.covers(r) and not any(_hit(r, b) for b in blocked)
         if ft.has_light:
-            along = "s" if reg.s1 - reg.s0 >= reg.t1 - reg.t0 else "t"
+            along = "s" if centered or reg.s1 - reg.s0 >= reg.t1 - reg.t0 else "t"
             h_s, h_t = (LIGHT_L / 2, LIGHT_W / 2) if along == "s" else (LIGHT_W / 2, LIGHT_L / 2)
-            snap_s, snap_t = (_edge, _mid) if along == "s" else (_mid, _edge)
+            snap_s, snap_t = (_edge, _sym_mid if centered else _mid) if along == "s" else (_mid, _edge)
             for s in _uniq([snap_s(x) for x in spread(reg.s0, reg.s1, ft.light_s)]):
                 for t in _uniq([snap_t(x) for x in spread(reg.t0, reg.t1, ft.light_t)]):
                     r = (s - h_s, s + h_s, t - h_t, t + h_t)
@@ -89,7 +96,7 @@ def layout_fixtures(ft, pieces: list, blocked: list) -> tuple:
             steps = sorted(((i, j) for i in range(-reach, reach + 1) for j in range(-reach, reach + 1)), key=lambda q: (q[0] ** 2 + q[1] ** 2, q))
             for s in _uniq([_mid(x) for x in spread(reg.s0, reg.s1, ft.diff_gap)]):
                 near = [x for x in lights if x[1] > s - ft.diff_gap and x[0] < s + ft.diff_gap]
-                for t in _uniq([_mid(x) for x in spread(reg.t0, reg.t1, ft.diff_gap)]):
+                for t in _uniq([(_sym_mid if centered else _mid)(x) for x in spread(reg.t0, reg.t1, ft.diff_gap)]):
                     for i, j in steps:
                         c, d = s + i * CELL, t + j * CELL
                         r = (c - DIFF / 2, c + DIFF / 2, d - DIFF / 2, d + DIFF / 2)

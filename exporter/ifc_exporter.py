@@ -939,7 +939,8 @@ class IFCExporter:
             el = f.create_entity(
                 "IfcLightFixture" if light else "IfcAirTerminal", GlobalId=ifcopenshell.guid.compress(uuid.UUID(e.guid).hex), Name=e.name,
                 Description=f"{e.room} {e.type_name}", ObjectType=e.type_name, ObjectPlacement=self._placement(),
-                Representation=self._product_shape([self._tri_set([self._finish_faces(p)]) for p in (e.body, e.face)], "Tessellation"),
+                Representation=self._product_shape([self._tri_set([p.faces() if hasattr(p, "faces") else self._finish_faces(p)])
+                                                    for p in (e.body, e.face)], "Tessellation"),
                 PredefinedType="DIRECTIONSOURCE" if light else "DIFFUSER")
             by_level.setdefault((e.level, e.material), []).append(el)
         for (level, material), els in by_level.items():
